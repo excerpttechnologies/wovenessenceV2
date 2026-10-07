@@ -1,0 +1,416 @@
+// /* Master Stock Report - spec.
+
+//    Plain module (no 'use client') so the API route could import it too, the
+//    same arrangement every other report folder in this project uses.
+
+//    THE GRAIN: one row is ONE barcode currently IN_STOCK. A barcode row is one
+//    unit of stock in this ERP (lib/barcodeLabel.js:4), so nothing here
+//    aggregates several units into a line and no join can multiply one unit
+//    into several rows.
+
+//    COLUMN ORDER is the reference workbook's, exactly: Location Name, Group
+//    Name, Item Name, Supplier Code, Supplier Name, Date, Age, BARCODE NUMBER,
+//    Close Qty, Close Value, COST PRICE, HSN, GST %, RSP, Discount %, RSP Offer
+//    Price, WSP, E COM, UOM. The CSV / Excel / PDF exports are built from this
+//    same list by ReportView, so they cannot drift from the screen. */
+
+// export const REPORT = {
+//   /* ReportView calls /api/reports/<slug> */
+//   slug: 'master-stock-report',
+//   title: 'Master Stock Report',
+//   subtitle: 'Every barcode currently in stock, with its item, supplier, age, quantity, valuation and printed prices.',
+//   perPage: 25,
+//   countLabel: 'Total Barcodes',
+
+//   /* Every filter here has a matching clause in the route - none of them is
+//      decoration. Business, Location and Financial Year are not listed: they
+//      come from the top bar's scope, which ReportView sends on every request. */
+//   filters: [
+//     { k: 'search', label: 'Search', type: 'text', placeholder: 'Barcode, item, description or HSN' },
+//     { k: 'barcodeNo', label: 'Barcode Number', type: 'text', placeholder: 'e.g. 9A1135' },
+//     { k: 'itemCode', label: 'Item', type: 'text', placeholder: 'Item / style code' },
+//     { k: 'supplierId', label: 'Supplier', type: 'ref', ref: 'supplier', all: 'All Suppliers' },
+//     { k: 'hsn', label: 'HSN', type: 'text', placeholder: 'HSN code' },
+//     /* GST % is typed, not picked from the Tax master. That master
+//        (models/Tax.js, the ref: 'tax' option list) keys on its own _id and
+//        keeps free text in taxName: 15 rows today, in which "GST 5%",
+//        "GST 5 %" and a bare "GST" all mean 5, "GST 3%" and "GST 15%" appear
+//        twice each, and one row reads igst 212 / cgst 1221. barcodeLabel.gst
+//        stores the PERCENTAGE ITSELF rather than a reference to that master,
+//        so a tax _id could not filter it without inventing a mapping this
+//        database does not have. The route compares the NUMBER, so 5, "5" and
+//        "5.00" all match the one slab. */
+//     { k: 'gst', label: 'GST %', type: 'text', placeholder: 'GST %' },
+//     { k: 'uom', label: 'UOM', type: 'ref', ref: 'uom', all: 'All UOM' },
+//     { k: 'startDate', label: 'From Date', type: 'date' },
+//     { k: 'endDate', label: 'To Date', type: 'date' },
+//   ],
+
+//   sections: [{
+//     key: 'stock',
+//     title: 'Stock',
+//     totalsRow: true,
+//     columns: [
+//       { k: 'locationName', t: 'Location Name' },
+//       { k: 'groupName', t: 'Group Name' },
+//       { k: 'itemName', t: 'Item Name' },
+//       { k: 'supplierCode', t: 'Supplier Code' },
+//       { k: 'supplierName', t: 'Supplier Name' },
+//       { k: 'date', t: 'Date', f: 'date' },
+//       { k: 'age', t: 'Age' },
+//       { k: 'barcodeNumber', t: 'BARCODE NUMBER' },
+//       /* the only two columns that are additive: a quantity and a valuation.
+//          A per-unit price is not summed - totalling COST PRICE or RSP down a
+//          column would produce a number that means nothing. */
+//       { k: 'closeQty', t: 'Close Qty', f: 'amount', total: true },
+//       { k: 'closeValue', t: 'Close Value', f: 'amount', total: true },
+//       { k: 'costPrice', t: 'COST PRICE', f: 'amount' },
+//       { k: 'hsn', t: 'HSN' },
+//       { k: 'gst', t: 'GST %', f: 'amount' },
+//       { k: 'rsp', t: 'RSP', f: 'amount' },
+//       { k: 'discount', t: 'Discount %', f: 'amount' },
+//       { k: 'rspOfferPrice', t: 'RSP Offer Price', f: 'amount' },
+//       { k: 'wsp', t: 'WSP', f: 'amount' },
+//       { k: 'ecom', t: 'E COM', f: 'amount' },
+//       { k: 'uom', t: 'UOM' },
+//     ],
+//   }],
+// };
+
+
+
+
+
+//suhas 
+
+
+/* Master Stock Report - spec.
+
+   Plain module (no 'use client') so the API route could import it too, the
+   same arrangement every other report folder in this project uses.
+
+   THE GRAIN: one row is ONE barcode currently IN_STOCK. A barcode row is one
+   unit of stock in this ERP (lib/barcodeLabel.js:4), so nothing here
+   aggregates several units into a line and no join can multiply one unit
+   into several rows.
+
+   COLUMN ORDER is the reference workbook's, exactly: Location Name, Group
+   Name, Item Name, Supplier Code, Supplier Name, Date, Age, BARCODE NUMBER,
+   Close Qty, Close Value, COST PRICE, HSN, GST %, RSP, Discount %, RSP Offer
+   Price, WSP, E COM, UOM. The CSV / Excel / PDF exports are built from this
+   same list by ReportView, so they cannot drift from the screen. */
+
+export const REPORT = {
+  /* ReportView calls /api/reports/<slug> */
+  slug: 'master-stock-report',
+
+  /* The grouped filter card the client's mock draws: the date range top
+     right, then three bordered sections - Basic Filters, Supplier &
+     Inventory, Price Filters - each with its own colour, icon and fold
+     button. ReportView renders this from filterGroups below. */
+  filterLayout: 'groups',
+  headerDates: ['startDate', 'endDate'],
+  title: 'Master Stock Report',
+  subtitle: 'Every barcode currently in stock, with its item, supplier, age, quantity, valuation and printed prices.',
+  perPage: 25,
+  countLabel: 'Total Barcodes',
+
+  /* Every filter here has a matching clause in the route - none of them is
+     decoration. Business, Location and Financial Year are not listed: they
+     come from the top bar's scope, which ReportView sends on every request.
+
+     Text filters: name/code fields match case-insensitive "contains".
+     Numeric filters: "Min"/"Max" pairs are inclusive (>= / <=); the route
+//      must parse them as numbers and ignore blanks. */
+//   filters: [
+//     /* A chip per barcode - type one, press Enter, type the next. A picker
+//        is no use here: there is one barcode per PIECE of stock, so the list
+//        would run to thousands. The route matches a row answering ANY of
+//        them. */
+//     {
+//       k: 'barcodeNo',
+//       label: 'Barcode Number',
+//       type: 'tags',
+//       placeholder: 'Type barcode, press Enter',
+//       /* offers matching numbers as they are typed - see
+//          app/api/reports/barcode-suggest/route.js for why it is its own
+//          route rather than the Barcode Item list. */
+//       suggest: '/api/reports/barcode-suggest',
+//     },
+//     { k: 'groupName', label: 'Group Name', type: 'text', placeholder: 'Group name' },
+//     /* Picked from the Item master, several at a time. The route resolves
+//        each id back to the item's code AND name, because stock rows carry
+//        whichever of the two the import that created them wrote - the same
+//        reason the Group Name filter matches on both. */
+//     { k: 'itemId', label: 'Item Name', type: 'ref', ref: 'item', multi: true, all: 'Type to search' },
+//     { k: 'hsn', label: 'HSN', type: 'text', placeholder: 'HSN code' },
+//     /* GST % is typed, not picked from the Tax master. That master
+//        (models/Tax.js, the ref: 'tax' option list) keys on its own _id and
+//        keeps free text in taxName: 15 rows today, in which "GST 5%",
+//        "GST 5 %" and a bare "GST" all mean 5, "GST 3%" and "GST 15%" appear
+//        twice each, and one row reads igst 212 / cgst 1221. barcodeLabel.gst
+//        stores the PERCENTAGE ITSELF rather than a reference to that master,
+//        so a tax _id could not filter it without inventing a mapping this
+//        database does not have. The route compares the NUMBER, so 5, "5" and
+//        "5.00" all match the one slab. */
+//     { k: 'gst', label: 'GST %', type: 'text', placeholder: 'GST %' },
+
+//     /* CITY FIRST, THEN THE SUPPLIER - the flow the client asked for. The
+//        supplier dropdown stays disabled ("Enter city first") until a city is
+//        typed, and then offers only that city's vendors (billing or shipping
+//        city on the Supplier master, via /api/options&city=). The city alone
+//        already filters the stock; picking suppliers narrows it further, and
+//        several suppliers can be picked at once. */
+//     { k: 'city', label: 'City', type: 'city', placeholder: 'Type city', suggest: '/api/reports/supplier-cities' },
+//     {
+//       k: 'supplierId',
+//       label: 'Supplier Name',
+//       type: 'ref',
+//       ref: 'supplier',
+//       multi: true,
+//       dependsOn: 'city',
+//       dependsParam: 'city',
+//       waitPlaceholder: 'Enter city first',
+//       all: 'Type to search',
+//     },
+//     /* the agent on the Supplier master - the stock of every vendor that
+//        agent covers; several at a time */
+//     { k: 'agentId', label: 'Agent', type: 'ref', ref: 'agent', multi: true, all: 'Type to search' },
+//     { k: 'uom', label: 'UOM', type: 'ref', ref: 'uom', all: 'All UOM' },
+
+//     { k: 'ageMin', label: 'Age Min (days)', type: 'text', placeholder: 'Min age' },
+//     { k: 'ageMax', label: 'Age Max (days)', type: 'text', placeholder: 'Max age' },
+
+//     { k: 'costPriceMin', label: 'Cost Price Min', type: 'text', placeholder: 'Min cost' },
+//     { k: 'costPriceMax', label: 'Cost Price Max', type: 'text', placeholder: 'Max cost' },
+//     { k: 'rspMin', label: 'RSP Min', type: 'text', placeholder: 'Min RSP' },
+//     { k: 'rspMax', label: 'RSP Max', type: 'text', placeholder: 'Max RSP' },
+//     { k: 'discount', label: 'Discount %', type: 'text', placeholder: 'Discount %' },
+//     { k: 'rspOfferPriceMin', label: 'RSP Offer Price Min', type: 'text', placeholder: 'Min offer price' },
+//     { k: 'rspOfferPriceMax', label: 'RSP Offer Price Max', type: 'text', placeholder: 'Max offer price' },
+//     { k: 'wspMin', label: 'WSP Min', type: 'text', placeholder: 'Min WSP' },
+//     { k: 'wspMax', label: 'WSP Max', type: 'text', placeholder: 'Max WSP' },
+//     { k: 'ecomMin', label: 'E COM Min', type: 'text', placeholder: 'Min E COM' },
+//     { k: 'ecomMax', label: 'E COM Max', type: 'text', placeholder: 'Max E COM' },
+
+//     { k: 'startDate', label: 'From Date', type: 'date' },
+//     { k: 'endDate', label: 'To Date', type: 'date' },
+//   ],
+
+//   /* HOW THE FILTERS SIT ON SCREEN. A string names a filter above; a
+//      { label, range } entry draws one label over a Start / End pair of the
+//      two Min/Max keys it names. The colours are the mock's: blue, green,
+//      orange. */
+//   filterGroups: [
+//     {
+//       title: 'Basic Filters',
+//       icon: 'barcode',
+//       color: '#2563a9',
+//       cols: 5,
+//       fields: ['barcodeNo', 'groupName', 'itemId', 'hsn', 'gst'],
+//     },
+//     {
+//       title: 'Supplier & Inventory',
+//       icon: 'truck',
+//       color: '#16a34a',
+//       cols: 5,
+//       fields: ['city', 'supplierId', 'agentId', 'uom'],
+//     },
+//     {
+//       title: 'Price Filters',
+//       icon: 'calculator',
+//       color: '#f59e0b',
+//       cols: 3,
+//       fields: [
+//         { label: 'RSP', range: ['rspMin', 'rspMax'] },
+//         { label: 'RSP Offer Price', range: ['rspOfferPriceMin', 'rspOfferPriceMax'] },
+//         { label: 'WSP', range: ['wspMin', 'wspMax'] },
+//         { label: 'E Com', range: ['ecomMin', 'ecomMax'] },
+//         { label: 'Age (Days)', range: ['ageMin', 'ageMax'] },
+//         { label: 'Cost Price', range: ['costPriceMin', 'costPriceMax'] },
+//         'discount',
+//       ],
+//     },
+//   ],
+
+
+
+
+
+
+  filters: [
+    /* A chip per barcode - type one, press Enter, type the next. A picker
+       is no use here: there is one barcode per PIECE of stock, so the list
+       would run to thousands. The route matches a row answering ANY of
+       them. */
+    {
+      k: 'barcodeNo',
+      label: 'Barcode Number',
+      type: 'tags',
+      placeholder: 'Type barcode, press Enter',
+      /* offers matching numbers as they are typed - see
+         app/api/reports/barcode-suggest/route.js for why it is its own
+         route rather than the Barcode Item list. */
+      suggest: '/api/reports/barcode-suggest',
+    },
+    { k: 'groupName', label: 'Group Name', type: 'ref', ref: 'product/group', all: 'Select Group', showAllOptions: true },
+    /* Picked from the Item master, several at a time. The route resolves
+       each id back to the item's code AND name, because stock rows carry
+       whichever of the two the import that created them wrote - the same
+       reason the Group Name filter matches on both. */
+    // { k: 'itemId', label: 'Item Name', type: 'ref', ref: 'item', multi: true, all: 'Type to search' },
+     {
+      k: 'itemId',
+      label: 'Item Name',
+      type: 'ref',
+      ref: 'item',
+      multi: true,
+      dependsOn: 'groupName',
+      dependsParam: 'groupId',
+      waitPlaceholder: 'Select group first',
+      all: 'Type to search',
+    },
+    { k: 'hsn', label: 'HSN', type: 'text', placeholder: 'HSN code' },
+    /* GST % is typed, not picked from the Tax master. That master
+       (models/Tax.js, the ref: 'tax' option list) keys on its own _id and
+       keeps free text in taxName: 15 rows today, in which "GST 5%",
+       "GST 5 %" and a bare "GST" all mean 5, "GST 3%" and "GST 15%" appear
+       twice each, and one row reads igst 212 / cgst 1221. barcodeLabel.gst
+       stores the PERCENTAGE ITSELF rather than a reference to that master,
+       so a tax _id could not filter it without inventing a mapping this
+       database does not have. The route compares the NUMBER, so 5, "5" and
+       "5.00" all match the one slab. */
+    { k: 'gst', label: 'GST %', type: 'text', placeholder: 'GST %' },
+
+    /* CITY FIRST, THEN THE SUPPLIER - the flow the client asked for. The
+       supplier dropdown stays disabled ("Enter city first") until a city is
+       typed, and then offers only that city's vendors (billing or shipping
+       city on the Supplier master, via /api/options&city=). The city alone
+       already filters the stock; picking suppliers narrows it further, and
+       several suppliers can be picked at once. */
+    { k: 'city', label: 'City', type: 'city', placeholder: 'Type city', suggest: '/api/cities' },
+    {
+      k: 'supplierId',
+      label: 'Supplier Name',
+      type: 'ref',
+      ref: 'supplier',
+      multi: true,
+      dependsOn: 'city',
+      dependsParam: 'city',
+      waitPlaceholder: 'Enter city first',
+      all: 'Type to search',
+    },
+
+    /* the agent on the Supplier master - the stock of every vendor that
+       agent covers; several at a time */
+    // { k: 'agentId', label: 'Agent', type: 'ref', ref: 'agent', multi: true, all: 'Type to search' },
+    {
+      k: 'agentId',
+      label: 'Agent',
+      type: 'ref',
+      ref: 'agent',
+      multi: true,
+      dependsOn: 'city',
+      dependsParam: 'city',
+      waitPlaceholder: 'Enter city first',
+      all: 'Type to search',
+    },
+
+    { k: 'uom', label: 'UOM', type: 'ref', ref: 'uom', all: 'All UOM' },
+
+    { k: 'ageMin', label: 'Age Min (days)', type: 'text', placeholder: 'Min age' },
+    { k: 'ageMax', label: 'Age Max (days)', type: 'text', placeholder: 'Max age' },
+
+    { k: 'costPriceMin', label: 'Cost Price Min', type: 'text', placeholder: 'Min cost' },
+    { k: 'costPriceMax', label: 'Cost Price Max', type: 'text', placeholder: 'Max cost' },
+    { k: 'rspMin', label: 'RSP Min', type: 'text', placeholder: 'Min RSP' },
+    { k: 'rspMax', label: 'RSP Max', type: 'text', placeholder: 'Max RSP' },
+    { k: 'discount', label: 'Discount %', type: 'text', placeholder: 'Discount %' },
+    { k: 'rspOfferPriceMin', label: 'RSP Offer Price Min', type: 'text', placeholder: 'Min offer price' },
+    { k: 'rspOfferPriceMax', label: 'RSP Offer Price Max', type: 'text', placeholder: 'Max offer price' },
+    { k: 'wspMin', label: 'WSP Min', type: 'text', placeholder: 'Min WSP' },
+    { k: 'wspMax', label: 'WSP Max', type: 'text', placeholder: 'Max WSP' },
+    { k: 'ecomMin', label: 'E COM Min', type: 'text', placeholder: 'Min E COM' },
+    { k: 'ecomMax', label: 'E COM Max', type: 'text', placeholder: 'Max E COM' },
+
+    { k: 'startDate', label: 'From Date', type: 'date' },
+    { k: 'endDate', label: 'To Date', type: 'date' },
+  ],
+
+  /* HOW THE FILTERS SIT ON SCREEN. A string names a filter above; a
+     { label, range } entry draws one label over a Start / End pair of the
+     two Min/Max keys it names. The colours are the mock's: blue, green,
+     orange. */
+  filterGroups: [
+    {
+      title: 'Basic Filters',
+      icon: 'barcode',
+      color: '#2563a9',
+      cols: 5,
+      fields: ['barcodeNo', 'groupName', 'itemId', 'hsn', 'gst'],
+    },
+    {
+      title: 'Supplier & Inventory',
+      icon: 'truck',
+      color: '#16a34a',
+      cols: 5,
+      fields: ['city', 'supplierId', 'agentId', 'uom'],
+    },
+    {
+      title: 'Price Filters',
+      icon: 'calculator',
+      color: '#f59e0b',
+      cols: 3,
+      fields: [
+        { label: 'RSP', range: ['rspMin', 'rspMax'] },
+        { label: 'RSP Offer Price', range: ['rspOfferPriceMin', 'rspOfferPriceMax'] },
+        { label: 'WSP', range: ['wspMin', 'wspMax'] },
+        { label: 'E Com', range: ['ecomMin', 'ecomMax'] },
+        { label: 'Age (Days)', range: ['ageMin', 'ageMax'] },
+        { label: 'Cost Price', range: ['costPriceMin', 'costPriceMax'] },
+        'discount',
+      ],
+    },
+  ],
+
+  sections: [{
+    key: 'stock',
+    title: 'Stock',
+    totalsRow: true,
+    columns: [
+      // { k: 'locationName', t: 'Location Name' },
+      { k: 'groupName', t: 'Group Name' },
+      { k: 'itemName', t: 'Item Name', modal: 'item' },
+      { k: 'supplierCode', t: 'Supplier Code', linkStyle: true },
+      { k: 'supplierName', t: 'Supplier Name', modal: 'supplier' },
+      { k: 'date', t: 'Date', f: 'date' },
+      { k: 'age', t: 'Age' },
+      /* Opens that one barcode's own report - what it is, what it cost,
+         where it came from and every movement it has been part of. */
+      {
+        k: 'barcodeNumber',
+        t: 'BARCODE NUMBER',
+        link: (row) => '/admin/reports/barcode-report?barcodeNo='
+          + encodeURIComponent(row.barcodeNumber || ''),
+      },
+      /* the only two columns that are additive: a quantity and a valuation.
+         A per-unit price is not summed - totalling COST PRICE or RSP down a
+         column would produce a number that means nothing. */
+      { k: 'closeQty', t: 'Close Qty', f: 'amount', total: true },
+      { k: 'closeValue', t: 'Close Value', f: 'amount', total: true },
+      { k: 'costPrice', t: 'COST PRICE', f: 'amount' },
+      { k: 'hsn', t: 'HSN' },
+      { k: 'gst', t: 'GST %', f: 'amount' },
+      { k: 'rsp', t: 'RSP', f: 'amount' },
+      { k: 'discount', t: 'Discount %', f: 'amount' },
+      { k: 'rspOfferPrice', t: 'RSP Offer Price', f: 'amount' },
+      { k: 'wsp', t: 'WSP', f: 'amount' },
+      { k: 'ecom', t: 'E COM', f: 'amount' },
+      { k: 'uom', t: 'UOM' },
+      /* not part of the reference workbook - added after E COM/UOM so the
+         printed barcode thumbnail (barcodeLabel.imageUrl) shows alongside
+         the rest of the label's own data */
+      { k: 'imageUrl', t: 'Image', f: 'image' },
+    ],
+  }],
+};

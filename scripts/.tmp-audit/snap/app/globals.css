@@ -1,0 +1,374 @@
+/* Numeric values are entered directly; native spinner buttons add no value here. */
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button,
+.no-spinner::-webkit-inner-spin-button,
+.no-spinner::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+}
+
+input[type='number'],
+.no-spinner {
+  -webkit-appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+/* Prevent mouse wheel from incrementing/decrementing number inputs */
+input[type='number'] {
+  /* When the user scrolls the mouse wheel over a number input, the browser
+     should not change the value. The blur approach used in Field.jsx works,
+     but this provides a CSS-only fallback for inputs not using that component. */
+  -moz-user-select: text;
+  -ms-user-select: text;
+  user-select: text;
+}
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body,
+input[type='text'],
+input[type='email'],
+input[type='search'],
+input[type='tel'],
+textarea,
+select {
+  text-transform: uppercase;
+}
+
+/* ==========================================================================
+   Reusable primitives for the Orbit ERP look. Every page composes these so
+   the markup stays short and the styling stays consistent.
+   ========================================================================== */
+@layer components {
+
+  /* ------------------------------------------------------------- shell --- */
+  .sb-item {
+    @apply flex w-full items-center gap-3.5 border-0 bg-transparent px-5 py-3
+           text-left text-[15px] text-sidebar-text cursor-pointer;
+  }
+  .sb-item:hover { @apply bg-sidebar-hover text-white; }
+  .sb-item-active { @apply bg-sidebar-active text-white; }
+  .sb-sub-link { @apply block py-2 pl-[60px] pr-5 text-sm text-sidebar-muted hover:text-white; }
+  .sb-sub-link-active { @apply font-bold text-white; }
+
+  .tb-select-wrapper {
+    @apply relative inline-block w-[200px] min-w-0 max-w-[200px];
+  }
+
+  .tb-select {
+    @apply h-9 w-full min-w-0 rounded-md border border-linestrong bg-white
+           px-2.5 pr-8 text-sm text-ink outline-none cursor-pointer
+           appearance-none;
+    background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%23374151' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    background-size: 10px 6px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  
+  .tb-select option {
+    @apply text-sm;
+  }
+
+  /* -------------------------------------------------------------- card --- */
+  .card { @apply mb-4 rounded-lg border border-line bg-white; }
+  .card-head { @apply flex items-center gap-2 border-b border-line px-[18px] py-3.5; }
+  .card-title { @apply flex items-center gap-2 text-[15px] font-bold; }
+  .card-body { @apply px-[18px] py-4; }
+
+  /* ------------------------------------------------------------ button --- */
+  .btn {
+    @apply inline-flex h-[34px] items-center gap-[7px] whitespace-nowrap rounded-md
+           border border-linestrong bg-white px-3 text-[13px] text-brand-link
+           hover:bg-[#f5f8fd] disabled:opacity-60;
+  }
+  .btn-primary {
+    @apply border-brand bg-brand font-bold text-white hover:bg-brand-hover hover:border-brand-hover;
+  }
+  .btn-ghost { @apply text-inkmuted; }
+  .btn-dark { @apply border-[#6b7280] bg-[#6b7280] text-white hover:bg-[#5b6472]; }
+  .btn-submit { @apply mx-auto mt-2 flex h-[38px] w-full max-w-[280px] justify-center; }
+
+  .grc-header-fields-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) 200px minmax(0, 0.75fr) 140px;
+    gap: 16px;
+  }
+  .grc-header-fields-grid .grc-bottom-freight { grid-row: 3; grid-column: 1; }
+  .grc-header-fields-grid .grc-bottom-stock-point { grid-row: 3; grid-column: 2; }
+  .grc-header-fields-grid .grc-bottom-invoice-copy { grid-row: 3; grid-column: 3; }
+  .grc-header-fields-grid .grc-bottom-waybill { grid-row: 3; grid-column: 4; }
+  @media (max-width: 900px) {
+    .grc-header-fields-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grc-header-fields-grid .grc-bottom-freight,
+    .grc-header-fields-grid .grc-bottom-stock-point,
+    .grc-header-fields-grid .grc-bottom-invoice-copy,
+    .grc-header-fields-grid .grc-bottom-waybill {
+      grid-row: auto;
+      grid-column: auto;
+    }
+  }
+
+  .search-input {
+    @apply h-[34px] w-[220px] rounded-md border border-linestrong pl-[30px] pr-2.5
+           text-[13px] outline-none focus:border-[#8fb0e8];
+  }
+
+  /* ------------------------------------------------------------- table --- */
+  .dt { @apply w-full border-collapse text-[12.5px] leading-[1.1]; }
+  .dt th {
+    @apply whitespace-nowrap border-y border-r border-line bg-thead px-1.5 py-1
+           text-left font-bold text-ink last:border-r-0;
+  }
+  .dt td { @apply border-b border-line px-1.5 py-1 text-cell align-middle; }
+  .dt tbody tr:nth-child(odd) { @apply bg-rowalt; }
+  .dt tbody tr:hover { @apply bg-[#f2f6fc]; }
+  .dt-empty { @apply py-1.5 text-center text-inkmuted; }
+
+  .pos-header-row { @apply flex min-h-[44px] flex-wrap items-center gap-2 border-b border-line px-3 py-1.5; }
+  .pos-control-row { @apply grid grid-cols-1 items-center gap-2 border-b border-line px-3 py-1.5 md:grid-cols-5; }
+  .pos-items-table { @apply min-w-[1360px] table-fixed text-[12.5px]; }
+  .pos-items-table th { @apply px-2 py-2 text-center align-middle; }
+  .pos-items-table td { @apply px-2 py-2 text-center align-middle; }
+  .pos-items-table th:nth-child(1), .pos-items-table td:nth-child(1) { width: 42px; }
+  .pos-items-table th:nth-child(2), .pos-items-table td:nth-child(2) { width: 105px; }
+  .pos-items-table th:nth-child(3), .pos-items-table td:nth-child(3) { width: 105px; }
+  .pos-items-table th:nth-child(4), .pos-items-table td:nth-child(4) { width: 260px; text-align: left; }
+  .pos-items-table th:nth-child(5), .pos-items-table td:nth-child(5) { width: 75px; }
+  .pos-items-table th:nth-child(6), .pos-items-table td:nth-child(6) { width: 65px; }
+  .pos-items-table th:nth-child(7), .pos-items-table td:nth-child(7) { width: 90px; }
+  .pos-items-table th:nth-child(8), .pos-items-table td:nth-child(8) { width: 105px; }
+  .pos-items-table th:nth-child(9), .pos-items-table td:nth-child(9) { width: 75px; }
+  .pos-items-table th:nth-child(10), .pos-items-table td:nth-child(10), .pos-items-table th:nth-child(11), .pos-items-table td:nth-child(11) { width: 100px; }
+  .pos-items-table th:nth-child(12), .pos-items-table td:nth-child(12) { width: 145px; }
+  .pos-items-table th:nth-child(13), .pos-items-table td:nth-child(13) { width: 75px; }
+  .pos-items-table th:nth-child(14), .pos-items-table td:nth-child(14) { width: 42px; }
+  .pos-till > div:first-child { @apply border-b border-line; }
+  .pos-till > div:nth-child(2), .pos-till > div:nth-child(3) { @apply px-3; }
+  .pos-till > div:nth-child(2) { @apply py-1.5; }
+  .pos-till > div:nth-child(3) { @apply mt-1 py-1.5; }
+  .pos-till > div:nth-last-child(4) { @apply border-t border-line; }
+  .pos-till table.dt { min-width: 1360px; table-layout: fixed; font-size: 12.5px; }
+  .pos-till table.dt th { @apply px-2 py-2 text-center align-middle; }
+  .pos-till table.dt td { @apply px-2 py-2 text-center align-middle; }
+
+  .pill { @apply inline-block rounded px-2.5 py-[3px] text-xs; }
+  .pill-green { @apply bg-okgreenbg text-okgreen; }
+  .pill-grey { @apply bg-pillgrey text-[#5b6880]; }
+  .pill-blue { @apply bg-[#e8f1fd] text-brand-link; }
+  .pill-red { @apply bg-[#fdeaea] text-danger; }
+
+  .act-btn {
+    @apply inline-flex h-6 w-[26px] items-center justify-center rounded border-0
+           text-[11px] text-white cursor-pointer;
+  }
+
+  /* -------------------------------------------------------------- form --- */
+  .form-grid { @apply grid grid-cols-1 gap-x-[22px] gap-y-3.5 md:grid-cols-2 xl:grid-cols-3; }
+  .form-grid-4 { @apply grid grid-cols-1 gap-x-[22px] gap-y-3.5 md:grid-cols-2 xl:grid-cols-4; }
+  .form-grid-6 { @apply grid grid-cols-1 gap-x-[22px] gap-y-3.5 md:grid-cols-2 xl:grid-cols-6; }
+  .f-label { @apply mb-[5px] block text-[13px] text-ink; }
+  .f-req { @apply ml-0.5 text-danger; }
+  .f-hint { @apply ml-1 text-[11.5px] text-inkmuted; }
+  .f-input {
+    @apply h-9 w-full rounded-md border border-linestrong bg-white px-2.5 text-[13.5px]
+           text-ink outline-none focus:border-[#8fb0e8] focus:ring-[3px]
+           focus:ring-brand-link/10 read-only:bg-[#f2f4f8];
+  }
+  .f-textarea { @apply min-h-[76px] resize-y py-2; }
+  .f-radio-row { @apply flex h-9 items-center gap-[18px]; }
+  .f-radio { @apply inline-flex items-center gap-1.5 text-[13.5px]; }
+  .f-err { @apply mt-1 text-xs text-danger; }
+  .form-section + .form-section { @apply mt-[18px] border-t border-line pt-4; }
+  .form-section-title { @apply mb-3 mt-1 text-[15px] font-bold; }
+
+  .info-box {
+    @apply mb-4 rounded-md border border-[#cfe6f6] bg-[#eaf4fb] px-4 py-3
+           text-[13px] text-[#2b4a63];
+  }
+  .note-box { @apply mb-3.5 text-[12.5px] leading-[1.8] text-[#5c6a82]; }
+  .kbd {
+    @apply rounded bg-[#2f3a4f] px-[7px] py-0.5 text-[11.5px] text-white;
+  }
+  .kbd-hint { @apply my-2 flex items-center gap-1.5 text-[13px] text-danger; }
+
+  /* ------------------------------------------------------- multiselect --- */
+  .ms-control {
+    @apply flex min-h-9 flex-wrap items-center gap-1.5 rounded-md border
+           border-linestrong bg-white p-1 px-1.5 cursor-text;
+  }
+  .ms-chip {
+    @apply inline-flex items-center gap-1.5 rounded bg-pillgrey px-[7px] py-[3px]
+           text-[12.5px] text-[#3d4a61];
+  }
+  .ms-input { @apply h-[26px] min-w-[60px] flex-1 border-0 text-[13px] outline-none; }
+  .ms-menu {
+    @apply absolute left-0 right-0 top-[calc(100%+3px)] z-[45] max-h-60 overflow-auto
+           rounded-md border border-linestrong bg-white shadow-pop;
+  }
+  .ms-opt { @apply cursor-pointer px-[11px] py-2 text-[13px] hover:bg-[#eef4fd]; }
+
+  /* ----------------------------------------------------------- mapping --- */
+  .map-tbl { @apply w-full border-collapse; }
+  .map-tbl th { @apply border-y border-line bg-thead px-3 py-2.5 text-center font-bold; }
+  .map-tbl td { @apply border-b border-line px-3 py-2; }
+  .map-key { @apply w-[38%] text-brand-link; }
+
+  .vs-group { @apply mb-3.5 rounded-md border border-line px-4 py-3.5; }
+
+  .flash { @apply mb-3.5 rounded-md px-3.5 py-2.5 text-[13px]; }
+  .flash-ok { @apply bg-okgreenbg text-okgreen; }
+  .flash-err { @apply bg-[#fdecea] text-danger; }
+}
+
+/* sidebar scrollbar, matching the original's inner scroll track */
+.sb-nav::-webkit-scrollbar { width: 8px; }
+.sb-nav::-webkit-scrollbar-thumb { background: #55617d; border-radius: 4px; }
+.sb-nav::-webkit-scrollbar-track { background: #16203a; }
+
+.spin {
+  display: inline-block; width: 14px; height: 14px;
+  border: 2px solid #c9d4e8; border-top-color: #2b57b0;
+  border-radius: 50%; animation: sp .7s linear infinite;
+}
+@keyframes sp { to { transform: rotate(360deg); } }
+
+/* Tabbed form header (Suppliers / Agents / Customers).
+   Two columns on mobile, one per tab from --tab-count on desktop, so removing
+   a tab does not leave an empty cell. Tailwind cannot generate a class name
+   built at runtime, hence the custom property. */
+.tabstrip {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+@media (min-width: 768px) {
+  .tabstrip {
+    grid-template-columns: repeat(var(--tab-count, 4), minmax(0, 1fr));
+  }
+}
+
+/* Printable documents (GRC Print, barcode preview).
+   At print time only .print-doc survives: the sidebar, top bar and the
+   Print / Back buttons are dropped so the paper output is just the document. */
+@media print {
+  body * { visibility: hidden; }
+  .print-doc, .print-doc * { visibility: visible; }
+  .print-doc { position: absolute; inset: 0; margin: 0; width: 100%; border: 0; }
+  .no-print { display: none !important; }
+}
+
+/* ==========================================================================
+   BARCODE LABEL SHEET - its own print surface, deliberately not .print-doc.
+
+   The rule above hides the application with `visibility`, which is right for
+   a one-page invoice: the boxes stay in flow, the document sits on top of
+   them, one sheet comes out. It is wrong for a label run, and that is what
+   produced the blank pages this block exists to fix.
+
+     - `visibility: hidden` paints nothing but KEEPS every box in the flow, so
+       the admin shell (280mm-wide sidebar offset, top bar, the always-open
+       Add Item card, the item grid) still paginated. The printer was asked
+       for three sheets of a document whose every glyph had been made
+       invisible, so it produced three blank sheets. Removing the shell from
+       the BOX TREE with `display: none` is what actually stops it.
+
+     - `.print-doc { position: absolute; inset: 0 }` over-constrains height,
+       so the box is stretched to one page and stops fragmenting. A sheet of
+       labels has to be free to break across as many pages as it needs.
+
+   Everything below is gated on a class that exists only while a label run is
+   in flight, so the rules above are what still govern every other print
+   screen in the application - the GRC print view, the tax invoice, the
+   purchase invoice and the Inventory label sheet are untouched. The block
+   above is APPENDED TO, never edited, for that reason.
+   ========================================================================== */
+/* On screen the sheet remains layoutable but invisible. A `display: none`
+   subtree has no layout, and parking it far offscreen can make Chrome's print
+   compositor discard the same subtree when print media is activated. */
+@media screen {
+  #barcode-print-root {
+    position: fixed;
+    left: 0;
+    top: 0;
+    visibility: hidden;
+    pointer-events: none;
+    background: #fff;
+  }
+}
+
+@media print {
+  /* Everything that is not the label sheet leaves the box tree, so it cannot
+     reserve a single line of paper. A plain class rather than :has() - if the
+     selector is not understood the whole rule is dropped, and the failure
+     mode of dropping THIS one is the blank sheet all over again. */
+  body.printing-labels > *:not(#barcode-print-root) { display: none !important; }
+
+  #barcode-print-root {
+    display: block !important;
+    visibility: visible !important;
+    position: static !important;
+    left: auto !important;
+    top: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: auto !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    opacity: 1 !important;
+    background: #fff !important;
+  }
+  #barcode-print-root * { visibility: visible !important; }
+
+  /* BarcodeLabelSheet carries .print-doc for the Inventory screen, which
+     prints it the old way. Inside this root the sheet must stay in normal
+     flow: the .print-doc rule above pins it to inset:0, which over-constrains
+     its height, stretches it to a single page and stops it fragmenting - so
+     everything past the first page would be dropped without a word. */
+  #barcode-print-root .print-doc {
+    position: static !important;
+    inset: auto !important;
+    width: auto !important;
+  }
+
+  /* Never leave the label sheet standing on the shell's page tint. */
+  body.printing-labels { background: #fff !important; }
+
+  /* A sticker is a physical object - it may not be split down the middle by
+     a page boundary. Not scoped to the print root: the Inventory label sheet
+     is the same component on paper and wants the same guarantee. */
+  .barcode-label {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* CODE128 bars are SVG <rect fill="#000">, never a CSS background, so they
+     survive Chrome's default "Background graphics: off". This keeps them
+     solid black rather than dithered grey, which is what a scanner needs. */
+  #barcode-print-root svg,
+  #barcode-print-root svg * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}
+
+.prn-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+.prn-tbl th,
+.prn-tbl td { border: 1px solid #000; padding: 4px 6px; }
+.prn-tbl thead th { font-weight: 700; text-align: center; }
+.prn-tbl tfoot td { border-top: 2px solid #000; }
+
+/* Purchase Invoice totals block */
+.tot-tbl { border-collapse: collapse; min-width: 460px; font-size: 13px; }
+.tot-tbl td { border: 1px solid #dbe1ea; padding: 6px 10px; }
+.tot-tbl td:first-child { text-align: right; color: #4a5568; }
+
+.sb-sub-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
