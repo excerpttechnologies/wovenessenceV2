@@ -96,6 +96,7 @@
     "lucide-react": "^1.33.0",
     "mongoose": "8.9.5",
     "motion": "^13.1.0",
+    "motion-dom": "^14.0.0",
     "next": "15.1.6",
     "react": "19.0.0",
     "react-dom": "19.0.0",
