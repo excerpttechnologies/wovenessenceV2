@@ -385,28 +385,13 @@ export const PATCH = handler(async (req) => {
   const body = await req.json();
   const unitId = str(body.unitId);
   if (!isValidObjectId(unitId)) return json({ error: 'A valid barcode is required.' }, 422);
-  if (body.quantity === undefined || body.quantity === null || String(body.quantity).trim() === '') {
-    return json({ error: 'Quantity is required.' }, 422);
-  }
-  if (body.rsp === undefined || body.rsp === null || String(body.rsp).trim() === '') {
-    return json({ error: 'RSP is required.' }, 422);
-  }
-
-  const quantity = Number(body.quantity);
-  const rsp = Number(body.rsp);
-  if (!Number.isFinite(quantity) || quantity < 0) {
-    return json({ error: 'Quantity must be a valid non-negative number.' }, 422);
-  }
-  if (!Number.isFinite(rsp) || rsp < 0) {
-    return json({ error: 'RSP must be a valid non-negative number.' }, 422);
-  }
 
   await dbConnect();
   const session = await requireSession();
   if (!session) return json({ error: 'Unauthorized' }, 401);
 
   const initial = await BarcodeLabel.findById(unitId)
-    .select('status businessId currentLocationId locationId')
+    .select('status businessId currentLocationId locationId barcodeNo')
     .lean();
   if (!initial) return json({ error: 'That barcode no longer exists.' }, 404);
   if (body.business && String(initial.businessId || '') !== String(body.business)) {
@@ -420,6 +405,114 @@ export const PATCH = handler(async (req) => {
     return json({ error: 'Only barcodes currently in stock can be edited.' }, 409);
   }
 
+  // Validate and prepare update fields
+  const updates = {};
+  const errors = [];
+
+  // Quantity - required, must be non-negative number
+  if (body.quantity !== undefined && body.quantity !== null && String(body.quantity).trim() !== '') {
+    const quantity = Number(body.quantity);
+    if (!Number.isFinite(quantity) || quantity < 0) {
+      errors.push('Quantity must be a valid non-negative number.');
+    } else {
+      updates.qty = String(quantity);
+      updates.qtyNum = quantity;
+    }
+  }
+
+  // Text fields
+  if (body.itemName !== undefined) updates.itemName = str(body.itemName);
+  if (body.itemCode !== undefined) updates.itemCode = str(body.itemCode);
+  if (body.description !== undefined) {
+    updates.printDescription = str(body.description);
+  }
+  if (body.pma !== undefined) updates.p_m_f = str(body.pma);
+  if (body.designNo !== undefined) updates.designNo = str(body.designNo);
+  if (body.hsn !== undefined) updates.hsn = str(body.hsn);
+  if (body.uom !== undefined) updates.uom = str(body.uom);
+  if (body.status !== undefined) updates.status = str(body.status);
+
+  // Numeric price fields - must be non-negative if provided
+  const priceFields = [
+    { key: 'rsp', field: 'retailPrice', label: 'RSP' },
+    { key: 'purchaseRate', field: 'purRate', label: 'Purchase Rate' },
+    { key: 'discount', field: 'disc', label: 'Discount' },
+    { key: 'finalRate', field: 'finalNet', label: 'Final Rate' },
+    { key: 'offerPrice', field: 'offerPrice', label: 'Offer Price' },
+    { key: 'wsp', field: 'wspPrice', label: 'WSP' },
+    { key: 'dp', field: 'dpPrice', label: 'DP' },
+    { key: 'gst', field: 'gst', label: 'GST %' },
+  ];
+
+  for (const { key, field, label } of priceFields) {
+    if (body[key] !== undefined && body[key] !== null && String(body[key]).trim() !== '') {
+      const value = Number(body[key]);
+      if (!Number.isFinite(value) || value < 0) {
+        errors.push(`${label} must be a valid non-negative number.`);
+      } else {
+        updates[field] = key === 'gst' ? value : String(value);
+      }
+    }
+  }
+
+  // Barcode number - check uniqueness if changed
+  if (body.barcodeNo !== undefined && str(body.barcodeNo) !== str(initial.barcodeNo)) {
+    const newBarcodeNo = str(body.barcodeNo);
+    if (!newBarcodeNo) {
+      errors.push('Barcode number cannot be empty.');
+    } else {
+      // Check if another barcode already uses this number
+      const existing = await BarcodeLabel.findOne({
+        barcodeNo: newBarcodeNo,
+        _id: { $ne: unitId },
+        ...(initial.businessId && isValidObjectId(String(initial.businessId)) ? { businessId: initial.businessId } : {}),
+      }).select('_id').lean();
+      
+      if (existing) {
+        errors.push(`Barcode number ${newBarcodeNo} is already in use.`);
+      } else {
+        updates.barcodeNo = newBarcodeNo;
+      }
+    }
+  }
+
+  // Validate ObjectId references if provided
+  if (body.subGroupId !== undefined && body.subGroupId !== null && String(body.subGroupId).trim() !== '') {
+    if (!isValidObjectId(String(body.subGroupId))) {
+      errors.push('Invalid Sub Group selection.');
+    }
+  }
+
+  if (body.hsnId !== undefined && body.hsnId !== null && String(body.hsnId).trim() !== '') {
+    if (!isValidObjectId(String(body.hsnId))) {
+      errors.push('Invalid HSN selection.');
+    }
+  }
+
+  if (body.uomId !== undefined && body.uomId !== null && String(body.uomId).trim() !== '') {
+    if (!isValidObjectId(String(body.uomId))) {
+      errors.push('Invalid UOM selection.');
+    } else {
+      updates.uomId = new Types.ObjectId(String(body.uomId));
+    }
+  }
+
+  if (body.itemId !== undefined && body.itemId !== null && String(body.itemId).trim() !== '') {
+    if (!isValidObjectId(String(body.itemId))) {
+      errors.push('Invalid Item selection.');
+    } else {
+      updates.itemId = new Types.ObjectId(String(body.itemId));
+    }
+  }
+
+  if (errors.length > 0) {
+    return json({ error: errors.join(' ') }, 422);
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return json({ error: 'No fields to update.' }, 422);
+  }
+
   const result = await withTransaction(async (dbSession) => {
     let query = BarcodeLabel.findById(unitId)
       .select('status businessId currentBusinessId currentLocationId locationId finYear itemId itemCode itemName uom batchType barcodeNo barcodeGenerated qty qtyNum retailPrice');
@@ -430,60 +523,61 @@ export const PATCH = handler(async (req) => {
       return { error: json({ error: 'Only barcodes currently in stock can be edited.' }, 409) };
     }
 
-    const oldQuantity = Number(unit.qtyNum ?? unit.qty ?? 0);
-    const delta = quantity - oldQuantity;
-    const currentRsp = String(unit.retailPrice ?? '');
-    const guard = {
-      _id: unit._id,
-      status: BARCODE_STATUS.IN_STOCK,
-      qtyNum: unit.qtyNum ?? null,
-      retailPrice: currentRsp,
-    };
     const options = dbSession ? { session: dbSession } : {};
-    const update = await BarcodeLabel.updateOne(guard, {
-      $set: { qty: String(quantity), qtyNum: quantity, retailPrice: String(rsp) },
-    }, options);
-    if (!update.matchedCount) {
+    const updateResult = await BarcodeLabel.updateOne(
+      { _id: unit._id, status: BARCODE_STATUS.IN_STOCK },
+      { $set: updates },
+      options
+    );
+    
+    if (!updateResult.matchedCount) {
       return { error: json({ error: 'This barcode changed while you were editing. Reload it and try again.' }, 409) };
     }
 
-    if (delta !== 0) {
-      const locationId = unit.currentLocationId || unit.locationId || null;
-      const businessId = unit.currentBusinessId || unit.businessId || '';
-      const userId = isValidObjectId(String(session.id || '')) ? new Types.ObjectId(String(session.id)) : null;
-      const movement = {
-        businessId: isValidObjectId(String(businessId)) ? new Types.ObjectId(String(businessId)) : null,
-        finYear: unit.finYear || '',
-        type: delta > 0 ? MOVEMENT_TYPES.ADJUST_IN : MOVEMENT_TYPES.ADJUST_OUT,
-        barcodeId: unit._id,
-        barcodeNo: unit.barcodeNo || unit.barcodeGenerated || '',
-        itemId: unit.itemId || null,
-        itemCode: unit.itemCode || '',
-        itemName: unit.itemName || '',
-        uom: unit.uom || '',
-        batchType: unit.batchType || '',
-        qty: delta,
-        fromLocationId: delta < 0 ? locationId : null,
-        toLocationId: delta > 0 ? locationId : null,
-        statusBefore: unit.status,
-        statusAfter: unit.status,
-        refModel: 'barcodeDetailEdit',
-        refNo: unit.barcodeNo || unit.barcodeGenerated || '',
-        reason: 'Barcode quantity edited',
-        notes: `Quantity changed from ${oldQuantity} to ${quantity}.`,
-        userId,
-        userName: session.name || '',
-        userEmail: session.email || '',
-        at: new Date(),
-      };
-      await StockMovement.create([movement], options);
+    // Create stock movement if quantity changed
+    if (updates.qtyNum !== undefined) {
+      const oldQuantity = Number(unit.qtyNum ?? unit.qty ?? 0);
+      const newQuantity = updates.qtyNum;
+      const delta = newQuantity - oldQuantity;
+      
+      if (delta !== 0) {
+        const locationId = unit.currentLocationId || unit.locationId || null;
+        const businessId = unit.currentBusinessId || unit.businessId || '';
+        const userId = isValidObjectId(String(session.id || '')) ? new Types.ObjectId(String(session.id)) : null;
+        const movement = {
+          businessId: isValidObjectId(String(businessId)) ? new Types.ObjectId(String(businessId)) : null,
+          finYear: unit.finYear || '',
+          type: delta > 0 ? MOVEMENT_TYPES.ADJUST_IN : MOVEMENT_TYPES.ADJUST_OUT,
+          barcodeId: unit._id,
+          barcodeNo: updates.barcodeNo || unit.barcodeNo || unit.barcodeGenerated || '',
+          itemId: updates.itemId || unit.itemId || null,
+          itemCode: updates.itemCode || unit.itemCode || '',
+          itemName: updates.itemName || unit.itemName || '',
+          uom: updates.uom || unit.uom || '',
+          batchType: unit.batchType || '',
+          qty: delta,
+          fromLocationId: delta < 0 ? locationId : null,
+          toLocationId: delta > 0 ? locationId : null,
+          statusBefore: unit.status,
+          statusAfter: unit.status,
+          refModel: 'barcodeDetailEdit',
+          refNo: updates.barcodeNo || unit.barcodeNo || unit.barcodeGenerated || '',
+          reason: 'Barcode edited from detail page',
+          notes: `Quantity changed from ${oldQuantity} to ${newQuantity}.`,
+          userId,
+          userName: session.name || '',
+          userEmail: session.email || '',
+          at: new Date(),
+        };
+        await StockMovement.create([movement], options);
+      }
     }
 
-    return { quantity, rsp };
+    return { ok: true, updated: updates };
   });
 
   if (result.error) return result.error;
-  return json({ ok: true, ...result });
+  return json(result);
 });
 
 export async function GET(req) {

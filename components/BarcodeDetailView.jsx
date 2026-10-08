@@ -517,6 +517,8 @@ import { useEffect, useState } from 'react';
 import Icon from './Icon';
 import { useScope } from './ScopeContext';
 import { BarcodeImageInput, BarcodeImageThumb, uploadBarcodeImage } from './BarcodeImagePicker';
+import MultiSelect from './MultiSelect';
+import { useOptions } from './useOptions';
 
 /* Barcode Report, opened for ONE barcode.
 
@@ -561,11 +563,20 @@ function calculateAgeInDays(dateValue) {
 
 /* One labelled value. The label sits above its value so a long branch name
    does not push the column out of shape. */
-function Cell({ label, value, wide = false, editing = false, type = 'text', onChange, bold = false }) {
+function Cell({ label, value, wide = false, editing = false, type = 'text', onChange, bold = false, dropdown = false, dropdownValue, dropdownOptions = [] }) {
   return (
     <div className={'px-4 py-3 ' + (wide ? 'sm:col-span-2' : '')}>
       <div className="text-[11px] uppercase tracking-wide text-inkmuted">{label}</div>
-      {editing ? (
+      {editing && dropdown ? (
+        <MultiSelect
+          aria-label={label}
+          mode="single"
+          options={dropdownOptions}
+          value={dropdownValue || []}
+          onChange={(selected) => onChange(selected[0] || '')}
+          className="mt-1"
+        />
+      ) : editing ? (
         <input
           aria-label={label}
           type={type}
@@ -574,6 +585,30 @@ function Cell({ label, value, wide = false, editing = false, type = 'text', onCh
           className="f-input mt-1 !h-[30px] max-w-[180px]"
           value={value ?? ''}
           onChange={(event) => onChange(event.target.value)}
+        />
+      ) : (
+        <div className={'mt-0.5 text-[13.5px] text-ink' + (bold ? ' font-semibold' : '')}>{value}</div>
+      )}
+    </div>
+  );
+}
+
+/* Dropdown cell that fetches options from API using useOptions */
+function DropdownCell({ label, value, editing, optionsRef, selectedId, onChange, bold = false }) {
+  const { options, loading } = useOptions(optionsRef, '', editing);
+  
+  return (
+    <div className="px-4 py-3">
+      <div className="text-[11px] uppercase tracking-wide text-inkmuted">{label}</div>
+      {editing ? (
+        <MultiSelect
+          aria-label={label}
+          mode="single"
+          options={options}
+          value={selectedId ? [selectedId] : []}
+          onChange={(selected) => onChange(selected[0] || '')}
+          loading={loading}
+          className="mt-1"
         />
       ) : (
         <div className={'mt-0.5 text-[13.5px] text-ink' + (bold ? ' font-semibold' : '')}>{value}</div>
@@ -603,12 +638,46 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState(barcodeNo);
   const [editing, setEditing] = useState(false);
+  
+  // Edit state for all fields
+  const [editItemName, setEditItemName] = useState('');
+  const [editItemCode, setEditItemCode] = useState('');
+  const [editBarcodeNo, setEditBarcodeNo] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editSubGroupId, setEditSubGroupId] = useState('');
+  const [editGroupId, setEditGroupId] = useState('');
+  const [editHsn, setEditHsn] = useState('');
+  const [editHsnId, setEditHsnId] = useState('');
+  const [editGstSlabId, setEditGstSlabId] = useState('');
+  const [editGst, setEditGst] = useState('');
+  const [editUom, setEditUom] = useState('');
+  const [editUomId, setEditUomId] = useState('');
+  const [editStatus, setEditStatus] = useState([]);
   const [editQuantity, setEditQuantity] = useState('');
+  const [editPma, setEditPma] = useState('');
+  const [editPurchaseRate, setEditPurchaseRate] = useState('');
+  const [editDiscount, setEditDiscount] = useState('');
+  const [editFinalRate, setEditFinalRate] = useState('');
   const [editRsp, setEditRsp] = useState('');
+  const [editOfferPrice, setEditOfferPrice] = useState('');
+  const [editWsp, setEditWsp] = useState('');
+  const [editDp, setEditDp] = useState('');
+  const [editDesignNo, setEditDesignNo] = useState('');
+  
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [saveSuccess, setSaveSuccess] = useState('');
   const [reloadCount, setReloadCount] = useState(0);
+
+  // Fetch options for dropdowns - only when editing
+  // Status options
+  const statusOptions = [
+    { value: 'IN_STOCK', label: 'In Stock' },
+    { value: 'IN_TRANSIT', label: 'In Transit' },
+    { value: 'SOLD', label: 'Sold' },
+    { value: 'RETURN_IN_TRANSIT', label: 'Return In Transit' },
+    { value: 'VOID', label: 'Void' },
+  ];
 
   useEffect(() => {
     setSearchTerm(barcodeNo);
@@ -631,8 +700,31 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
         if (off) return;
         if (!ok) { setError(d.error || 'Could not load that barcode.'); setData(null); return; }
         setData(d);
-        setEditQuantity(String(d.detail?.quantity ?? ''));
-        setEditRsp(String(d.detail?.rsp ?? ''));
+        // Initialize edit fields from loaded data
+        const detail = d.detail || {};
+        setEditItemName(String(detail.itemName ?? ''));
+        setEditItemCode(String(detail.itemCode ?? ''));
+        setEditBarcodeNo(String(detail.barcodeNo ?? ''));
+        setEditDescription(String(detail.description ?? ''));
+        setEditSubGroupId(''); // IDs not available in current API response
+        setEditGroupId('');
+        setEditHsn(String(detail.hsn ?? ''));
+        setEditHsnId('');
+        setEditGstSlabId('');
+        setEditGst(String(detail.gst ?? ''));
+        setEditUom(String(detail.uom ?? ''));
+        setEditUomId('');
+        setEditStatus(detail.status ? [detail.status] : []);
+        setEditQuantity(String(detail.quantity ?? ''));
+        setEditPma(String(detail.pma ?? ''));
+        setEditPurchaseRate(String(detail.purchaseRate ?? ''));
+        setEditDiscount(String(detail.discount ?? ''));
+        setEditFinalRate(String(detail.finalRate ?? ''));
+        setEditRsp(String(detail.rsp ?? ''));
+        setEditOfferPrice(String(detail.offerPrice ?? ''));
+        setEditWsp(String(detail.wsp ?? ''));
+        setEditDp(String(detail.dp ?? ''));
+        setEditDesignNo(String(detail.designNo ?? ''));
       })
       .catch(() => { if (!off) setError('Could not reach the server.'); })
       .finally(() => { if (!off) setLoading(false); });
@@ -665,11 +757,64 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
   const totalIssues = rows.reduce((total, row) => total + Number(row.issues || 0), 0);
 
   function startEditing() {
-    setEditQuantity(String(d.quantity ?? ''));
-    setEditRsp(String(d.rsp ?? ''));
+    const detail = d || {};
+    setEditItemName(String(detail.itemName ?? ''));
+    setEditItemCode(String(detail.itemCode ?? ''));
+    setEditBarcodeNo(String(detail.barcodeNo ?? ''));
+    setEditDescription(String(detail.description ?? ''));
+    setEditSubGroupId('');
+    setEditGroupId('');
+    setEditHsn(String(detail.hsn ?? ''));
+    setEditHsnId('');
+    setEditGstSlabId('');
+    setEditGst(String(detail.gst ?? ''));
+    setEditUom(String(detail.uom ?? ''));
+    setEditUomId('');
+    setEditStatus(detail.status ? [detail.status] : []);
+    setEditQuantity(String(detail.quantity ?? ''));
+    setEditPma(String(detail.pma ?? ''));
+    setEditPurchaseRate(String(detail.purchaseRate ?? ''));
+    setEditDiscount(String(detail.discount ?? ''));
+    setEditFinalRate(String(detail.finalRate ?? ''));
+    setEditRsp(String(detail.rsp ?? ''));
+    setEditOfferPrice(String(detail.offerPrice ?? ''));
+    setEditWsp(String(detail.wsp ?? ''));
+    setEditDp(String(detail.dp ?? ''));
+    setEditDesignNo(String(detail.designNo ?? ''));
     setSaveError('');
     setSaveSuccess('');
     setEditing(true);
+  }
+
+  function cancelEditing() {
+    // Reset all edit fields to original values from data
+    const detail = d || {};
+    setEditItemName(String(detail.itemName ?? ''));
+    setEditItemCode(String(detail.itemCode ?? ''));
+    setEditBarcodeNo(String(detail.barcodeNo ?? ''));
+    setEditDescription(String(detail.description ?? ''));
+    setEditSubGroupId('');
+    setEditGroupId('');
+    setEditHsn(String(detail.hsn ?? ''));
+    setEditHsnId('');
+    setEditGstSlabId('');
+    setEditGst(String(detail.gst ?? ''));
+    setEditUom(String(detail.uom ?? ''));
+    setEditUomId('');
+    setEditStatus(detail.status ? [detail.status] : []);
+    setEditQuantity(String(detail.quantity ?? ''));
+    setEditPma(String(detail.pma ?? ''));
+    setEditPurchaseRate(String(detail.purchaseRate ?? ''));
+    setEditDiscount(String(detail.discount ?? ''));
+    setEditFinalRate(String(detail.finalRate ?? ''));
+    setEditRsp(String(detail.rsp ?? ''));
+    setEditOfferPrice(String(detail.offerPrice ?? ''));
+    setEditWsp(String(detail.wsp ?? ''));
+    setEditDp(String(detail.dp ?? ''));
+    setEditDesignNo(String(detail.designNo ?? ''));
+    setSaveError('');
+    setSaveSuccess('');
+    setEditing(false);
   }
 
   async function saveDetails() {
@@ -677,24 +822,42 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
     setSaveError('');
     setSaveSuccess('');
     try {
+      const payload = {
+        unitId: d.unitId,
+        business: business || '',
+        itemName: editItemName,
+        itemCode: editItemCode,
+        barcodeNo: editBarcodeNo,
+        description: editDescription,
+        subGroupId: editSubGroupId || undefined,
+        hsnId: editHsnId || undefined,
+        hsn: editHsn,
+        gst: editGst,
+        uomId: editUomId || undefined,
+        uom: editUom,
+        status: editStatus[0] || d.status,
+        quantity: editQuantity,
+        pma: editPma,
+        purchaseRate: editPurchaseRate,
+        discount: editDiscount,
+        finalRate: editFinalRate,
+        rsp: editRsp,
+        offerPrice: editOfferPrice,
+        wsp: editWsp,
+        dp: editDp,
+        designNo: editDesignNo,
+      };
+
       const response = await fetch('/api/reports/barcode-detail', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          unitId: d.unitId,
-          business: business || '',
-          quantity: editQuantity,
-          rsp: editRsp,
-        }),
+        body: JSON.stringify(payload),
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || 'Could not save barcode details.');
-      setData((current) => (current ? {
-        ...current,
-        detail: { ...current.detail, quantity: result.quantity, rsp: result.rsp },
-      } : current));
+      
       setEditing(false);
-      setSaveSuccess('Quantity and RSP saved.');
+      setSaveSuccess('Barcode details saved successfully.');
       setReloadCount((count) => count + 1);
     } catch (saveErr) {
       setSaveError(saveErr.message || 'Could not save barcode details.');
@@ -732,7 +895,7 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
                 <button type="button" className="btn btn-primary !h-[30px] !px-2.5" onClick={saveDetails} disabled={saving}>
                   {saving ? <span className="spin" /> : <Icon name="save" size={13} />} Save
                 </button>
-                <button type="button" className="btn !h-[30px] !px-2.5" onClick={() => { setEditing(false); setSaveError(''); }} disabled={saving}>
+                <button type="button" className="btn !h-[30px] !px-2.5" onClick={cancelEditing} disabled={saving}>
                   Cancel
                 </button>
               </>
@@ -753,17 +916,90 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
           <div className="flex flex-col gap-4 lg:flex-row">
             <div className="min-w-0 flex-1 overflow-hidden rounded border border-line">
               <Band title="Item Info">
-                <Cell label="Item Name" value={text(d.itemName)} />
-                <Cell label="Item Code" value={text(d.itemCode)} />
-                <Cell label="Barcode Number" value={text(d.barcodeNo)} />
-                <Cell label="Description" value={text(d.description)} />
-                <Cell label="Sub Group" value={text(d.subGroup)} />
-                <Cell label="Group" value={text(d.group)} />
-                <Cell label="HSN" value={text(d.hsn)} />
-                <Cell label="GST Slab" value={text(d.gstSlab)} />
-                <Cell label="GST %" value={text(d.gst)} />
-                <Cell label="UOM" value={text(d.uom)} />
-                <Cell label="Status" value={text(d.status)} />
+                <Cell 
+                  label="Item Name" 
+                  value={editing ? editItemName : text(d.itemName)}
+                  editing={editing}
+                  type="text"
+                  onChange={setEditItemName}
+                />
+                <Cell 
+                  label="Item Code" 
+                  value={editing ? editItemCode : text(d.itemCode)}
+                  editing={editing}
+                  type="text"
+                  onChange={setEditItemCode}
+                />
+                <Cell 
+                  label="Barcode Number" 
+                  value={editing ? editBarcodeNo : text(d.barcodeNo)}
+                  editing={editing}
+                  type="text"
+                  onChange={setEditBarcodeNo}
+                />
+                <Cell 
+                  label="Description" 
+                  value={editing ? editDescription : text(d.description)}
+                  editing={editing}
+                  type="text"
+                  onChange={setEditDescription}
+                />
+                <DropdownCell
+                  label="Sub Group"
+                  value={text(d.subGroup)}
+                  editing={editing}
+                  optionsRef="product/group"
+                  selectedId={editSubGroupId}
+                  onChange={setEditSubGroupId}
+                />
+                <DropdownCell
+                  label="Group"
+                  value={text(d.group)}
+                  editing={editing}
+                  optionsRef="product/group"
+                  selectedId={editGroupId}
+                  onChange={setEditGroupId}
+                />
+                <DropdownCell
+                  label="HSN"
+                  value={text(d.hsn)}
+                  editing={editing}
+                  optionsRef="hsn"
+                  selectedId={editHsnId}
+                  onChange={setEditHsnId}
+                />
+                <DropdownCell
+                  label="GST Slab"
+                  value={text(d.gstSlab)}
+                  editing={editing}
+                  optionsRef="tax"
+                  selectedId={editGstSlabId}
+                  onChange={setEditGstSlabId}
+                />
+                <Cell 
+                  label="GST %" 
+                  value={editing ? editGst : text(d.gst)}
+                  editing={editing}
+                  type="number"
+                  onChange={setEditGst}
+                />
+                <DropdownCell
+                  label="UOM"
+                  value={text(d.uom)}
+                  editing={editing}
+                  optionsRef="uom"
+                  selectedId={editUomId}
+                  onChange={setEditUomId}
+                />
+                <Cell 
+                  label="Status" 
+                  value={editing ? (statusOptions.find(opt => opt.value === editStatus[0])?.label || text(d.status)) : text(d.status)}
+                  editing={editing}
+                  dropdown={editing}
+                  dropdownValue={editStatus}
+                  dropdownOptions={statusOptions}
+                  onChange={(val) => setEditStatus(val ? [val] : [])}
+                />
                 <Cell
                   label="Quantity"
                   value={editing ? editQuantity : text(d.quantity)}
@@ -774,13 +1010,37 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
               </Band>
 
               <Band title="Other Info">
-                <Cell label="PMA" value={text(d.pma)} />
+                <Cell 
+                  label="PMA" 
+                  value={editing ? editPma : text(d.pma)}
+                  editing={editing}
+                  type="text"
+                  onChange={setEditPma}
+                />
               </Band>
 
               <Band title="Price Info">
-                <Cell label="Purchase Rate" value={money(d.purchaseRate)} />
-                <Cell label="Discount" value={money(d.discount)} />
-                <Cell label="Final Rate" value={money(d.finalRate)} />
+                <Cell 
+                  label="Purchase Rate" 
+                  value={editing ? editPurchaseRate : money(d.purchaseRate)}
+                  editing={editing}
+                  type="number"
+                  onChange={setEditPurchaseRate}
+                />
+                <Cell 
+                  label="Discount" 
+                  value={editing ? editDiscount : money(d.discount)}
+                  editing={editing}
+                  type="number"
+                  onChange={setEditDiscount}
+                />
+                <Cell 
+                  label="Final Rate" 
+                  value={editing ? editFinalRate : money(d.finalRate)}
+                  editing={editing}
+                  type="number"
+                  onChange={setEditFinalRate}
+                />
                 <Cell
                   label="RSP"
                   value={editing ? editRsp : money(d.rsp)}
@@ -788,13 +1048,37 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
                   type="number"
                   onChange={setEditRsp}
                 />
-                <Cell label="Offer Price" value={money(d.offerPrice)} />
-                <Cell label="WSP" value={money(d.wsp)} />
-                <Cell label="DP" value={money(d.dp)} />
+                <Cell 
+                  label="Offer Price" 
+                  value={editing ? editOfferPrice : money(d.offerPrice)}
+                  editing={editing}
+                  type="number"
+                  onChange={setEditOfferPrice}
+                />
+                <Cell 
+                  label="WSP" 
+                  value={editing ? editWsp : money(d.wsp)}
+                  editing={editing}
+                  type="number"
+                  onChange={setEditWsp}
+                />
+                <Cell 
+                  label="DP" 
+                  value={editing ? editDp : money(d.dp)}
+                  editing={editing}
+                  type="number"
+                  onChange={setEditDp}
+                />
               </Band>
 
               <Band title="Design Info">
-                <Cell label="Design NO." value={text(d.designNo)} />
+                <Cell 
+                  label="Design NO." 
+                  value={editing ? editDesignNo : text(d.designNo)}
+                  editing={editing}
+                  type="text"
+                  onChange={setEditDesignNo}
+                />
               </Band>
 
               <Band title="Supplier Details" last>
