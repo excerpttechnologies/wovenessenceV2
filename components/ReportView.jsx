@@ -3179,7 +3179,7 @@
 
 
 'use client';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Icon from './Icon';
 import MultiSelect from './MultiSelect';
 import { useScope } from './ScopeContext';
@@ -3304,10 +3304,42 @@ function RefFilter({ f, value, onChange, depValue, filterValues }) {
     }
   });
   const { options, loading } = useOptions(f.ref, '', !waiting, Object.keys(params).length ? params : null);
+  
+  /* Deduplicate options by label (case-insensitive, trimmed), keeping the first
+     occurrence of each unique label. This fixes duplicate group names and other
+     master data that may appear multiple times. Empty labels are excluded. 
+     Use useMemo to ensure deduplication runs only when options change. */
+  const uniqueOptions = useMemo(() => {
+    const seen = new Map();
+    const result = [];
+    
+    for (const option of options) {
+      // Skip options with empty/null labels
+      if (!option?.label || typeof option.label !== 'string') continue;
+      
+      const trimmedLabel = option.label.trim();
+      if (!trimmedLabel) continue;
+      
+      // Use lowercase trimmed label as key for case-insensitive comparison
+      const key = trimmedLabel.toLowerCase();
+      
+      // Only add if we haven't seen this label before
+      if (!seen.has(key)) {
+        seen.set(key, true);
+        result.push({
+          ...option,
+          label: trimmedLabel,
+        });
+      }
+    }
+    
+    return result;
+  }, [options]);
+  
   return (
     <MultiSelect
       mode={f.multi ? 'multi' : 'single'}
-      options={waiting ? [] : options}
+      options={waiting ? [] : uniqueOptions}
       loading={loading}
       disabled={waiting}
       value={f.multi ? (value || []) : (value || '')}

@@ -94,6 +94,7 @@
     "html5-qrcode": "^2.3.8",
     "jsbarcode": "^3.12.3",
     "lucide-react": "^1.33.0",
+    "mongodb": "^7.7.0",
     "mongoose": "8.9.5",
     "motion": "^13.1.0",
     "motion-dom": "^14.0.0",
