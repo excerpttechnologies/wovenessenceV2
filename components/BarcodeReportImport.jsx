@@ -1338,7 +1338,7 @@
 //                         IMPORTED DATA (confirmed first)
 //      SEED               /api/reports/barcode-report/import, which checks
 //                         every row again inside its transaction
-//    Nothing is written before Seed / Import or Confirm Replace. Item,
+//    Nothing is written before Save or Confirm Replace. Item,
 //    quantity, UOM and masters are never changed.
 
 //    `api` is ReportView's toolbar hook - searchFor(filters) runs the report. */
@@ -1989,7 +1989,7 @@
 //     imageSaves.length ? `Save ${plural(imageSaves.length, 'barcode image')}` : ''].filter(Boolean);
 //   const nothingToImport = willDo.length === 0;
 //   const primaryLabel = nothingToImport ? 'Nothing to import'
-//     : isDetails && adding && !replacing && !filling ? 'Seed / Import'
+//     : isDetails && adding && !replacing && !filling ? 'Save'
 //       : isDetails && !adding && !replacing && !filling ? 'Save Barcode Image'
 //         : willDo.join(', ');
 //   const comparedBox = fromImage && (
@@ -2021,7 +2021,7 @@
 //             <p className="mb-3 text-[13px] text-inkmuted">
 //               Open the Barcode Report on erp.orbiteerp.com (the button above), then paste a barcode&apos;s Barcode Details page or the
 //               report table, or upload a screenshot of it. You are asked what it is before anything is read, and nothing is saved until
-//               you check the preview and press Seed / Import.
+//               you check the preview and press Save.
 //             </p>
 //             <label htmlFor="barcode-import-location" className="mb-1 block text-[13px] text-ink">Import into<span className="f-req">*</span></label>
 //             <select
@@ -2218,7 +2218,7 @@
 //             </div>
 //             <p className="mb-2 text-[12.5px] text-inkmuted">
 //               Every value below was read from the {fromImage ? 'image' : 'Barcode Report'} - correct any of them in its box, then press Check
-//               corrections. Nothing is saved until you press {primaryLabel === 'Nothing to import' ? 'Seed / Import' : primaryLabel} (or Confirm Replace).
+//               corrections. Nothing is saved until you press {primaryLabel === 'Nothing to import' ? 'Save' : primaryLabel} (or Confirm Replace).
 //               Item, quantity and UOM of a barcode already here are never changed, and no master is created or changed.
 //             </p>
 //             {dirty && (
@@ -3075,14 +3075,14 @@
 
 
 'use client';
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import Icon from './Icon';
 import MultiSelect from './MultiSelect';
 import { useScope } from './ScopeContext';
-import { useOptions } from './useOptions';
+import { useOptions, refreshOptions } from './useOptions';
 import ErpSelectorModal from './ErpSelectorModal';
-import { readImport, editRecord, EDIT_FIELDS, FIELD_LABELS, REQUIRED, movementTotals } from '@/lib/barcodeReportImport';
+import { readImport, editRecord, EDIT_FIELDS, FIELD_LABELS, REQUIRED, movementTotals, splitSupplier } from '@/lib/barcodeReportImport';
 import { imagePlan } from '@/lib/barcodeImage';
 import { BarcodeImageInput, BarcodeImageThumb, uploadBarcodeImage } from './BarcodeImagePicker';
 import {
@@ -3121,7 +3121,7 @@ const IMAGE_ACCEPT = 'image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp';
                         IMPORTED DATA (confirmed first)
      SEED               /api/reports/barcode-report/import, which checks
                         every row again inside its transaction
-   Nothing is written before Seed / Import or Confirm Replace. Item,
+   Nothing is written before Save or Confirm Replace. Item,
    quantity, UOM and masters are never changed.
 
    `api` is ReportView's toolbar hook - searchFor(filters) runs the report. */
@@ -3137,7 +3137,7 @@ const STATUS = {
 const ORDER = ['new', 'changed', 'same', 'locked', 'invalid'];
 /* what became of each barcode (the server's `actions`) */
 const ACTIONS = {
-  seeded: { label: 'Seeded', tone: 'text-okgreen' },
+  seeded: { label: 'save', tone: 'text-okgreen' },
   replaced: { label: 'Replaced existing barcode data', tone: 'text-[#8a5a00]' },
   filled: { label: 'Blank fields filled', tone: 'text-okgreen' },
   retained: { label: 'Existing data retained', tone: 'text-inkmuted' },
@@ -3194,7 +3194,7 @@ const PRICE_INFO = [['purRate', 'Purchase Rate'], ['discount', 'Discount'], ['fi
 const SUPPLIER_INFO = [['supplier', 'Supplier'], ['taxRegion', 'Tax Region'], ['note', 'Note', true]];
 /* a field's master, for "not found - kept as text" (masters are never created) */
 const MASTER_OF = { itemName: 'Item', group: 'Group', subGroup: 'Sub Group', hsn: 'HSN', gstSlab: 'GST Slab', supplier: 'Supplier', stockLocation: 'Location', stockPoint: 'Stock Point' };
-const DETAIL_FIELDS = new Set([...EDIT_FIELDS.filter((f) => f.details).map((f) => f.key), 'ecomId', 'consignment', 'note', 'pageItemCode']);
+const DETAIL_FIELDS = new Set([...EDIT_FIELDS.filter((f) => f.details).map((f) => f.key), 'ecomId', 'consignment', 'note', 'pageItemCode', 'supplier']);
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const txt = (v) => String(v ?? '').trim();
@@ -3288,10 +3288,8 @@ const defaultPicks = (row) => {
 export default function BarcodeReportImport({ api }) {
   const { business, location: scopeLocation, finYear } = useScope();
   const { options: locations } = useOptions('companylocations');
-  const { options: supplierOptions, loading: suppliersLoading } = useOptions('supplier');
-  const { options: hsnOptions, loading: hsnLoading } = useOptions('hsn');
   const [open, setOpen] = useState(false);
-  /* the search button's ERP picker (ERP V0 / ERP V1), over this dialog */
+  /* the search button's ERP picker (ERP V1 / ERP V2), over this dialog */
   const [pickingErp, setPickingErp] = useState(false);
   /* 'input' | 'ask' (text or a file: what is it?) | 'parsing' | 'failed' | 'review' | 'done' */
   const [step, setStep] = useState('input');
@@ -3321,6 +3319,10 @@ export default function BarcodeReportImport({ api }) {
   const [movementEdits, setMovementEdits] = useState(new Map());
   /* stock summary edits: line -> { company, supplierId, hsnId } */
   const [stockSummaryEdits, setStockSummaryEdits] = useState(new Map());
+  /* supplier picks: line -> { id: ObjectId string, name: display name }
+     Kept across openReview / recheck so the auto-selected supplier survives
+     Check corrections. Reset only in start(). */
+  const [supplierPicks, setSupplierPicks] = useState(new Map());
   /* an image import: the operator's word that they compared the values with
      the image - OCR can be sure of a wrong character */
   const [compared, setCompared] = useState(false);
@@ -3380,7 +3382,7 @@ export default function BarcodeReportImport({ api }) {
     setOpen(true); setPickingErp(false); setStep('input'); setMode('paste'); setAsking(''); setPaste(''); setTextOrigin('text');
     setFile(null); setFileName(''); setError(''); setFailure(null);
     setRead(null); setReview(null); setResult(null); setTicked(new Set()); setPicks(new Map()); setDecided(new Map());
-    setOpen2(new Set()); setConfirming(false); setEdits(new Map()); setMovementEdits(new Map()); setStockSummaryEdits(new Map()); setCompared(false);
+    setOpen2(new Set()); setConfirming(false); setEdits(new Map()); setMovementEdits(new Map()); setStockSummaryEdits(new Map()); setSupplierPicks(new Map()); setCompared(false);
     setLocation(scopeLocation || '');
     dropImages(); setStage(''); clearBarcodeImages();
     setQtyDecrease(0); setQtyIncrease(0); setShowValidationModal(false); setMissingFields([]);
@@ -3530,6 +3532,7 @@ export default function BarcodeReportImport({ api }) {
     setDecided(new Map());
     setEdits(new Map());
     setMovementEdits(new Map());
+    setStockSummaryEdits(new Map());
     const rows = d.rows.filter((r) => r.status in STATUS);
     setOpen2(new Set(rows.length <= 3 ? rows.map((r) => r.key) : []));
     setConfirming(false);
@@ -3634,7 +3637,7 @@ export default function BarcodeReportImport({ api }) {
   }
 
   /* the corrections checked against this ERP again */
-  function recheck() {
+  async function recheck() {
     if (!read) return;
     const records = read.records.map((r) => {
       const withEdits = editRecord(r, edits.get(r.line));
@@ -3657,7 +3660,7 @@ export default function BarcodeReportImport({ api }) {
       const totals = movementTotals(movements, withEdits.details.totals?.printed);
       return { ...withEdits, details: { ...withEdits.details, movements, totals } };
     });
-    check({ ...read, records }, { keepCompared: true });
+    await check({ ...read, records }, { keepCompared: true });
   }
   const setEdit = (line, key, value, original, force = false) => setEdits((map) => {
     const next = new Map(map);
@@ -3701,9 +3704,26 @@ export default function BarcodeReportImport({ api }) {
       return merged;
     });
   };
-  const hasEdits = [...edits.values()].some((e) => Object.keys(e).length) || [...stockSummaryEdits.values()].some((e) => Object.keys(e).length);
+  const hasEdits = [...edits.values()].some((e) => Object.keys(e).length)
+    || [...stockSummaryEdits.values()].some((e) => Object.keys(e).length)
+    || [...movementEdits.values()].some((e) => Object.keys(e).length)
+    || qtyDecrease !== 0
+    || qtyIncrease !== 0;
   const dirty = hasEdits;
-  const editCount = [...edits.values()].reduce((a, e) => a + Object.keys(e).length, 0);
+  const editCount = [...edits.values()].reduce((a, e) => {
+    // supplier lives in supplierPicks, not edits — don't count it as a user correction
+    const editFields = Object.keys(e).filter((k) => k !== 'supplier');
+    const count = a + editFields.length;
+    if (editFields.length > 0) {
+      console.log('📝 [Edit Count] Found edits:', editFields, 'running total:', count);
+    }
+    return count;
+  }, 0);
+  
+  // Debug log the final edit state
+  if (dirty) {
+    console.log('⚠️ [Edit State] Showing "corrected values" warning:', { editCount, totalEditsSize: edits.size, supplierPicksSize: supplierPicks.size });
+  }
 
   const rows = review?.rows || [];
   const fromImage = read?.origin === 'image' || read?.origin === 'ocr';
@@ -3750,8 +3770,13 @@ export default function BarcodeReportImport({ api }) {
   };
   const toggleOpen = (key) => setOpen2((set) => { const next = new Set(set); if (next.has(key)) next.delete(key); else next.add(key); return next; });
 
-  function askImport() {
-    if (dirty) { recheck(); return; }
+  async function askImport() {
+    /* If there are edits, recheck first to get updated review state, then import */
+    if (dirty) {
+      await recheck();
+      /* After recheck, wait a moment for state to update */
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
     if (replacing) { setConfirming(true); return; }
     /* Validate required fields before import */
     const missing = [];
@@ -3774,7 +3799,6 @@ export default function BarcodeReportImport({ api }) {
   }
 
   async function runImport() {
-    if (dirty) return;
     if (fromImage && !compared) { setError('Tick "I have compared the values with the image" first.'); return; }
     setConfirming(false);
     setBusy(true); setError('');
@@ -3808,6 +3832,11 @@ export default function BarcodeReportImport({ api }) {
       /* Apply quantity adjustments and movement edits to the records */
       const adjustedRecords = recordsOf(read?.records).map((rec) => {
         let out = rec;
+        /* Apply field edits first */
+        const fieldEdits = edits.get(rec.line);
+        if (fieldEdits) {
+          out = editRecord(out, fieldEdits);
+        }
         /* qty adjustments */
         if (isDetails && out.values) {
           const currentQty = Number(out.values.qty) || 0;
@@ -3842,6 +3871,12 @@ export default function BarcodeReportImport({ api }) {
         const ssEdits = stockSummaryEdits.get(rec.line);
         if (ssEdits) {
           out = { ...out, stockSummaryEdits: ssEdits };
+        }
+        /* supplier pick: inject supplierPickedId into details so the server
+           uses it directly (via resolveDetails) without a name lookup */
+        const pick = supplierPicks.get(rec.line);
+        if (pick?.id && out.details) {
+          out = { ...out, details: { ...out.details, supplierPickedId: pick.id } };
         }
         return out;
       });
@@ -3890,15 +3925,15 @@ export default function BarcodeReportImport({ api }) {
 
   const sourceLink = (
     /* the shortcut to the source report - GST Parse's portal button: it asks
-       which ERP's Barcode Report to open, ERP V0 or ERP V1, each an external
+       which ERP's Barcode Report to open, ERP V1 or ERP V2, each an external
        page in a new tab (components/ErpSelectorModal.jsx); this dialog stays
        open for the paste */
     <button
       type="button"
       onClick={() => setPickingErp(true)}
       aria-haspopup="dialog"
-      title="Open the Barcode Report on ERP V0 or ERP V1"
-      aria-label="Open the Barcode Report on ERP V0 or ERP V1"
+      title="Open the Barcode Report on ERP V1 or ERP V2"
+      aria-label="Open the Barcode Report on ERP V1 or ERP V2"
       className="flex h-8 w-8 items-center justify-center rounded-md bg-brand leading-none text-white hover:bg-brand-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
     >
       <Icon name="search" size={16} />
@@ -3914,7 +3949,7 @@ export default function BarcodeReportImport({ api }) {
     imageSaves.length ? `Save ${plural(imageSaves.length, 'barcode image')}` : ''].filter(Boolean);
   const nothingToImport = willDo.length === 0;
   const primaryLabel = nothingToImport && !dirty ? 'Nothing to import'
-    : isDetails && adding && !replacing && !filling ? 'Seed / Import'
+    : isDetails && adding && !replacing && !filling ? 'Save'
       : isDetails && !adding && !replacing && !filling ? 'Save Barcode Image'
         : dirty && nothingToImport ? 'Save Changes'
           : willDo.join(', ');
@@ -3945,9 +3980,9 @@ export default function BarcodeReportImport({ api }) {
             onDrop={onDrop}
           >
             <p className="mb-3 text-[13px] text-inkmuted">
-              Open the Barcode Report on ERP V0 or ERP V1 (the search button above), then paste a barcode&apos;s Barcode Details page or the
+              Open the Barcode Report on ERP V1 or ERP V2 (the search button above), then paste a barcode&apos;s Barcode Details page or the
               report table, or upload a screenshot of it. You are asked what it is before anything is read, and nothing is saved until
-              you check the preview and press Seed / Import.
+              you check the preview and press Save.
             </p>
             <label htmlFor="barcode-import-location" className="mb-1 block text-[13px] text-ink">Import into<span className="f-req">*</span></label>
             <select
@@ -3961,7 +3996,7 @@ export default function BarcodeReportImport({ api }) {
               {locations.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
 
-            <div className="mb-3 text-[12px] font-bold uppercase tracking-wide text-ink">Import / Seed</div>
+            <div className="mb-3 text-[12px] font-bold uppercase tracking-wide text-ink">Import / save </div>
             <div className="mb-3 flex gap-2" role="tablist" aria-label="What to import from">
               <button type="button" role="tab" aria-selected={mode === 'paste'} onClick={() => { setMode('paste'); setError(''); }}
                 className={'btn ' + (mode === 'paste' ? 'btn-primary' : '')}>
@@ -4144,7 +4179,7 @@ export default function BarcodeReportImport({ api }) {
             </div>
             <p className="mb-2 text-[12.5px] text-inkmuted">
               Every value below was read from the {fromImage ? 'image' : 'Barcode Report'} - correct any of them in its box, then press Check
-              corrections. Nothing is saved until you press {primaryLabel === 'Nothing to import' ? 'Seed / Import' : primaryLabel} (or Confirm Replace).
+              corrections. Nothing is saved until you press {primaryLabel === 'Nothing to import' ? 'Save' : primaryLabel} (or Confirm Replace).
               Item, quantity and UOM of a barcode already here are never changed, and no master is created or changed.
               Stock Summary edits (Company, Supplier, HSN) are saved on Import.
             </p>
@@ -4206,10 +4241,22 @@ export default function BarcodeReportImport({ api }) {
                       onMovementEdit={(movIndex, field, value) => setMovementEdit(r.line, movIndex, field, value)}
                       stockSummaryEdits={stockSummaryEdits}
                       onStockSummaryEdit={setStockSummaryEdit}
-                      supplierOptions={supplierOptions}
-                      suppliersLoading={suppliersLoading}
-                      hsnOptions={hsnOptions}
-                      hsnLoading={hsnLoading}
+                      supplierPick={supplierPicks.get(r.line) || null}
+                      onSupplierPick={(pick) => {
+                        console.log('💾 [Supplier Pick] Setting pick for line', r.line, ':', pick);
+                        setSupplierPicks((map) => { 
+                          const next = new Map(map); 
+                          if (pick) {
+                            next.set(r.line, pick);
+                            console.log('  ✅ Pick stored in supplierPicks Map');
+                          } else {
+                            next.delete(r.line);
+                            console.log('  🗑️ Pick removed from supplierPicks Map');
+                          }
+                          console.log('  📊 SupplierPicks Map now has', next.size, 'entries');
+                          return next; 
+                        });
+                      }}
                     />
                   );
                 })}
@@ -4232,7 +4279,7 @@ export default function BarcodeReportImport({ api }) {
               title={!dirty && fromImage && !compared ? 'Confirm you compared the values with the image first' : undefined}
             >
               {busy ? <span className="spin" /> : <Icon name="check" size={14} />}
-              {' '}{dirty ? 'Check corrections' : primaryLabel}
+              {' '}{busy ? 'Importing...' : primaryLabel}
             </button>
           </div>
         </Modal>
@@ -4395,7 +4442,7 @@ export default function BarcodeReportImport({ api }) {
               title={fromImage && !compared ? 'Confirm you compared the values with the image first' : undefined}
             >
               {busy ? <span className="spin" /> : <Icon name="check" size={14} />}
-              {' '}{primaryLabel}
+              {' '}{busy ? 'Importing...' : primaryLabel}
             </button>
           </div>
         </Modal>
@@ -4640,12 +4687,212 @@ function DetailsCard({
   barcodeImage, imagePlan: plan, onAttachImage, onRemoveImage, onDecideImage,
   qtyDecrease, qtyIncrease, onQtyDecreaseChange, onQtyIncreaseChange,
   movementEdits: mEdits, effectiveMovements: effMovements, onMovementEdit,
-  stockSummaryEdits: ssEdits, onStockSummaryEdit, supplierOptions, suppliersLoading, hsnOptions, hsnLoading,
+  stockSummaryEdits: ssEdits, onStockSummaryEdit,
+  supplierPick, onSupplierPick,
 }) {
+  console.log('🎨 [DetailsCard] Rendering for line', row.line);
+  console.log('  - rec.details:', rec.details);
+  console.log('  - supplierPick:', supplierPick);
+  console.log('  - row.links:', row.links);
+  console.log('  - parsed supplier:', rec.details?.supplier);
+  
   const d = rec.details || {};
   const id = rec.identify || {};
   const valueOf = (key) => (key in edits ? edits[key] : fieldOf(rec, key));
   const rowKey = rec.line || row.key;
+
+  // Supplier and HSN search state – local to this card so each card is independent
+  // Initialize supplierSearch immediately from parsed data to avoid blank display
+  const initialSupplierName = d.supplier ? splitSupplier(d.supplier).name : '';
+  const [supplierSearch, setSupplierSearch] = useState(initialSupplierName);
+  const [hsnSearch, setHsnSearch] = useState('');
+
+  /* The resolved supplier ObjectId to show in the dropdown:
+     1. operator's manual pick (from onSupplierPick) — survives recheck
+     2. server's name-based match from row.links (set during check)
+     3. fallback to the parsed supplier name when no ID is resolved yet
+     
+     When we have a resolved ID, use it. Otherwise, use the parsed supplier name
+     so the field never shows blank when we have a parsed value. */
+  const resolvedSupplierId = supplierPick?.id
+    || (row.links?.supplierId ? String(row.links.supplierId) : '');
+  
+  /* The display value: either the resolved ID (for the dropdown to select),
+     or the parsed supplier name as a fallback so the field shows something.
+     This ensures the parsed supplier name is visible even before options load. */
+  const supplierDisplayValue = resolvedSupplierId || supplierSearch;
+
+  /* Seed the search from the parsed supplier name (city already stripped by
+     the parser via splitSupplier at parse time). Re-run whenever the parsed
+     name changes (e.g. after a recheck that changed details.supplier).
+     
+     This runs IMMEDIATELY when parsed data arrives, before any server check,
+     so the dropdown shows the parsed name right away. */
+  useEffect(() => {
+    const rawSupplier = d.supplier || '';
+    if (!rawSupplier) return;
+    const { name } = splitSupplier(rawSupplier);
+    setSupplierSearch(name);
+  }, [d.supplier]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* If the server already found a supplier via name lookup during check,
+     register it as our pick so it shows in the dropdown immediately. */
+  useEffect(() => {
+    if (!row.links?.supplierId || supplierPick?.id) return;
+    // Server found a supplier - use it as our pick
+    const serverSupplierName = d.supplier || 'Server-matched supplier';
+    onSupplierPick({ id: String(row.links.supplierId), name: serverSupplierName });
+  }, [row.links?.supplierId, supplierPick?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const { options: supplierOptionsRaw, loading: suppliersLoading } = useOptions('supplier', supplierSearch);
+  
+  // Debug log when options or loading state changes
+  useEffect(() => {
+    console.log('📦 [Supplier Options] State changed for line', row.line);
+    console.log('  - supplierSearch:', supplierSearch);
+    console.log('  - suppliersLoading:', suppliersLoading);
+    console.log('  - options count:', supplierOptionsRaw.length);
+  }, [supplierSearch, supplierOptionsRaw, suppliersLoading]);
+  
+  // Debug log when resolved ID changes
+  useEffect(() => {
+    console.log('💎 [Resolved Supplier ID] Changed for line', row.line, 'to:', resolvedSupplierId);
+    console.log('  - supplierPick:', supplierPick);
+    console.log('  - row.links?.supplierId:', row.links?.supplierId);
+    console.log('  - supplierDisplayValue:', supplierDisplayValue);
+  }, [resolvedSupplierId, supplierPick, supplierDisplayValue]);
+  const { options: hsnOptionsRaw, loading: hsnLoading } = useOptions('hsn', hsnSearch);
+  const supplierOptions = supplierSearch.trim() && supplierOptionsRaw.length === 0 && !suppliersLoading
+    ? [{ value: '__add__', label: `Add Supplier "${supplierSearch}"`, addCustomer: true }]
+    : supplierOptionsRaw;
+  const hsnOptions = hsnSearch.trim() && hsnOptionsRaw.length === 0 && !hsnLoading
+    ? [{ value: '__add__', label: `Add HSN "${hsnSearch}"`, addCustomer: true }]
+    : hsnOptionsRaw;
+
+  /* Auto-select: runs whenever options finish loading or the parsed supplier
+     name changes. Uses opt.name (the clean businessName without the G-code)
+     for matching, not opt.label which includes "(IC4)" etc.
+     Enhanced matching handles common spelling variations like Colors vs Colours.
+     
+     This MUST run even when showing the parsed name as display value, to find
+     the matching supplier record once options load. */
+  useEffect(() => {
+    console.log('🎯 [Supplier Auto-Select] Effect triggered for line', row.line);
+    console.log('  - supplierPick:', supplierPick);
+    console.log('  - suppliersLoading:', suppliersLoading);
+    console.log('  - d.supplier:', d.supplier);
+    console.log('  - options count:', supplierOptionsRaw.length);
+    
+    // Only skip if we already have a manual pick or server match
+    if (supplierPick?.id) {
+      console.log('  ❌ Already have supplier pick, skipping auto-select');
+      return;
+    }
+    if (suppliersLoading) {
+      console.log('  ❌ Still loading suppliers, skipping auto-select');
+      return;
+    }
+    const rawSupplier = d.supplier || '';
+    if (!rawSupplier) {
+      console.log('  ❌ No raw supplier, skipping auto-select');
+      return;
+    }
+    const { name } = splitSupplier(rawSupplier);
+    if (!name) {
+      console.log('  ❌ No name from splitSupplier, skipping auto-select');
+      return;
+    }
+    
+    console.log('  🔍 Starting auto-select for:', name);
+    
+    const normalize = (s) => String(s ?? '')
+      .trim().toLowerCase()
+      .replace(/\s+/g, ' ')
+      // Handle common spelling variations
+      .replace(/colours?/g, 'color') // colours/color → color
+      .replace(/centres?/g, 'center') // centre/center → center
+      .replace(/fibres?/g, 'fiber') // fibre/fiber → fiber
+      .replace(/pvt\.?\s*ltd/g, 'pvt ltd') // normalize "Pvt Ltd" spacing
+      .replace(/ltd\.?$/g, 'ltd') // normalize "Ltd." vs "Ltd"
+      .replace(/&/g, 'and') // & vs and
+      .replace(/[^a-z0-9\s]/g, '') // remove punctuation
+      .replace(/\s+/g, ' ').trim();
+    
+    // Strip city from a name for comparison (handles "NAME, CITY" pattern)
+    const stripCity = (s) => {
+      const raw = String(s ?? '').trim();
+      const cityMatch = raw.match(/^(.*?)\s*,\s*[A-Z][A-Za-z\s]+$/);
+      return cityMatch ? cityMatch[1].trim() : raw;
+    };
+    
+    const needle = normalize(name);
+    const needleNoCity = normalize(stripCity(name));
+    console.log('  🎯 Normalized search needle:', needle);
+    console.log('  🎯 Normalized needle (no city):', needleNoCity);
+    
+    // Debug all options
+    console.log('  📋 All available options:');
+    supplierOptionsRaw.forEach((opt, idx) => {
+      const optName = normalize(opt.name || opt.label);
+      const optNameNoCity = normalize(stripCity(opt.name || opt.label));
+      console.log(`    ${idx}: "${opt.name || opt.label}" → "${optName}" (no city: "${optNameNoCity}") (value: ${opt.value}, code: ${opt.code || 'N/A'})`);
+    });
+    
+    // Try exact match first
+    const exact = supplierOptionsRaw.find((opt) => {
+      const optName = normalize(opt.name || opt.label);
+      return optName === needle;
+    });
+    if (exact) {
+      console.log('  ✅ EXACT MATCH FOUND:', exact.name || exact.label, '(value:', exact.value, ')');
+      onSupplierPick({ id: exact.value, name: exact.name || exact.label });
+      return;
+    }
+    
+    // Try exact match with city stripped from both sides
+    const exactNoCity = supplierOptionsRaw.find((opt) => {
+      const optNameNoCity = normalize(stripCity(opt.name || opt.label));
+      return optNameNoCity === needleNoCity;
+    });
+    if (exactNoCity) {
+      console.log('  ✅ EXACT MATCH FOUND (city stripped):', exactNoCity.name || exactNoCity.label, '(value:', exactNoCity.value, ')');
+      onSupplierPick({ id: exactNoCity.value, name: exactNoCity.name || exactNoCity.label });
+      return;
+    }
+    
+    // Also try matching against the code field if available
+    if (supplierOptionsRaw.length > 0 && supplierOptionsRaw[0].code) {
+      const exactCode = supplierOptionsRaw.find((opt) => {
+        const optCode = normalize(opt.code || '');
+        return optCode === needle;
+      });
+      if (exactCode) {
+        console.log('  ✅ EXACT CODE MATCH FOUND:', exactCode.name || exactCode.label, '(code:', exactCode.code, 'value:', exactCode.value, ')');
+        onSupplierPick({ id: exactCode.value, name: exactCode.name || exactCode.label });
+        return;
+      }
+    }
+    
+    // Try contains match - but only if exactly one result
+    const contains = supplierOptionsRaw.filter((opt) => {
+      const optName = normalize(opt.name || opt.label);
+      const optNameNoCity = normalize(stripCity(opt.name || opt.label));
+      return optName.includes(needle) || needle.includes(optName) || optNameNoCity.includes(needleNoCity) || needleNoCity.includes(optNameNoCity);
+    });
+    
+    if (contains.length === 1) {
+      console.log('  ✅ UNIQUE CONTAINS MATCH:', contains[0].name || contains[0].label, '(value:', contains[0].value, ')');
+      onSupplierPick({ id: contains[0].value, name: contains[0].name || contains[0].label });
+      return;
+    }
+    
+    if (contains.length > 1) {
+      console.log('  ⚠️ MULTIPLE MATCHES - not selecting any:');
+      contains.forEach((c, idx) => console.log(`    ${idx}: ${c.name || c.label}`));
+    } else {
+      console.log('  ❌ NO MATCHES FOUND for:', name, '→', needle);
+    }
+  }, [d.supplier, supplierSearch, supplierOptionsRaw, suppliersLoading]); // eslint-disable-line react-hooks/exhaustive-deps
   const unmatched = new Set((row.unmatched || []).map((u) => u.type));
   const hintOf = (key) => {
     if (key === 'itemCode' && row.status === 'new' && !row.itemInMaster && !(key in edits)) return 'not in the Item master - kept as text';
@@ -4729,7 +4976,34 @@ function DetailsCard({
       </Section>
 
       <Section title="Item Info">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{ITEM_INFO.map(field)}</div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {ITEM_INFO.map((f) => {
+            if (f[0] === 'hsn') {
+              return (
+                <div key="hsn">
+                  <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-inkmuted">HSN</label>
+                  <MultiSelect
+                    mode="single"
+                    options={hsnOptions}
+                    loading={hsnLoading}
+                    value={valueOf('hsn')}
+                    onChange={(v) => {
+                      if (v === '__add__') {
+                        window.open('/admin/setting/hsn/add', '_blank');
+                      } else {
+                        onEdit('hsn', v, fieldOf(rec, 'hsn'));
+                      }
+                    }}
+                    onSearch={setHsnSearch}
+                    disabled={busy}
+                    placeholder="Search / Select HSN"
+                  />
+                </div>
+              );
+            }
+            return field(f);
+          })}
+        </div>
       </Section>
 
       <Section title="Price Info">
@@ -4737,7 +5011,55 @@ function DetailsCard({
       </Section>
 
       <Section title="Supplier Details">
-        <div className="grid gap-3 sm:grid-cols-3">{SUPPLIER_INFO.map(field)}</div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          {SUPPLIER_INFO.map((f) => {
+            if (f[0] === 'supplier') {
+              console.log('🖼️ [Supplier Field Render]', { 
+                line: row.line,
+                resolvedSupplierId,
+                supplierDisplayValue,
+                supplierPick,
+                supplierSearch,
+                optionsCount: supplierOptions.length,
+                suppliersLoading,
+                parsed: d.supplier 
+              });
+              return (
+                <div key="supplier">
+                  <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-inkmuted">Supplier</label>
+                  <MultiSelect
+                    mode="single"
+                    options={supplierOptions}
+                    loading={suppliersLoading}
+                    value={supplierDisplayValue}
+                    onChange={(v) => {
+                      console.log('🖱️ [Manual Supplier Select] User selected:', v);
+                      if (v === '__add__') {
+                        console.log('  → Opening add supplier page');
+                        window.open('/admin/contact/supplier/add', '_blank');
+                      } else if (v) {
+                        const opt = supplierOptionsRaw.find((o) => o.value === v);
+                        const pick = { id: v, name: opt?.name || opt?.label || v };
+                        console.log('  → Calling onSupplierPick with:', pick);
+                        onSupplierPick(pick);
+                      } else {
+                        console.log('  → Clearing supplier pick (user cleared field)');
+                        onSupplierPick(null); // operator cleared the field - will fall back to parsed name if available
+                      }
+                    }}
+                    onSearch={(searchValue) => {
+                      console.log('🔍 [Manual Supplier Search] User typed:', searchValue);
+                      setSupplierSearch(searchValue);
+                    }}
+                    disabled={busy}
+                    placeholder="Search / Select Supplier"
+                  />
+                </div>
+              );
+            }
+            return field(f);
+          })}
+        </div>
       </Section>
 
       <Section title="Stock Movements" aside={<span className="text-[11.5px] text-inkmuted">{plural(liveMovements.length, 'row')} - kept as the barcode&apos;s history</span>}>
@@ -4900,60 +5222,6 @@ function DetailsCard({
           </div>
           {field(['stockLocation', 'Location'])}
           {field(['stockPoint', 'Stock Point'])}
-        </div>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          <div>
-            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-inkmuted">SUPPLIER</label>
-            <div className="flex gap-1">
-              <div className="flex-1">
-                <MultiSelect
-                  mode="single"
-                  options={supplierOptions}
-                  loading={suppliersLoading}
-                  value={ssEdits?.get(rowKey)?.supplierId ?? row.values?.supplierId ?? ''}
-                  onChange={(v) => onStockSummaryEdit(rowKey, 'supplierId', v)}
-                  disabled={busy}
-                  placeholder="Search / Select Supplier"
-                />
-              </div>
-              <button
-                type="button"
-                onClick={() => window.open('/admin/contact/supplier/add', '_blank')}
-                disabled={busy}
-                className="btn btn-primary h-[30px] px-2"
-                title="Add new Supplier"
-                aria-label="Add new Supplier"
-              >
-                <Icon name="plus" size={14} />
-              </button>
-            </div>
-          </div>
-          <div>
-            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-inkmuted">HSN</label>
-            <div className="flex gap-1">
-              <div className="flex-1">
-                <MultiSelect
-                  mode="single"
-                  options={hsnOptions}
-                  loading={hsnLoading}
-                  value={ssEdits?.get(rowKey)?.hsnId ?? row.values?.hsnId ?? row.values?.hsn ?? ''}
-                  onChange={(v) => onStockSummaryEdit(rowKey, 'hsnId', v)}
-                  disabled={busy}
-                  placeholder="Search / Select HSN"
-                />
-              </div>
-              <button
-                type="button"
-                onClick={() => window.open('/admin/setting/hsn/add', '_blank')}
-                disabled={busy}
-                className="btn btn-primary h-[30px] px-2"
-                title="Add new HSN"
-                aria-label="Add new HSN"
-              >
-                <Icon name="plus" size={14} />
-              </button>
-            </div>
-          </div>
         </div>
         <div className="mt-3 grid gap-3 sm:grid-cols-3">
           <Field label="Current Qty" value={String(summary.qty ?? 0)} readOnly />

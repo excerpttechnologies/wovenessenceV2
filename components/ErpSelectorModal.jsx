@@ -17,8 +17,8 @@ import Icon from './Icon';
 
 /* fixed destinations, exactly as given */
 export const ERP_BARCODE_REPORTS = [
-  { key: 'v0', label: 'ERP V0', url: 'https://tmplfbrcs654165.orbiteerp.com/reports/barcode-report' },
-  { key: 'v1', label: 'ERP V1', url: 'https://erp.orbiteerp.com/admin/reports/barcode-report' },
+  { key: 'v0', label: 'ERP V1', url: 'https://tmplfbrcs654165.orbiteerp.com/reports/barcode-report' },
+  { key: 'v1', label: 'ERP V2', url: 'https://erp.orbiteerp.com/admin/reports/barcode-report' },
 ];
 
 const hostOf = (url) => { try { return new URL(url).host; } catch { return url; } };

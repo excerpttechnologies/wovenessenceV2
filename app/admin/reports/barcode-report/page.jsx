@@ -205,7 +205,7 @@ function BarcodeReportScreens() {
 
   /* Import - the other ERP's Barcode Report brought in as stock, the way
      Supplier's Import from GST works (components/BarcodeReportImport.jsx);
-     its search button picks ERP V0 or ERP V1 to copy from */
+     its search button picks ERP V1 or ERP V2 to copy from */
   return <ReportView spec={REPORT} toolbar={(api) => <BarcodeReportImport api={api} />} />;
 }
 
