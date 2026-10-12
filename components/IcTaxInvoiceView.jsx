@@ -52,10 +52,15 @@ export default function IcTaxInvoiceView({
      Ack / QR block renders whenever those fields are populated, in either
      mode */
   einvoice = false,
+  /* optional: /api/.../einvoice for this invoice. Given (with einvoice),
+     the toolbar gets Generate IRN / Cancel IRN; left out, nothing changes */
+  einvoiceEndpoint = '',
 }) {
   const router = useRouter();
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
+  /* bumped after an IRN is generated / cancelled to re-read the document */
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     fetch(endpoint || '/api/ic-sales-invoice/' + id + '/print')
@@ -65,7 +70,7 @@ export default function IcTaxInvoiceView({
       })
       .then(setData)
       .catch((e) => setError(e.message));
-  }, [id, endpoint]);
+  }, [id, endpoint, reload]);
 
   if (error) return <div className="card"><div className="card-body text-danger">{error}</div></div>;
   if (!data) return <div className="card"><div className="card-body"><span className="spin" /></div></div>;
@@ -98,8 +103,24 @@ export default function IcTaxInvoiceView({
         </button>
       </div>
 
+      {einvoice && einvoiceEndpoint && (
+        <EinvoicePanel endpoint={einvoiceEndpoint} onChange={() => setReload((n) => n + 1)} />
+      )}
+
       <div className="print-doc mx-auto max-w-[980px] bg-white text-[13px]">
         <div className="mb-1 text-center text-[15px] font-bold">{einvoice ? 'e-Invoice' : 'Tax Invoice'}</div>
+
+        {/* a mock IRN must never pass for a real one - this prints */}
+        {einvoice && invoice.irn && invoice.einvoiceMode === 'mock' && (
+          <div className="mb-1 border border-black px-2 py-1 text-center text-[12px] font-bold">
+            TEST e-INVOICE - MOCK IRN, NOT REGISTERED WITH GST. NOT A VALID TAX DOCUMENT.
+          </div>
+        )}
+        {einvoice && invoice.einvoiceStatus === 'CANCELLED' && (
+          <div className="mb-1 border border-black px-2 py-1 text-center text-[12px] font-bold">
+            IRN CANCELLED
+          </div>
+        )}
 
         <div className="border border-black">
           {/* ------------------------------------------------ letterhead */}
@@ -297,6 +318,165 @@ export default function IcTaxInvoiceView({
         </div>
       </div>
     </>
+  );
+}
+
+/* Screen-only e-Invoice controls above the document: the IRN status, the
+   Generate / Cancel buttons, what the IRP would reject, and the request
+   JSON (handy while testing against the mock). */
+function EinvoicePanel({ endpoint, onChange }) {
+  const [info, setInfo] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [flash, setFlash] = useState(null);
+  const [reason, setReason] = useState('2');
+  const [remark, setRemark] = useState('');
+  const [showJson, setShowJson] = useState(false);
+
+  const read = () => fetch(endpoint, { cache: 'no-store' })
+    .then(async (r) => {
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'Could not load the e-invoice status');
+      setInfo(d);
+    })
+    .catch((e) => setFlash({ type: 'err', msg: e.message }));
+
+  useEffect(() => { read(); }, [endpoint]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function send(body, confirmText) {
+    if (busy) return;
+    if (confirmText && !window.confirm(confirmText)) return;
+    setBusy(true);
+    setFlash(null);
+    try {
+      const r = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const d = await r.json();
+      if (!r.ok) {
+        setFlash({ type: 'err', msg: d.error || 'Request failed', list: d.problems });
+      } else if (body.action === 'cancel') {
+        setFlash({ type: 'ok', msg: 'IRN cancelled.' });
+      } else {
+        setFlash({
+          type: 'ok',
+          msg: d.already ? 'This invoice already has an IRN.' : 'IRN generated' + (d.mode === 'mock' ? ' (MOCK - test only).' : '.'),
+          list: d.warnings?.length ? ['The real IRP would reject this invoice until these are fixed:', ...d.warnings] : null,
+        });
+      }
+    } catch {
+      setFlash({ type: 'err', msg: 'Could not reach the server.' });
+    } finally {
+      setBusy(false);
+      read();
+      onChange();
+    }
+  }
+
+  if (!info) {
+    return flash
+      ? <div className="no-print mb-3 flash flash-err">{flash.msg}</div>
+      : null;
+  }
+
+  const e = info.einvoice;
+  const generated = e?.status === 'GENERATED';
+  const modeLabel = info.mode === 'mock' ? 'MOCK (test, no GST portal)' : info.mode.toUpperCase();
+
+  return (
+    <div className="no-print mx-auto mb-3 max-w-[980px] rounded border border-line bg-white p-3 text-[13px]">
+      <div className="flex flex-wrap items-center gap-3">
+        <b>e-Invoice (IRN)</b>
+        <span className="rounded bg-[#eef2f7] px-2 py-0.5 text-[11.5px] font-semibold">Mode: {modeLabel}</span>
+        <span className="rounded bg-[#eef2f7] px-2 py-0.5 text-[11.5px] font-semibold">
+          Status: {e?.status || 'NOT GENERATED'}{e?.mode && e.mode !== info.mode ? ' (' + e.mode + ')' : ''}
+        </span>
+        <span className="flex-1" />
+        {!generated && (
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={busy}
+            onClick={() => send(
+              { action: 'generate' },
+              info.mode === 'mock' ? '' : 'Register this invoice on the ' + info.mode.toUpperCase() + ' IRP?'
+            )}
+          >
+            {busy ? <span className="spin" /> : <Icon name="file" size={14} />} Generate IRN
+          </button>
+        )}
+        <button type="button" className="btn" onClick={() => setShowJson((v) => !v)}>
+          {showJson ? 'Hide' : 'Show'} request JSON
+        </button>
+      </div>
+
+      {e?.irn && (
+        <div className="mt-2 break-all text-[12px]">
+          IRN {e.irn} &middot; Ack {e.ackNo}
+          {e.generatedBy ? ' · by ' + e.generatedBy : ''}
+          {e.status === 'CANCELLED' && e.cancelReason ? ' · cancelled: ' + e.cancelReason : ''}
+        </div>
+      )}
+      {e?.status === 'FAILED' && e.error && (
+        <div className="mt-2 text-danger">Last attempt failed: {e.error}</div>
+      )}
+
+      {generated && e.cancellable && (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <span>Cancel IRN (allowed within 24 h):</span>
+          <select className="f-input !w-auto" value={reason} onChange={(ev) => setReason(ev.target.value)}>
+            <option value="1">Duplicate</option>
+            <option value="2">Data entry mistake</option>
+            <option value="3">Order cancelled</option>
+            <option value="4">Others</option>
+          </select>
+          <input
+            className="f-input !w-[260px]"
+            placeholder="Remark"
+            maxLength={100}
+            value={remark}
+            onChange={(ev) => setRemark(ev.target.value)}
+          />
+          <button
+            type="button"
+            className="btn"
+            disabled={busy}
+            onClick={() => send(
+              { action: 'cancel', reason: Number(reason), remark },
+              'Cancel this IRN? The invoice itself stays as it is.'
+            )}
+          >
+            Cancel IRN
+          </button>
+        </div>
+      )}
+
+      {!generated && info.problems?.length > 0 && (
+        <div className="mt-2 text-[12px] text-warnyellow">
+          <b>The real IRP would reject this invoice until these are fixed</b>
+          {info.mode === 'mock' ? ' (the mock will still generate):' : ':'}
+          <ul className="ml-5 list-disc">
+            {info.problems.map((p) => <li key={p}>{p}</li>)}
+          </ul>
+        </div>
+      )}
+
+      {flash && (
+        <div className={'mt-2 flash ' + (flash.type === 'err' ? 'flash-err' : 'flash-ok')}>
+          {flash.msg}
+          {flash.list?.length > 0 && (
+            <ul className="ml-5 list-disc">{flash.list.map((p) => <li key={p}>{p}</li>)}</ul>
+          )}
+        </div>
+      )}
+
+      {showJson && (
+        <pre className="mt-2 max-h-[360px] overflow-auto rounded bg-[#f6f8fa] p-2 text-[11.5px]">
+          {JSON.stringify(info.payload, null, 2)}
+        </pre>
+      )}
+    </div>
   );
 }
 

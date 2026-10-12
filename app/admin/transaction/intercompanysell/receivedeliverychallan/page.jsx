@@ -160,7 +160,7 @@ export default function ReceiveDeliveryChallanPage() {
      are travelling. */
   const weSent = (row) => String(row.businessId) === String(scope.business);
   const other = (row) => (weSent(row)
-    ? { businessId: row.toBusinessId, locationId: row.toLocationId, way: 'coming back to us' }
+    ? { businessId: row.toBusinessId, locationId: row.toLocationId, way: '' }
     : { businessId: row.businessId, locationId: row.locationId, way: 'we returned' });
   /* what may still be REQUESTED: the physical remainder, less what is
      already sitting in a pending request awaiting the sender (the two-step

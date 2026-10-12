@@ -54,6 +54,15 @@ const IcItemInvoiceSchema = new mongoose.Schema(
     netValue: { type: Number, default: 0 },
 
     createdBy: { type: String, default: '' },
+
+    /* GST e-Invoice registration (lib/einvoice, /api/ic-item-invoice/<id>/einvoice).
+       Empty until "Generate IRN" is pressed on the Print E-Invoice page.
+       { status: 'PENDING' | 'GENERATED' | 'CANCELLED' | 'FAILED',
+         mode: 'mock' | 'sandbox' | 'live',
+         irn, ackNo, ackDate, signedQrCode, signedInvoice, request,
+         generatedAt, generatedBy, error,
+         cancelledAt, cancelledBy, cancelReason, cancelRemark } */
+    einvoice: { type: mongoose.Schema.Types.Mixed, default: null },
   },
   { timestamps: true }
 );
