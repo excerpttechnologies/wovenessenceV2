@@ -91,6 +91,7 @@
   },
   "dependencies": {
     "fs": "^0.0.1-security",
+    "html2pdf.js": "^0.14.0",
     "html5-qrcode": "^2.3.8",
     "jsbarcode": "^3.12.3",
     "lucide-react": "^1.33.0",

@@ -39,6 +39,7 @@ import { useScope } from '@/components/ScopeContext';
 import PurchaseInvoicePrintView from '@/components/PurchaseInvoicePrintView';
 import { encodedBarcodeValue } from '@/lib/barcodeValue';
 import { grcTotals, grcMoney, rowQty, rowTaxable, rowGst, rowNet } from '@/lib/grcMoney';
+import html2pdf from 'html2pdf.js';
 
 const fields = FORM.cards.flatMap((card) => card.fields || []);
 const number = (value) => Number(value) || 0;
@@ -176,22 +177,38 @@ export default function EditTransactionPurchaseGrcPage() {
     }
   }
 
-  async function downloadInvoiceHtml(invoiceId) {
+  async function downloadInvoicePdf(invoiceId) {
     try {
-      const response = await fetch(`/api/purchase-invoice/${invoiceId}/download`);
-      if (!response.ok) throw new Error('Download failed');
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `PurchaseInvoice_${data.grcNumber || invoiceId}.html`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
+      // First open the modal to render the invoice
+      setShowInvoice(true);
+      
+      // Wait for the modal to render and data to load
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Find the invoice element
+      const element = document.querySelector('.print-doc');
+      if (!element) {
+        throw new Error('Invoice element not found');
+      }
+      
+      // Configure html2pdf options
+      const opt = {
+        margin: 10,
+        filename: `PurchaseInvoice_${data.grcNumber || invoiceId}.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      };
+      
+      // Generate PDF
+      await html2pdf().set(opt).from(element).save();
+      
+      // Close the modal after download
+      setShowInvoice(false);
     } catch (error) {
-      console.error('Download failed:', error);
-      alert('Failed to download invoice. Please try again.');
+      console.error('PDF download failed:', error);
+      alert('Failed to download PDF. Please try again.');
+      setShowInvoice(false);
     }
   }
 
@@ -346,7 +363,7 @@ export default function EditTransactionPurchaseGrcPage() {
             <button type="button" className="btn bg-[#198754] text-white" onClick={generatePurchaseInvoice} disabled={Boolean(invoiceId)}>Generate Purchase Invoice</button>
             {invoiceId && <button type="button" className="btn" onClick={() => setShowInvoice(true)}>View Purchase Invoice</button>}
             {invoiceId && <button type="button" className="btn" onClick={() => { setShowInvoice(true); setTimeout(() => window.print(), 500); }}>Print Purchase Invoice</button>}
-            {invoiceId && <button type="button" className="btn" onClick={() => downloadInvoiceHtml(invoiceId)}>Download Purchase Invoice (HTML)</button>}
+            {invoiceId && <button type="button" className="btn" onClick={() => downloadInvoicePdf(invoiceId)}>Download Purchase Invoice (PDF)</button>}
             <button type="button" className="btn bg-[#10bddd] text-white" onClick={submit} disabled={saving}>{saving ? 'Saving...' : 'Submit GRC'}</button>
           </div>
         </div>

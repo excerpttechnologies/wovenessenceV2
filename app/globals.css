@@ -964,6 +964,12 @@ html {
   }
 }
 
+/* For html2pdf.js - ensure the invoice is visible when captured */
+.print-doc {
+  background: white;
+  color: black;
+}
+
 /* ==========================================================================
    THE LIST PREVIEW MODAL, ON PAPER.
 
