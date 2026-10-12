@@ -3,9 +3,9 @@
    without affecting existing data. Run: node scripts/addTscTe310Format.js */
 
 import mongoose from 'mongoose';
-import { loadEnv } from '../lib/loadEnv.js';
+import { config } from 'dotenv';
 
-loadEnv();
+config();
 
 const URI = process.env.MONGODB_URI;
 if (!URI) {

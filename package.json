@@ -90,6 +90,7 @@
     "ic:receive-pending:apply": "node --env-file=.env --import ./scripts/aliasRegister.mjs scripts/receivePendingIcChallans.mjs --apply"
   },
   "dependencies": {
+    "dotenv": "^18.0.7",
     "fs": "^0.0.1-security",
     "html2pdf.js": "^0.14.0",
     "html5-qrcode": "^2.3.8",
