@@ -176,7 +176,7 @@ export default function EditTransactionPurchaseGrcPage() {
     }
   }
 
-  async function downloadInvoicePdf(invoiceId) {
+  async function downloadInvoiceHtml(invoiceId) {
     try {
       const response = await fetch(`/api/purchase-invoice/${invoiceId}/download`);
       if (!response.ok) throw new Error('Download failed');
@@ -184,7 +184,7 @@ export default function EditTransactionPurchaseGrcPage() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `PurchaseInvoice_${data.grcNumber || invoiceId}.pdf`;
+      a.download = `PurchaseInvoice_${data.grcNumber || invoiceId}.html`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -345,8 +345,8 @@ export default function EditTransactionPurchaseGrcPage() {
           <div className="flex flex-wrap justify-end gap-2 px-4 py-3">
             <button type="button" className="btn bg-[#198754] text-white" onClick={generatePurchaseInvoice} disabled={Boolean(invoiceId)}>Generate Purchase Invoice</button>
             {invoiceId && <button type="button" className="btn" onClick={() => setShowInvoice(true)}>View Purchase Invoice</button>}
-            {invoiceId && <button type="button" className="btn" onClick={() => { setShowInvoice(true); }}>Print Purchase Invoice</button>}
-            {invoiceId && <button type="button" className="btn" onClick={() => downloadInvoicePdf(invoiceId)}>Download Purchase Invoice (PDF)</button>}
+            {invoiceId && <button type="button" className="btn" onClick={() => { setShowInvoice(true); setTimeout(() => window.print(), 500); }}>Print Purchase Invoice</button>}
+            {invoiceId && <button type="button" className="btn" onClick={() => downloadInvoiceHtml(invoiceId)}>Download Purchase Invoice (HTML)</button>}
             <button type="button" className="btn bg-[#10bddd] text-white" onClick={submit} disabled={saving}>{saving ? 'Saving...' : 'Submit GRC'}</button>
           </div>
         </div>
