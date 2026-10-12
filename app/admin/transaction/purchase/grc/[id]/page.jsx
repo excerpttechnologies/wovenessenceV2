@@ -176,6 +176,25 @@ export default function EditTransactionPurchaseGrcPage() {
     }
   }
 
+  async function downloadInvoiceHtml(invoiceId) {
+    try {
+      const response = await fetch(`/api/purchase-invoice/${invoiceId}/download`);
+      if (!response.ok) throw new Error('Download failed');
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `PurchaseInvoice_${data.grcNumber || invoiceId}.html`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Download failed:', error);
+      alert('Failed to download invoice. Please try again.');
+    }
+  }
+
   if (!data.grcNumber && !status) return <div className="p-6 text-sm text-slate-500">Loading...</div>;
 
   return (
@@ -326,7 +345,8 @@ export default function EditTransactionPurchaseGrcPage() {
           <div className="flex flex-wrap justify-end gap-2 px-4 py-3">
             <button type="button" className="btn bg-[#198754] text-white" onClick={generatePurchaseInvoice} disabled={Boolean(invoiceId)}>Generate Purchase Invoice</button>
             {invoiceId && <button type="button" className="btn" onClick={() => setShowInvoice(true)}>View Purchase Invoice</button>}
-            {invoiceId && <button type="button" className="btn" onClick={() => { setShowInvoice(true); setTimeout(() => window.print(), 250); }}>Download Purchase Invoice</button>}
+            {invoiceId && <button type="button" className="btn" onClick={() => { setShowInvoice(true); }}>Print Purchase Invoice</button>}
+            {invoiceId && <button type="button" className="btn" onClick={() => downloadInvoiceHtml(invoiceId)}>Download Purchase Invoice (HTML)</button>}
             <button type="button" className="btn bg-[#10bddd] text-white" onClick={submit} disabled={saving}>{saving ? 'Saving...' : 'Submit GRC'}</button>
           </div>
         </div>

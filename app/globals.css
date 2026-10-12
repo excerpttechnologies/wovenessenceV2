@@ -894,14 +894,41 @@ html {
   }
 }
 
-/* Printable documents (GRC Print, barcode preview).
+/* Printable documents (GRC Print, barcode preview, purchase invoice).
    At print time only .print-doc survives: the sidebar, top bar and the
    Print / Back buttons are dropped so the paper output is just the document. */
 @media print {
+  @page {
+    size: A4;
+    margin: 10mm;
+  }
   body * { visibility: hidden; }
   .print-doc, .print-doc * { visibility: visible; }
   .print-doc { position: absolute; inset: 0; margin: 0; width: 100%; border: 0; }
   .no-print { display: none !important; }
+  
+  /* Ensure invoice tables print correctly */
+  .prn-tbl {
+    width: 100% !important;
+    font-size: 11px !important;
+    table-layout: fixed;
+  }
+  .prn-tbl th, .prn-tbl td {
+    padding: 4px 6px !important;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  
+  /* Prevent page breaks inside important sections */
+  .print-doc > div > div {
+    break-inside: avoid;
+  }
+  
+  /* Ensure HSN summary and totals stay together */
+  .print-doc .grid {
+    break-inside: avoid;
+  }
 }
 
 /* ==========================================================================
