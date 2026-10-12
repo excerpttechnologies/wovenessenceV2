@@ -6,10 +6,10 @@ import { Supplier } from '@/lib/contacts';
 import PurchaseTerm from '@/models/PurchaseTerm';
 import { requireSession } from '@/lib/session';
 import { amountInWords } from '@/lib/amountWords';
+import puppeteer from 'puppeteer';
 
 /* /api/purchase-invoice/<id>/download
-   Downloads the purchase invoice as a standalone HTML file that can be
-   printed or saved as PDF. */
+   Downloads the purchase invoice as a PDF using Puppeteer. */
 
 const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 const money = (v) => num(v).toFixed(2);
@@ -150,7 +150,7 @@ export async function GET(req, { params }) {
     .supplier-info .gstin { font-weight: bold; }
     .meta-info p { margin: 5px 0; }
     .meta-info b { font-weight: bold; }
-    .invoice-table { border: 1px solid #000; border-top: none; padding: 15px; }
+    .invoice-table { border: 1px solid #000; border-top: none; border-bottom: none; padding: 15px; }
     table { width: 100%; border-collapse: collapse; margin-top: 10px; }
     th, td { border: 1px solid #000; padding: 8px; text-align: center; }
     th { background-color: #f4f4f4; font-weight: bold; }
@@ -168,6 +168,10 @@ export async function GET(req, { params }) {
     @media print {
       body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .invoice-container { max-width: 100%; padding: 0; }
+    }
+    @page {
+      size: A4 portrait;
+      margin: 10mm;
     }
   </style>
 </head>
@@ -310,10 +314,40 @@ export async function GET(req, { params }) {
 </body>
 </html>`;
 
-  return new Response(html, {
-    headers: {
-      'Content-Type': 'text/html; charset=utf-8',
-      'Content-Disposition': `attachment; filename="PurchaseInvoice_${invoice.purchaseInvoiceNo || inv.grcNumber || id}.html"`,
-    },
-  });
+  // Generate PDF using Puppeteer
+  let browser;
+  try {
+    browser = await puppeteer.launch({
+      headless: 'new',
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    });
+    const page = await browser.newPage();
+    
+    await page.setContent(html, { waitUntil: 'networkidle0' });
+    
+    const pdfBuffer = await page.pdf({
+      format: 'A4',
+      margin: {
+        top: '10mm',
+        right: '10mm',
+        bottom: '10mm',
+        left: '10mm',
+      },
+      printBackground: true,
+      preferCSSPageSize: true,
+    });
+    
+    await browser.close();
+    
+    return new Response(pdfBuffer, {
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="PurchaseInvoice_${invoice.purchaseInvoiceNo || inv.grcNumber || id}.pdf"`,
+      },
+    });
+  } catch (error) {
+    if (browser) await browser.close();
+    console.error('PDF generation error:', error);
+    return Response.json({ error: 'Failed to generate PDF: ' + error.message }, { status: 500 });
+  }
 }

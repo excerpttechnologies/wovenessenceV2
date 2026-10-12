@@ -899,12 +899,30 @@ html {
    Print / Back buttons are dropped so the paper output is just the document. */
 @media print {
   @page {
-    size: A4;
+    size: A4 portrait;
     margin: 10mm;
   }
-  body * { visibility: hidden; }
-  .print-doc, .print-doc * { visibility: visible; }
-  .print-doc { position: absolute; inset: 0; margin: 0; width: 100%; border: 0; }
+  
+  /* Hide everything except print-doc */
+  body > *:not(.print-doc) {
+    display: none !important;
+  }
+  
+  .print-doc {
+    display: block !important;
+    visibility: visible !important;
+    position: static !important;
+    inset: auto !important;
+    margin: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    border: none !important;
+  }
+  
+  .print-doc * {
+    visibility: visible !important;
+  }
+  
   .no-print { display: none !important; }
   
   /* Ensure invoice tables print correctly */
@@ -921,12 +939,27 @@ html {
   }
   
   /* Prevent page breaks inside important sections */
-  .print-doc > div > div {
+  .print-doc > div {
+    break-inside: avoid;
+  }
+  
+  /* Allow table to paginate naturally */
+  .prn-tbl {
+    break-inside: auto;
+  }
+  
+  /* Prevent row breaks */
+  .prn-tbl tr {
     break-inside: avoid;
   }
   
   /* Ensure HSN summary and totals stay together */
   .print-doc .grid {
+    break-inside: avoid;
+  }
+  
+  /* Keep footer together */
+  .print-doc .footer {
     break-inside: avoid;
   }
 }
