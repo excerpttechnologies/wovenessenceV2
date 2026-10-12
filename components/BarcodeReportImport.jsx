@@ -4761,7 +4761,6 @@ function DetailsCard({
     console.log('  - row.links?.supplierId:', row.links?.supplierId);
     console.log('  - supplierDisplayValue:', supplierDisplayValue);
   }, [resolvedSupplierId, supplierPick, supplierDisplayValue]);
-  const { options: hsnOptionsRaw, loading: hsnLoading } = useOptions('hsn', hsnSearch);
   
   /* If we have a resolved supplier ID that's not in the current options (e.g., 
      due to search filtering), add it to the options so the MultiSelect can display 
