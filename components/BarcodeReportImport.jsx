@@ -3075,7 +3075,7 @@
 
 
 'use client';
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState, useEffect, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import Icon from './Icon';
 import MultiSelect from './MultiSelect';
@@ -4717,10 +4717,10 @@ function DetailsCard({
   const resolvedSupplierId = supplierPick?.id
     || (row.links?.supplierId ? String(row.links.supplierId) : '');
   
-  /* The display value: either the resolved ID (for the dropdown to select),
-     or the parsed supplier name as a fallback so the field shows something.
-     This ensures the parsed supplier name is visible even before options load. */
-  const supplierDisplayValue = resolvedSupplierId || supplierSearch;
+  /* The display value: show the supplier name from supplierPick if available,
+     otherwise use the parsed supplier name. This ensures the name is displayed
+     instead of the ID. The value prop for MultiSelect will still be the ID. */
+  const supplierDisplayValue = supplierPick?.name || supplierSearch;
 
   /* Seed the search from the parsed supplier name (city already stripped by
      the parser via splitSupplier at parse time). Re-run whenever the parsed
@@ -4762,9 +4762,30 @@ function DetailsCard({
     console.log('  - supplierDisplayValue:', supplierDisplayValue);
   }, [resolvedSupplierId, supplierPick, supplierDisplayValue]);
   const { options: hsnOptionsRaw, loading: hsnLoading } = useOptions('hsn', hsnSearch);
-  const supplierOptions = supplierSearch.trim() && supplierOptionsRaw.length === 0 && !suppliersLoading
-    ? [{ value: '__add__', label: `Add Supplier "${supplierSearch}"`, addCustomer: true }]
-    : supplierOptionsRaw;
+  
+  /* If we have a resolved supplier ID that's not in the current options (e.g., 
+     due to search filtering), add it to the options so the MultiSelect can display 
+     the name instead of the ID. */
+  const supplierOptions = useMemo(() => {
+    let opts = supplierOptionsRaw;
+    
+    // If we have a resolved supplier ID and it's not in the current options, add it
+    if (resolvedSupplierId && !opts.find((o) => o.value === resolvedSupplierId)) {
+      const nameToUse = supplierPick?.name || supplierSearch || d.supplier || 'Unknown Supplier';
+      opts = [...opts, { value: resolvedSupplierId, label: nameToUse }];
+    }
+    
+    // Add "Add Supplier" option if needed
+    if (supplierSearch.trim() && opts.length === 0 && !suppliersLoading) {
+      opts = [{ value: '__add__', label: `Add Supplier "${supplierSearch}"`, addCustomer: true }];
+    }
+    
+    return opts;
+  }, [supplierOptionsRaw, resolvedSupplierId, supplierPick, supplierSearch, d.supplier, suppliersLoading]);
+  
+  const { options: hsnOptionsRaw, loading: hsnLoading } = useOptions('hsn', hsnSearch);
+  
+  /* HSN options with "Add HSN" option when needed. */
   const hsnOptions = hsnSearch.trim() && hsnOptionsRaw.length === 0 && !hsnLoading
     ? [{ value: '__add__', label: `Add HSN "${hsnSearch}"`, addCustomer: true }]
     : hsnOptionsRaw;
@@ -5031,7 +5052,7 @@ function DetailsCard({
                     mode="single"
                     options={supplierOptions}
                     loading={suppliersLoading}
-                    value={supplierDisplayValue}
+                    value={resolvedSupplierId}
                     onChange={(v) => {
                       console.log('🖱️ [Manual Supplier Select] User selected:', v);
                       if (v === '__add__') {
