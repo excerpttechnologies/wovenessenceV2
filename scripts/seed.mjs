@@ -203,6 +203,7 @@ const LABELS = [
   ['SAS 50 x 25mm', 'Sheet Size: 50mm x 25mm, Label Size: 50mm x 25", Labels per sheet: 1', '50 x 25 mm', '50 x 25 mm', 1],
   ['BGS V2 100 X 25 mm', 'Sheet Size: 100mm x 25mm, Label Size: 50mm x 25", Labels per sheet: 2', '100 x 25 mm', '50 x 25 mm', 2],
   ['KVC 50 x 25', 'Sheet Size: 50mm x 25mm, Label Size: 50mm x 25", Labels per sheet: 1', '50 x 25 mm', '50 x 25 mm', 1],
+  ['TSC TE310 104x40', 'Sheet Size: 104mm x 40mm, Label Size: 104mm x 40mm", Labels per sheet: 1', '104 x 40 mm', '104 x 40 mm', 1],
 ];
 
 const LAYOUTS = [

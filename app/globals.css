@@ -1297,6 +1297,19 @@ html {
     page-break-inside: avoid;
   }
 
+  /* For single-label printers like TSC TE310 (104mm x 40mm), ensure the
+     page size is correctly set when using label stock. The @page rule
+     injected by the component handles this, but we ensure no conflicting
+     styles override it. */
+  body.printing-labels {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  body.printing-labels #barcode-print-root {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
   /* CODE128 bars are SVG <rect fill="#000">, never a CSS background, so they
      survive Chrome's default "Background graphics: off". This keeps them
      solid black rather than dithered grey, which is what a scanner needs. */
