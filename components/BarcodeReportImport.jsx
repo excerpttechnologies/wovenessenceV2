@@ -4784,8 +4784,6 @@ function DetailsCard({
   }, [supplierOptionsRaw, resolvedSupplierId, supplierPick, supplierSearch, d.supplier, suppliersLoading]);
   
   const { options: hsnOptionsRaw, loading: hsnLoading } = useOptions('hsn', hsnSearch);
-  
-  /* HSN options with "Add HSN" option when needed. */
   const hsnOptions = hsnSearch.trim() && hsnOptionsRaw.length === 0 && !hsnLoading
     ? [{ value: '__add__', label: `Add HSN "${hsnSearch}"`, addCustomer: true }]
     : hsnOptionsRaw;
