@@ -1,5 +1,23 @@
 # Changes
 
+## 09-10-2026
+
+### NEW
+
+- lib/einvoice/payload.js
+- lib/einvoice/provider.js
+- app/api/ic-item-invoice/[id]/einvoice/route.js
+- E-invoice.md
+
+### EXISTING
+
+- models/IcItemInvoice.js
+- app/api/ic-item-invoice/[id]/print/route.js
+- components/IcTaxInvoiceView.jsx
+- app/admin/transaction/intercompanysell/sales-invoice/print/[id]/page.jsx
+- package.json
+- package-lock.json
+
 ## 06-10-2026
 
 ### EXISTING

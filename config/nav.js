@@ -487,7 +487,7 @@ export const NAV = [
         href: '/admin/transaction/intercompanysell/sales-invoice' },
       /* the returns of IC challans, moved out of Receive Delivery
          Challan's Returns tab onto a page of their own */
-      { label: 'Consignment', icon: LuUndo2,
+      { label: 'Return Approval', icon: LuUndo2,
         href: '/admin/transaction/intercompanysell/consignment' },
       // { label: 'Sales Invoice', icon: LuFileText,
       //   href: '/admin/transaction/intercompanysell/salesinvoice' },

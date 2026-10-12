@@ -10,12 +10,15 @@ export default function IcItemInvoicePrintPage({ params, searchParams }) {
   const { id } = use(params);
   /* ?einv=1 prints the same document under the e-Invoice heading */
   const sp = use(searchParams);
+  const einv = sp?.einv === '1';
   return (
     <IcTaxInvoiceView
       id={id}
-      endpoint={'/api/ic-item-invoice/' + id + '/print'}
+      /* ?einv=1 also returns the IRN / Ack / QR once one is generated */
+      endpoint={'/api/ic-item-invoice/' + id + '/print' + (einv ? '?einv=1' : '')}
       backHref="/admin/transaction/intercompanysell/sales-invoice"
-      einvoice={sp?.einv === '1'}
+      einvoice={einv}
+      einvoiceEndpoint={einv ? '/api/ic-item-invoice/' + id + '/einvoice' : ''}
     />
   );
 }

@@ -1,3 +1,4 @@
+import QRCode from 'qrcode';
 import dbConnect from '@/lib/db';
 import IcItemInvoice from '@/models/IcItemInvoice';
 import Business from '@/models/Business';
@@ -64,16 +65,39 @@ export async function GET(req, { params }) {
       zipCode: buyer?.zipCode || '',
       mobile: buyer?.mobile || '',
     },
-    /* no IRP integration on this flow - the e-invoice lines simply do not
+    /* the IRN block is filled only for the e-Invoice print (?einv=1) and
+       only once an IRN is GENERATED (lib/einvoice); the plain Print keeps
+       printing exactly as before - the e-invoice lines simply do not
        render when these are empty */
     invoice: {
       invoiceNo: inv.invoiceNo,
       invoiceDate: inv.invoiceDate,
-      irn: '',
-      ackNo: '',
-      ackDate: null,
-      qrCode: '',
+      ...(await irnBlock(req, inv)),
     },
     items: Array.isArray(inv.items) ? inv.items : [],
   });
+}
+
+async function irnBlock(req, inv) {
+  const blank = { irn: '', ackNo: '', ackDate: null, qrCode: '' };
+  if (new URL(req.url).searchParams.get('einv') !== '1') return blank;
+
+  /* raw read - see app/api/ic-item-invoice/[id]/einvoice/route.js */
+  const raw = await IcItemInvoice.collection.findOne({ _id: inv._id }, { projection: { einvoice: 1 } });
+  const e = raw?.einvoice;
+  const state = { einvoiceStatus: e?.status || '', einvoiceMode: e?.mode || '' };
+  if (!e || e.status !== 'GENERATED') return { ...blank, ...state };
+
+  /* the IRP's signed QR string drawn as an image - error level M is what
+     printed e-invoices commonly use */
+  const qrCode = e.signedQrCode
+    ? await QRCode.toDataURL(e.signedQrCode, { errorCorrectionLevel: 'M', margin: 1, width: 220 }).catch(() => '')
+    : '';
+  return {
+    irn: e.irn || '',
+    ackNo: e.ackNo || '',
+    ackDate: e.ackDate || null,
+    qrCode,
+    ...state,
+  };
 }

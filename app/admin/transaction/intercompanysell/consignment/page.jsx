@@ -68,7 +68,7 @@ export default function IcConsignmentPage() {
      party is and which way the goods travel */
   const weSent = (row) => String(row.businessId) === String(scope.business);
   const other = (row) => (weSent(row)
-    ? { businessId: row.toBusinessId, locationId: row.toLocationId, way: 'coming back to us' }
+    ? { businessId: row.toBusinessId, locationId: row.toLocationId, way: '' }
     : { businessId: row.businessId, locationId: row.locationId, way: 'we returned' });
 
   const returnedOf = (row) => (row.returns || []).reduce(
@@ -159,7 +159,7 @@ export default function IcConsignmentPage() {
                 <td>
                   {label(other(row).businessId)}
                   <div className={'text-[11px] ' + (weSent(row) ? 'text-danger' : 'text-inkmuted')}>
-                    {weSent(row) ? 'they want to send back' : 'our request'}
+                    {weSent(row) ? '' : ''}
                   </div>
                 </td>
                 <td>{row.dcNo || '-'}</td>
