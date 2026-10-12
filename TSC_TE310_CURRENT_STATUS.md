@@ -3,20 +3,23 @@
 ## Current Implementation Status
 
 ### ✅ Completed
-1. **TSC TE310 format added to database** - 104mm × 40mm, 1 label per sheet
-2. **Barcode label catalog system** - Dynamic format selection from database
-3. **Label stock printing support** - Can print to actual label dimensions
-4. **Print CSS configured** - Supports dynamic @page rules for label stock
-5. **Print surface portaled to body** - Avoids application layout interference
-6. **Enhanced print CSS** - Improved isolation and page break controls for TSC TE310
+1. **All barcode label formats seeded to database** - 14 formats including TSC TE310
+2. **TSC TE310 format added** - 104mm × 40mm, 1 label per sheet
+3. **Barcode label catalog system** - Dynamic format selection from database
+4. **Label stock printing support** - Can print to actual label dimensions
+5. **Print CSS configured** - Supports dynamic @page rules for label stock
+6. **Print surface portaled to body** - Avoids application layout interference
+7. **Enhanced print CSS** - Improved isolation and page break controls for TSC TE310
 
 ### 📋 Database Status
-The TSC TE310 format has been successfully added to the barcode label catalog:
-- **Name:** TSC TE310 104x40
-- **Page Size:** 104 x 40 mm
-- **Label Size:** 104 x 40 mm
-- **Labels per sheet:** 1
-- **Sort order:** 13
+All barcode label formats have been successfully seeded to the barcode label catalog:
+- **TSC TE310 104x40:** 104 x 40 mm page size, 104 x 40 mm label size, 1 label per sheet
+- **Plus 13 other formats:** Various sizes from 38x25mm to 100x50mm
+
+**Note:** If the Label dropdown shows "Default 50 x 40 mm" instead of format names, run:
+```bash
+node scripts/seedBarcodeLabels.js
+```
 
 ## How to Print with TSC TE310
 
