@@ -1370,10 +1370,25 @@ html {
   body.printing-labels {
     margin: 0 !important;
     padding: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    overflow: visible !important;
   }
   body.printing-labels #barcode-print-root {
     margin: 0 !important;
     padding: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    position: static !important;
+  }
+  
+  /* Ensure the barcode print root uses the full page for label stock */
+  body.printing-labels > *:not(#barcode-print-root) {
+    display: none !important;
+  }
+  
+  body.printing-labels #barcode-print-root {
+    display: block !important;
   }
 
   /* CODE128 bars are SVG <rect fill="#000">, never a CSS background, so they
@@ -1383,6 +1398,13 @@ html {
   #barcode-print-root svg * {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
+  }
+  
+  /* For TSC TE310 specifically, ensure no page breaks within a label */
+  body.printing-labels .barcode-label {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    page-break-after: always !important;
   }
 }
 

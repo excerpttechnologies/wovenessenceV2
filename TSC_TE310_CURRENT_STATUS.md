@@ -8,6 +8,7 @@
 3. **Label stock printing support** - Can print to actual label dimensions
 4. **Print CSS configured** - Supports dynamic @page rules for label stock
 5. **Print surface portaled to body** - Avoids application layout interference
+6. **Enhanced print CSS** - Improved isolation and page break controls for TSC TE310
 
 ### 📋 Database Status
 The TSC TE310 format has been successfully added to the barcode label catalog:
@@ -35,20 +36,22 @@ The TSC TE310 format has been successfully added to the barcode label catalog:
 - It injects the correct `@page { size: 104mm 40mm; margin: 0; }` CSS rule
 - "A4 sheet" will use A4 page size (210mm × 297mm) which will make the label appear small
 
-### Step 3: Chrome Print Dialog Settings
-When the print dialog opens:
+### Step 3: Chrome Print Dialog Settings (Manual Configuration Required)
+**Important:** Web applications cannot programmatically control Chrome print dialog settings due to browser security restrictions. You must manually configure these settings each time you print:
 
 1. **Destination:** Select "TSC TE310" (or your printer name)
 2. **Paper Size:** Should show "104mm × 40mm" or "Custom"
    - If not available, create a custom paper size in printer preferences (see below)
 3. **Layout:** Portrait or Landscape (the system handles orientation)
-4. **Margins:** None (0 mm)
+4. **Margins:** None (0 mm) - Click "More settings" to access this
 5. **Scale:** 100% (Default / Actual size)
-6. **Background graphics:** Enabled
-7. **Headers and footers:** Disabled (uncheck)
+6. **Background graphics:** Enabled - Click "More settings" to access this
+7. **Headers and footers:** Disabled (uncheck) - Click "More settings" to access this
 8. **Pages per sheet:** 1
 
-## TSC TE310 Printer Driver Configuration
+**Tip:** Chrome should remember these settings for the TSC TE310 printer once configured.
+
+## TSC TE310 Printer Driver Configuration (One-Time Setup)
 
 ### Windows Printer Setup
 
