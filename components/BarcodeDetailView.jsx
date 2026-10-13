@@ -597,6 +597,11 @@ function Cell({ label, value, wide = false, editing = false, type = 'text', onCh
 function DropdownCell({ label, value, editing, optionsRef, selectedId, onChange, bold = false }) {
   const { options, loading } = useOptions(optionsRef, '', editing);
   
+  // Find the matching option to ensure the selectedId is valid
+  const validSelectedId = selectedId && options.length > 0 
+    ? (options.find(opt => String(opt.value) === String(selectedId))?.value || '') 
+    : selectedId || '';
+  
   return (
     <div className="px-4 py-3">
       <div className="text-[11px] uppercase tracking-wide text-inkmuted">{label}</div>
@@ -605,8 +610,8 @@ function DropdownCell({ label, value, editing, optionsRef, selectedId, onChange,
           aria-label={label}
           mode="single"
           options={options}
-          value={selectedId ? [selectedId] : []}
-          onChange={(selected) => onChange(selected[0] || '')}
+          value={validSelectedId}
+          onChange={onChange}
           loading={loading}
           className="mt-1"
         />
@@ -706,14 +711,14 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
         setEditItemCode(String(detail.itemCode ?? ''));
         setEditBarcodeNo(String(detail.barcodeNo ?? ''));
         setEditDescription(String(detail.description ?? ''));
-        setEditSubGroupId(''); // IDs not available in current API response
-        setEditGroupId('');
+        setEditSubGroupId(String(detail.subGroupId ?? ''));
+        setEditGroupId(String(detail.groupId ?? ''));
         setEditHsn(String(detail.hsn ?? ''));
-        setEditHsnId('');
-        setEditGstSlabId('');
+        setEditHsnId(String(detail.hsnId ?? ''));
+        setEditGstSlabId(String(detail.gstSlabId ?? ''));
         setEditGst(String(detail.gst ?? ''));
         setEditUom(String(detail.uom ?? ''));
-        setEditUomId('');
+        setEditUomId(String(detail.uomId ?? ''));
         setEditStatus(detail.status ? [detail.status] : []);
         setEditQuantity(String(detail.quantity ?? ''));
         setEditPma(String(detail.pma ?? ''));
@@ -724,7 +729,7 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
         setEditOfferPrice(String(detail.offerPrice ?? ''));
         setEditWsp(String(detail.wsp ?? ''));
         setEditDp(String(detail.dp ?? ''));
-        setEditDesignNo(String(detail.designNo ?? ''));
+        setEditDesignNo(String(detail.designNo ?? detail.description ?? ''));
       })
       .catch(() => { if (!off) setError('Could not reach the server.'); })
       .finally(() => { if (!off) setLoading(false); });
@@ -762,14 +767,14 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
     setEditItemCode(String(detail.itemCode ?? ''));
     setEditBarcodeNo(String(detail.barcodeNo ?? ''));
     setEditDescription(String(detail.description ?? ''));
-    setEditSubGroupId('');
-    setEditGroupId('');
+    setEditSubGroupId(String(detail.subGroupId ?? ''));
+    setEditGroupId(String(detail.groupId ?? ''));
     setEditHsn(String(detail.hsn ?? ''));
-    setEditHsnId('');
-    setEditGstSlabId('');
+    setEditHsnId(String(detail.hsnId ?? ''));
+    setEditGstSlabId(String(detail.gstSlabId ?? ''));
     setEditGst(String(detail.gst ?? ''));
     setEditUom(String(detail.uom ?? ''));
-    setEditUomId('');
+    setEditUomId(String(detail.uomId ?? ''));
     setEditStatus(detail.status ? [detail.status] : []);
     setEditQuantity(String(detail.quantity ?? ''));
     setEditPma(String(detail.pma ?? ''));
@@ -780,7 +785,7 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
     setEditOfferPrice(String(detail.offerPrice ?? ''));
     setEditWsp(String(detail.wsp ?? ''));
     setEditDp(String(detail.dp ?? ''));
-    setEditDesignNo(String(detail.designNo ?? ''));
+    setEditDesignNo(String(detail.designNo ?? detail.description ?? ''));
     setSaveError('');
     setSaveSuccess('');
     setEditing(true);
@@ -793,14 +798,14 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
     setEditItemCode(String(detail.itemCode ?? ''));
     setEditBarcodeNo(String(detail.barcodeNo ?? ''));
     setEditDescription(String(detail.description ?? ''));
-    setEditSubGroupId('');
-    setEditGroupId('');
+    setEditSubGroupId(String(detail.subGroupId ?? ''));
+    setEditGroupId(String(detail.groupId ?? ''));
     setEditHsn(String(detail.hsn ?? ''));
-    setEditHsnId('');
-    setEditGstSlabId('');
+    setEditHsnId(String(detail.hsnId ?? ''));
+    setEditGstSlabId(String(detail.gstSlabId ?? ''));
     setEditGst(String(detail.gst ?? ''));
     setEditUom(String(detail.uom ?? ''));
-    setEditUomId('');
+    setEditUomId(String(detail.uomId ?? ''));
     setEditStatus(detail.status ? [detail.status] : []);
     setEditQuantity(String(detail.quantity ?? ''));
     setEditPma(String(detail.pma ?? ''));
@@ -811,7 +816,7 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
     setEditOfferPrice(String(detail.offerPrice ?? ''));
     setEditWsp(String(detail.wsp ?? ''));
     setEditDp(String(detail.dp ?? ''));
-    setEditDesignNo(String(detail.designNo ?? ''));
+    setEditDesignNo(String(detail.designNo ?? detail.description ?? ''));
     setSaveError('');
     setSaveSuccess('');
     setEditing(false);
@@ -1074,7 +1079,7 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
               <Band title="Design Info">
                 <Cell 
                   label="Design NO." 
-                  value={editing ? editDesignNo : text(d.designNo)}
+                  value={editing ? editDesignNo : (text(d.designNo) !== '-' ? text(d.designNo) : text(d.description))}
                   editing={editing}
                   type="text"
                   onChange={setEditDesignNo}

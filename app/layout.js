@@ -1,4 +1,5 @@
 import './globals.css';
+import { ToastProvider } from '@/components/ToastContext';
 
 export const metadata = {
   title: 'GROO ERP ',
@@ -8,7 +9,9 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <body className="bg-page font-sans text-ink antialiased">{children}</body>
+      <body className="bg-page font-sans text-ink antialiased">
+        <ToastProvider>{children}</ToastProvider>
+      </body>
     </html>
   );
 }

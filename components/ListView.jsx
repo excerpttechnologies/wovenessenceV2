@@ -2652,6 +2652,7 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
   const [error, setError] = useState(null);
   const [page, setPage] = useState(1);
   const [modal, setModal] = useState(false);
+  const [editRow, setEditRow] = useState(null);
   /* seeded from the filter specs' `def` values, so a screen whose dates
      default to today loads today's rows and cards straight away - the same
      values FilterPanel opens its boxes with */
@@ -3295,6 +3296,19 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
           }}
         />
       )}
+
+      {editRow && cfg.formMode === "modal" && (
+        <ModalForm
+          cfg={cfg}
+          slug={slugPath}
+          recordId={editRow._id}
+          onClose={() => setEditRow(null)}
+          onSaved={() => {
+            setEditRow(null);
+            load();
+          }}
+        />
+      )}
  
       <div className="card">
         <div className="card-head">
@@ -3522,9 +3536,13 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
                                     key={a}
                                     className="act-btn act-amber"
                                     title="Edit"
-                                    onClick={() =>
-                                      router.push(base + "/" + row._id)
-                                    }
+                                    onClick={() => {
+                                      if (cfg.formMode === "modal") {
+                                        setEditRow(row);
+                                      } else {
+                                        router.push(base + "/" + row._id);
+                                      }
+                                    }}
                                   >
                                     <Icon name="pencil" size={12} />
                                   </button>

@@ -857,6 +857,15 @@ html {
   to { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes slide-in {
+  from { opacity: 0; transform: translateX(100%); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.animate-slide-in {
+  animation: slide-in 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
 /* A sticky header is a screen affordance. In print the table is laid out
    across pages and a stuck cell can repeat or land over the body, so it goes
    back to flowing with the rest of the table. */
@@ -1276,6 +1285,103 @@ html {
   /* a summary block, the words line and the signatures are each meaningless
      split in half, so none of them may straddle a page boundary */
   .grt-keep { break-inside: avoid; page-break-inside: avoid; }
+}
+
+/* ==========================================================================
+   PURCHASE INVOICE PRINT - printable purchase invoice document.
+
+   The PurchaseInvoicePrintView is a modal overlay, so we use a body class
+   to isolate it for printing, ensuring the app shell doesn't interfere.
+   ========================================================================== */
+@media print {
+  body.printing-purchase-invoice > *:not(.print-doc-wrapper) {
+    display: none !important;
+  }
+
+  body.printing-purchase-invoice .print-doc-wrapper {
+    display: block !important;
+    visibility: visible !important;
+    position: static !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  body.printing-purchase-invoice .print-doc-wrapper * {
+    visibility: visible !important;
+  }
+
+  body.printing-purchase-invoice .print-doc {
+    display: block !important;
+    visibility: visible !important;
+    position: static !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    border: none !important;
+    border-radius: 0 !important;
+  }
+
+  body.printing-purchase-invoice .no-print {
+    display: none !important;
+  }
+
+  body.printing-purchase-invoice {
+    background: white !important;
+  }
+
+  /* Ensure the fixed overlay doesn't interfere with print */
+  body.printing-purchase-invoice > div.fixed {
+    position: static !important;
+    inset: auto !important;
+  }
+}
+
+/* ==========================================================================
+   GRC PRINT - printable GRC document.
+   
+   Similar to GRT, the GRC print page uses a body class to isolate the document
+   for printing, ensuring the app shell (sidebar, top bar) doesn't interfere
+   with the print output.
+   ========================================================================== */
+@media print {
+  body.printing-grc > *:not(.print-doc-wrapper) {
+    display: none !important;
+  }
+
+  .print-doc-wrapper {
+    display: block !important;
+    visibility: visible !important;
+    position: static !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  .print-doc-wrapper * {
+    visibility: visible !important;
+  }
+
+  .print-doc {
+    display: block !important;
+    visibility: visible !important;
+    position: static !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    border: none !important;
+    border-radius: 0 !important;
+  }
+
+  .no-print { display: none !important; }
+
+  body.printing-grc {
+    background: white !important;
+  }
 }
 
 /* ==========================================================================

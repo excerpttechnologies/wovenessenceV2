@@ -47,7 +47,7 @@ const CONFIG = {
   scope: ["business"],
   addTitle: "Add Product Group",
   formMode: "modal",
-  actionIcons: ["view"],
+  actionIcons: ["edit", "delete"],
   columns: [
     { k: "name", t: "Name" },
     { k: "businessId", t: "Business", f: "ref" },

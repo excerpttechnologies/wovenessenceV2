@@ -3088,6 +3088,7 @@ import { BarcodeImageInput, BarcodeImageThumb, uploadBarcodeImage } from './Barc
 import {
   imageProblem, ocrImages, reviewOcrRecords, IMAGE_MAX_COUNT, OCR_MESSAGES, POOR_CONFIDENCE, BARCODE_MIN_CONFIDENCE,
 } from '@/lib/barcodeReportOcr';
+import { useToast } from './ToastContext';
 
 /* what the image picker offers - lib/barcodeReportOcr.js checks every file
    again, pasted or dropped, before it is read */
@@ -3286,7 +3287,8 @@ const defaultPicks = (row) => {
 };
 
 export default function BarcodeReportImport({ api }) {
-  const { business, location: scopeLocation, finYear } = useScope();
+  const scope = useScope();
+  const { business = '', businesses = [], location: scopeLocation, finYear } = scope || {};
   const { options: locations } = useOptions('companylocations');
   const [open, setOpen] = useState(false);
   /* the search button's ERP picker (ERP V1 / ERP V2), over this dialog */
@@ -3326,7 +3328,6 @@ export default function BarcodeReportImport({ api }) {
   /* an image import: the operator's word that they compared the values with
      the image - OCR can be sure of a wrong character */
   const [compared, setCompared] = useState(false);
-  const [result, setResult] = useState(null);
   /* BARCODE IMAGES attached in the preview - the picture of a barcode, to be
      STORED on it (never read by OCR - that is `images` below). By record line,
      so a card keeps its picture through corrections and re-checks; saved on
@@ -3347,6 +3348,8 @@ export default function BarcodeReportImport({ api }) {
   /* validation modal for missing required fields */
   const [showValidationModal, setShowValidationModal] = useState(false);
   const [missingFields, setMissingFields] = useState([]);
+
+  const { showToast } = useToast();
 
   const target = location || scopeLocation || '';
 
@@ -3381,7 +3384,7 @@ export default function BarcodeReportImport({ api }) {
   function start() {
     setOpen(true); setPickingErp(false); setStep('input'); setMode('paste'); setAsking(''); setPaste(''); setTextOrigin('text');
     setFile(null); setFileName(''); setError(''); setFailure(null);
-    setRead(null); setReview(null); setResult(null); setTicked(new Set()); setPicks(new Map()); setDecided(new Map());
+    setRead(null); setReview(null); setTicked(new Set()); setPicks(new Map()); setDecided(new Map());
     setOpen2(new Set()); setConfirming(false); setEdits(new Map()); setMovementEdits(new Map()); setStockSummaryEdits(new Map()); setSupplierPicks(new Map()); setCompared(false);
     setLocation(scopeLocation || '');
     dropImages(); setStage(''); clearBarcodeImages();
@@ -3899,8 +3902,9 @@ export default function BarcodeReportImport({ api }) {
         ...(imagesPayload.length ? { images: imagesPayload } : {}),
         ...(fromImage ? { compared } : {}),
       });
-      setResult(d);
-      setStep('done');
+      /* close the import dialog and show success toast */
+      setOpen(false);
+      showToast('Barcode data saved successfully.');
       /* show what came in: run the report again, or for the imported item */
       const codes = d.itemCodes || [];
       const current = String(api?.filters?.itemCode || '').trim().toLowerCase();
@@ -4242,6 +4246,8 @@ export default function BarcodeReportImport({ api }) {
                       stockSummaryEdits={stockSummaryEdits}
                       onStockSummaryEdit={setStockSummaryEdit}
                       supplierPick={supplierPicks.get(r.line) || null}
+                      business={business}
+                      businesses={businesses}
                       onSupplierPick={(pick) => {
                         console.log('💾 [Supplier Pick] Setting pick for line', r.line, ':', pick);
                         setSupplierPicks((map) => { 
@@ -4505,50 +4511,6 @@ export default function BarcodeReportImport({ api }) {
         </Modal>
       )}
 
-      {open && step === 'done' && result && (
-        <Modal title="Import Successful" onClose={close} size="md">
-          <div className="flex-1 overflow-y-auto p-5">
-            <div className="flash flash-ok">
-              {[result.inserted ? `${plural(result.inserted, 'barcode')} seeded` : '', result.replaced ? `${result.replaced} replaced` : '',
-                result.filled ? `${result.filled} filled` : '', result.imagesSaved ? `${plural(result.imagesSaved, 'barcode image')} saved` : '',
-                result.imagesReplaced ? `${plural(result.imagesReplaced, 'barcode image')} replaced` : ''].filter(Boolean).join(', ') || 'Nothing was changed'}.
-            </div>
-            <table className="mt-3 w-full border-collapse text-[12.5px]" aria-label="What became of each barcode">
-              <thead>
-                <tr className="bg-[#f7f9fc] text-left">
-                  <th className="border border-line px-2 py-1.5">Barcode</th>
-                  <th className="border border-line px-2 py-1.5">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(result.actions || []).slice(0, 200).map((a) => (
-                  <tr key={a.line + ':' + a.barcode}>
-                    <td className="border border-line px-2 py-1.5 font-mono">{a.barcode || '—'}</td>
-                    <td className={'border border-line px-2 py-1.5 ' + (ACTIONS[a.action]?.tone || '')}>
-                      {ACTIONS[a.action]?.label || a.action}
-                      {a.fields?.length ? `: ${a.fields.join(', ')}` : ''}
-                      {a.reason ? <span className="text-inkmuted"> - {a.reason}</span> : null}
-                      {a.image ? <ImageOutcome image={a.image} barcode={a.barcode} /> : null}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <ul className="mt-3 space-y-1 text-[12.5px] text-inkmuted">
-              <li>Total {result.total} · seeded {result.inserted} · updated {result.updated} · skipped {result.skipped} · errors {result.failed}</li>
-              <li>Masters matched: {result.mastersMatched}{result.unmatched?.length ? `, not found (kept as text): ${result.unmatched.map((u) => `${u.type} "${u.name}"`).join(', ')}` : ''}</li>
-              {result.floors?.length > 0 && (
-                <li>Barcode Generation moves past the seeded numbers of this ERP&apos;s own series: {result.floors.map((f) => `${f.barcode}`).join(', ')}.</li>
-              )}
-            </ul>
-            <p className="mt-3 text-[12.5px] text-inkmuted">The report below now shows them.</p>
-          </div>
-          <div className="flex shrink-0 justify-end border-t border-line px-5 py-3">
-            <button type="button" className="btn btn-primary" onClick={close}>Done</button>
-          </div>
-        </Modal>
-      )}
-
       <ErpSelectorModal open={open && pickingErp} onClose={() => setPickingErp(false)} />
     </>
   );
@@ -4688,7 +4650,7 @@ function DetailsCard({
   qtyDecrease, qtyIncrease, onQtyDecreaseChange, onQtyIncreaseChange,
   movementEdits: mEdits, effectiveMovements: effMovements, onMovementEdit,
   stockSummaryEdits: ssEdits, onStockSummaryEdit,
-  supplierPick, onSupplierPick,
+  supplierPick, onSupplierPick, business, businesses,
 }) {
   console.log('🎨 [DetailsCard] Rendering for line', row.line);
   console.log('  - rec.details:', rec.details);
@@ -5229,14 +5191,32 @@ function DetailsCard({
         <div className="grid gap-3 sm:grid-cols-3">
           <div>
             <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-inkmuted">COMPANY</label>
-            <input
-              type="text"
-              value={ssEdits?.get(rowKey)?.company ?? held?.businessName ?? ''}
+            <select
+              value={(() => {
+                const userEdit = ssEdits?.get(rowKey)?.company;
+                if (userEdit) return userEdit;
+                
+                if (held?.businessName && businesses?.length) {
+                  const foundBusiness = businesses.find(b => b.label === held.businessName);
+                  if (foundBusiness) return foundBusiness.value;
+                }
+                
+                return business || '';
+              })()}
               onChange={(e) => onStockSummaryEdit(rowKey, 'company', e.target.value)}
               disabled={busy}
               className="f-input h-[30px] w-full text-[13px]"
               aria-label="Company"
-            />
+            >
+              {(!businesses || businesses.length === 0) && (
+                <option value="">Loading companies...</option>
+              )}
+              {(businesses || []).map((b) => (
+                <option key={b.value} value={b.value}>
+                  {b.label}
+                </option>
+              ))}
+            </select>
           </div>
           {field(['stockLocation', 'Location'])}
           {field(['stockPoint', 'Stock Point'])}

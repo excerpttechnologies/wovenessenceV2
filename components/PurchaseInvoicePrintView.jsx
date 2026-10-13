@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react';
 import Icon from './Icon';
 import { amountInWords } from '@/lib/amountWords';
 
+/* Fixed print wrapper for proper CSS isolation */
+
 /* ==========================================================================
    Print Purchase Invoice - the full-screen overlay the printer icon opens.
 
@@ -92,6 +94,14 @@ export default function PurchaseInvoicePrintView({ id, onClose }) {
     return () => document.removeEventListener('keydown', key);
   }, [onClose]);
 
+  // Add body class for print styling
+  useEffect(() => {
+    document.body.classList.add('printing-purchase-invoice');
+    return () => {
+      document.body.classList.remove('printing-purchase-invoice');
+    };
+  }, []);
+
   const b = data?.business;
   const s = data?.supplier;
   const invoice = data?.invoice;
@@ -103,7 +113,7 @@ export default function PurchaseInvoicePrintView({ id, onClose }) {
   const subTotal = totals ? totals.taxableValue - headDiscount - totals.roundOffDiscount : 0;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-auto bg-white">
+    <div className="print-doc-wrapper fixed inset-0 z-50 overflow-auto bg-white">
       <div className="no-print flex items-center border-b border-line px-5 py-3">
         <span className="text-[15px] font-semibold">Print Purchase Invoice</span>
         <span className="flex-1" />

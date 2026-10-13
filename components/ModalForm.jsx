@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Icon from './Icon';
 import Field from './Field';
 import { useScope } from './ScopeContext';
@@ -8,7 +8,7 @@ import { refreshOptions } from './useOptions';
 /* ADD-as-dialog, over the dimmed list, with the red circular close button.
    Used by Contact Types, the five Inventory masters and Logistic. */
 
-export default function ModalForm({ cfg, slug, onClose, onSaved }) {
+export default function ModalForm({ cfg, slug, onClose, onSaved, recordId = null }) {
   const scope = useScope();
   const slugPath = cfg.slugPath || slug;
 
@@ -20,8 +20,35 @@ export default function ModalForm({ cfg, slug, onClose, onSaved }) {
   const [errors, setErrors] = useState({});
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(!!recordId);
   const [quickAddField, setQuickAddField] = useState(null);
   const quickAdd = quickAddField ? cfg.quickAdds?.[quickAddField] : null;
+
+  // Load existing record for editing
+  useEffect(() => {
+    if (!recordId) return;
+    
+    async function loadRecord() {
+      setLoading(true);
+      setFormError('');
+      try {
+        const r = await fetch(`${cfg.endpoint}/${recordId}`);
+        const result = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          setFormError(result.error || 'Could not load record.');
+          return;
+        }
+        // Populate form with existing data
+        setData(result.data || result);
+      } catch (err) {
+        setFormError(err.message || 'Could not load record.');
+      } finally {
+        setLoading(false);
+      }
+    }
+    
+    loadRecord();
+  }, [recordId, cfg.endpoint]);
 
   const set = (k, v) => { setData((d) => ({ ...d, [k]: v })); setErrors((e) => ({ ...e, [k]: undefined })); };
 
@@ -32,8 +59,12 @@ export default function ModalForm({ cfg, slug, onClose, onSaved }) {
         data: cfg.prepareData ? cfg.prepareData(data) : data,
         business: scope.business, location: scope.location, finYear: scope.finYear,
       };
-      const r = await fetch(cfg.endpoint, {
-        method: 'POST',
+      
+      const url = recordId ? `${cfg.endpoint}/${recordId}` : cfg.endpoint;
+      const method = recordId ? 'PATCH' : 'POST';
+      
+      const r = await fetch(url, {
+        method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
@@ -71,7 +102,7 @@ export default function ModalForm({ cfg, slug, onClose, onSaved }) {
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="relative flex items-center justify-center border-b border-line px-4 py-3">
-          <span className="text-[15px] font-bold">{cfg.addTitle}</span>
+          <span className="text-[15px] font-bold">{recordId ? (cfg.editTitle || 'Edit ' + (cfg.title || 'Record')) : cfg.addTitle}</span>
           <button
             type="button"
             onClick={onClose}
@@ -82,6 +113,7 @@ export default function ModalForm({ cfg, slug, onClose, onSaved }) {
         </div>
 
         <div className="px-4 py-4">
+          {loading && <div className="flash">Loading...</div>}
           {formError && <div className="flash flash-err">{formError}</div>}
           <div className={'grid gap-x-4 gap-y-3 ' + (cfg.modalWide ? 'grid-cols-1 md:grid-cols-3' : 'grid-cols-2')}>
             {(cfg.fields || []).filter((f) => !cfg.isFieldVisible || cfg.isFieldVisible(f, data)).map((f) => {
@@ -107,8 +139,8 @@ export default function ModalForm({ cfg, slug, onClose, onSaved }) {
             })}
           </div>
 
-          <button type="button" className="btn btn-primary btn-submit" onClick={submit} disabled={saving}>
-            {saving ? <span className="spin" /> : <Icon name="save" size={14} />} Submit
+          <button type="button" className="btn btn-primary btn-submit" onClick={submit} disabled={saving || loading}>
+            {saving ? <span className="spin" /> : <Icon name="save" size={14} />} {recordId ? 'Update' : 'Submit'}
           </button>
         </div>
       </div>

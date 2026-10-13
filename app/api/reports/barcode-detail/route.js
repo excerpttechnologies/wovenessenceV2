@@ -635,6 +635,13 @@ export async function GET(req) {
   const slabId = hsn?.taxSlabs?.[0]?.gstTaxNameId;
   const slab = slabId && isValidObjectId(String(slabId)) ? await Tax.findById(slabId).select('taxName').lean() : null;
 
+  /* IDs for dropdown fields - so the edit form can pre-select the correct values */
+  const subGroupId = sub?._id ? String(sub._id) : (item?.subGroupId ? String(item.subGroupId) : '');
+  const groupId = group?._id ? String(group._id) : (sub?.parentId ? String(sub.parentId) : '');
+  const hsnId = hsn?._id ? String(hsn._id) : (item?.hsnId ? String(item.hsnId) : '');
+  const gstSlabId = slab?._id ? String(slab._id) : '';
+  const uomId = item?.uomId ? String(item.uomId) : (unit.uomId && isValidObjectId(String(unit.uomId)) ? String(unit.uomId) : '');
+
   /* The trail, oldest first - it reads as a story that way, and the running
      balance below only makes sense in that order. Matched on the barcode row's
      id when there is one and on the number as well, because movements written
@@ -705,8 +712,8 @@ export async function GET(req) {
       itemCode: str(unit.itemCode) || item?.itemCode || '',
       barcodeNo: str(unit.barcodeNo),
       barcodeGenerated: str(unit.barcodeGenerated),
-      description: str(unit.printDescription) || str(unit.supplierDescription)
-        || item?.description || '',
+      /* Description comes from Print Description only. */
+      description: str(unit.printDescription) || item?.description || '',
       hsn: str(unit.hsn),
       gst: unit.gst ?? '',
       uom: str(unit.uom),
@@ -726,8 +733,15 @@ export async function GET(req) {
       subGroup: sub?.name || '',
       group: group?.name || '',
       gstSlab: slab?.taxName || (str(unit.gst) ? 'GST ' + str(unit.gst) + ' %' : ''),
+      subGroupId,
+      groupId,
+      hsnId,
+      gstSlabId,
+      uomId,
       pma: str(unit.p_m_f),
-      designNo: str(unit.designNo),
+      /* Design No. uses Supplier Description as its source (the "Supplier Description" label on the page),
+         falling back to the dedicated designNo field if available. */
+      designNo: str(unit.designNo || unit.supplierDescription),
       taxRegion: str(unit.supplierTaxRegion) || str(supplier?.billingState),
       source: str(unit.source),
 

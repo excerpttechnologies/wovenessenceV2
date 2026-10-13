@@ -17,7 +17,7 @@
 
 'use client';
 import { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { encodedBarcodeValue } from '@/lib/barcodeValue';
 import { grcTotals, grcMoney, rowTaxable } from '@/lib/grcMoney';
 
@@ -28,6 +28,7 @@ import { grcTotals, grcMoney, rowTaxable } from '@/lib/grcMoney';
    and any app chrome via the @media print rules. */
 export default function GrcPrintPage() {
   const { id } = useParams();
+  const router = useRouter();
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
 
@@ -41,6 +42,14 @@ export default function GrcPrintPage() {
       })
       .catch((e) => setError(e.message || 'Failed to load'));
   }, [id]);
+
+  // Add body class for print styling
+  useEffect(() => {
+    document.body.classList.add('printing-grc');
+    return () => {
+      document.body.classList.remove('printing-grc');
+    };
+  }, []);
 
   if (error) return <div className="p-6 text-sm text-red-600">{error}</div>;
   if (!data) return <div className="p-6 text-sm text-slate-500">Loading...</div>;
@@ -65,21 +74,24 @@ export default function GrcPrintPage() {
   /* rows count only when at least one carries a purchase price */
   const hasRows = rows.some((r) => rowTaxable(r) > 0);
 
-  return (
-    <div className="max-w-5xl mx-auto p-6 text-slate-800 text-sm print:p-0">
-      <style jsx global>{`
-        @media print {
-          .no-print { display: none !important; }
-          body { background: white; }
-        }
-      `}</style>
+  const downloadGrcPdf = () => {
+    window.open(`/api/grc/${id}/download`, '_blank');
+  };
 
-      <div className="no-print flex justify-end mb-4">
+  return (
+    <div className="print-doc-wrapper max-w-5xl mx-auto p-6 text-slate-800 text-sm print:p-0">
+      <div className="no-print flex justify-between items-center mb-4">
         <button
-          onClick={() => window.print()}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-4 py-2 rounded shadow-sm"
+          onClick={() => router.back()}
+          className="btn"
         >
-          Print
+          ← Back
+        </button>
+        <button
+          onClick={downloadGrcPdf}
+          className="btn btn-primary"
+        >
+          Print GRC
         </button>
       </div>
 
