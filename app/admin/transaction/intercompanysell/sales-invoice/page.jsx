@@ -44,6 +44,40 @@ export default function IcItemSalesInvoicePage() {
   /* the billed invoice open in the View popup */
   const [viewInv, setViewInv] = useState(null);
   const [saving, setSaving] = useState(false);
+  /* the billed invoice open in the Generate E-Invoice popup, and what the
+     popup is doing: { inv, busy, error, problems, result } */
+  const [einv, setEinv] = useState(null);
+
+  const printEinvoice = (invoiceId) =>
+    window.open('/admin/transaction/intercompanysell/sales-invoice/print/' + invoiceId + '?einv=1', '_blank');
+
+  /* E-Invoice button: no IRN yet -> the Generate popup; IRN already
+     generated -> straight to the e-invoice print */
+  const openEinvoice = (inv) => {
+    if (inv.einvoice?.status === 'GENERATED') { printEinvoice(inv.invoiceId); return; }
+    setEinv({ inv, busy: false, error: '', problems: [], result: null });
+  };
+
+  async function generateEinvoice() {
+    if (!einv || einv.busy) return;
+    setEinv((s) => ({ ...s, busy: true, error: '', problems: [] }));
+    try {
+      const r = await fetch('/api/ic-item-invoice/' + einv.inv.invoiceId + '/einvoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'generate' }),
+      });
+      const d = await r.json();
+      if (!r.ok) {
+        setEinv((s) => ({ ...s, busy: false, error: d.error || 'Could not generate the e-invoice.', problems: d.problems || [] }));
+        return;
+      }
+      setEinv((s) => ({ ...s, busy: false, result: { ...d.einvoice, mode: d.mode } }));
+      load();
+    } catch {
+      setEinv((s) => ({ ...s, busy: false, error: 'Could not reach the server.' }));
+    }
+  }
 
   const load = useCallback(async () => {
     if (!scope.business) { setPending([]); setBilled([]); return; }
@@ -87,14 +121,97 @@ export default function IcItemSalesInvoicePage() {
     return () => clearTimeout(t);
   }, [flash]);
 
-  const toggle = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
-  const allTicked = pending.length > 0 && picked.length === pending.length;
-  const toggleAll = () => setPicked(allTicked ? [] : pending.map((r) => r.key));
+  /* RECEIVER FILTER above Not Billed (user, 13-10-2026): company, then a
+     location of that company. EVERY company this branch can bill is offered
+     (the same list the Delivery Challan's destination uses), with or
+     without items waiting - one with nothing simply shows an empty list.
+     Changing either clears the ticks, so nothing hidden can be billed by
+     accident. */
+  const [fCompany, setFCompany] = useState('');
+  const [fLocation, setFLocation] = useState('');
+  const [companyOptions, setCompanyOptions] = useState([]);
+  const [locationOptions, setLocationOptions] = useState([]);
+  useEffect(() => {
+    setFCompany('');
+    setFLocation('');
+    if (!scope.business) { setCompanyOptions([]); return undefined; }
+    let off = false;
+    fetch('/api/ic-destinations?business=' + scope.business, { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((d) => { if (!off) setCompanyOptions((d.options || []).map((o) => [String(o.value), o.label])); })
+      .catch(() => { if (!off) setCompanyOptions([]); });
+    return () => { off = true; };
+  }, [scope.business]);
+  useEffect(() => {
+    if (!fCompany) { setLocationOptions([]); return undefined; }
+    let off = false;
+    fetch('/api/options?ref=companylocations&business=' + fCompany, { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((d) => {
+        if (off) return;
+        const opts = (d.options || []).map((o) => [String(o.value), o.label]);
+        setLocationOptions(opts);
+        /* picking a company selects its location straight away (user,
+           13-10-2026) - the first one when it has several; "All locations"
+           is still in the list */
+        if (opts.length) setFLocation(opts[0][0]);
+      })
+      .catch(() => { if (!off) setLocationOptions([]); });
+    return () => { off = true; };
+  }, [fCompany]);
+  const visible = useMemo(() => pending.filter((r) =>
+    (!fCompany || r.toBusinessId === fCompany) && (!fLocation || r.toLocationId === fLocation)),
+  [pending, fCompany, fLocation]);
+  const pickCompany = (v) => { setFCompany(v); setFLocation(''); setPicked([]); };
+  const pickLocation = (v) => { setFLocation(v); setPicked([]); };
 
-  const pickedRows = useMemo(() => pending.filter((r) => picked.includes(r.key)), [pending, picked]);
+  const toggle = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  const allTicked = visible.length > 0 && visible.every((r) => picked.includes(r.key));
+  const toggleAll = () => setPicked(allTicked ? [] : visible.map((r) => r.key));
+
+  const pickedRows = useMemo(() => visible.filter((r) => picked.includes(r.key)), [visible, picked]);
   const pickedValue = pickedRows.reduce((a, r) => a + Number(r.netAmount || 0), 0);
   /* one invoice per receiver - say up front how many will be raised */
   const pickedReceivers = new Set(pickedRows.map((r) => r.toBusinessId || r.toBusinessName)).size;
+
+  /* THE INVOICE(S) SAVE WILL RAISE, previewed under the ticked items (user,
+     13-10-2026 - as on the client's other system). Grouped by receiver and
+     totalled exactly as POST /api/ic-item-invoice does - paise-rounded sums,
+     Net Value rounded to the rupee, Round Off the difference - so the
+     preview and the saved invoice carry the same figures. */
+  const previewGroups = useMemo(() => {
+    const r2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
+    const groups = new Map();
+    pickedRows.forEach((r) => {
+      const k = r.toBusinessId || r.toBusinessName || '';
+      if (!groups.has(k)) groups.set(k, { key: k, name: r.toBusinessName || '-', rows: [] });
+      groups.get(k).rows.push(r);
+    });
+    return [...groups.values()].map((g) => {
+      const sum = (f) => r2(g.rows.reduce((a, l) => a + Number(l[f] || 0), 0));
+      const taxable = sum('beforeTax');
+      const igst = sum('igstAmount');
+      const cgst = sum('cgstAmount');
+      const sgst = sum('sgstAmount');
+      const gross = r2(taxable + igst + cgst + sgst);
+      const netValue = Math.round(gross);
+      /* "(2.5 + 2.5)%" when every line shares one slab, like the demo */
+      const slabs = [...new Set(g.rows.map((l) => Number(l.cgstPct || 0) + '+' + Number(l.sgstPct || 0)))];
+      const igstSlabs = [...new Set(g.rows.map((l) => Number(l.igstPct || 0)))];
+      return {
+        ...g,
+        taxable,
+        igst,
+        cgst,
+        sgst,
+        roundOff: r2(netValue - gross),
+        netValue,
+        slab: slabs.length === 1 ? ' (' + slabs[0].replace('+', ' + ') + ')%' : '',
+        igstSlab: igstSlabs.length === 1 ? ' (' + igstSlabs[0] + ')%' : '',
+      };
+    });
+  }, [pickedRows]);
+  const previewRows = previewGroups.flatMap((g) => g.rows);
 
   async function saveBilled() {
     if (!picked.length || saving) return;
@@ -145,12 +262,35 @@ export default function IcItemSalesInvoicePage() {
         <div className={'mb-3 flash ' + (flash.type === 'err' ? 'flash-err' : 'flash-ok')}>{flash.msg}</div>
       )}
 
+      {/* ------------------------------------------- receiver filter -- */}
+      <div className="mb-3 flex flex-wrap items-end gap-3">
+        <label className="flex min-w-[240px] flex-col gap-1">
+          <span className="field-label">Company</span>
+          <select className="f-input" value={fCompany} onChange={(e) => pickCompany(e.target.value)}>
+            <option value="">All companies</option>
+            {companyOptions.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+          </select>
+        </label>
+        <label className="flex min-w-[240px] flex-col gap-1">
+          <span className="field-label">Location</span>
+          <select className="f-input" value={fLocation} disabled={!fCompany} onChange={(e) => pickLocation(e.target.value)}>
+            <option value="">{fCompany ? 'All locations' : 'Pick a company first'}</option>
+            {locationOptions.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+          </select>
+        </label>
+        {(fCompany || fLocation) && (
+          <button type="button" className="btn" onClick={() => pickCompany('')}>
+            <Icon name="refresh" size={14} /> Reset
+          </button>
+        )}
+      </div>
+
       {/* -------------------------------------------------- NOT BILLED -- */}
       <div className="mb-2 flex items-center border-b border-line pb-2">
         <span className="card-title">Not Billed</span>
-        {pending.length > 0 && (
+        {visible.length > 0 && (
           <span className="ml-2 rounded bg-[#fff3cd] px-2 py-0.5 text-[11.5px] font-semibold text-warnyellow">
-            {pending.length} sold item(s) waiting to be billed
+            {visible.length} sold item(s) waiting to be billed
           </span>
         )}
       </div>
@@ -164,7 +304,7 @@ export default function IcItemSalesInvoicePage() {
                   type="checkbox"
                   aria-label="Select every item"
                   checked={allTicked}
-                  disabled={!pending.length}
+                  disabled={!visible.length}
                   onChange={toggleAll}
                 />
               </th>
@@ -187,7 +327,10 @@ export default function IcItemSalesInvoicePage() {
             {!loading && scope.business && !pending.length && (
               <tr><td colSpan={10} className="dt-empty">Nothing sold by your receivers is waiting to be billed.</td></tr>
             )}
-            {!loading && pending.map((r) => (
+            {!loading && pending.length > 0 && !visible.length && (
+              <tr><td colSpan={10} className="dt-empty">Nothing waiting to be billed for this company / location.</td></tr>
+            )}
+            {!loading && visible.map((r) => (
               <tr
                 key={r.key}
                 className={picked.includes(r.key) ? 'bg-[#f0f7ff]' : 'cursor-pointer'}
@@ -215,6 +358,84 @@ export default function IcItemSalesInvoicePage() {
           </tbody>
         </table>
       </div>
+
+      {/* ------------------------------------------ SELECTED ITEMS -- the
+          invoice lines and totals the ticked units will be billed at */}
+      {previewRows.length > 0 && (
+        <div className="mt-4">
+          <div className="mb-2 flex items-center border-b border-line pb-2">
+            <span className="card-title">Selected Items</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="dt">
+              <thead>
+                <tr>
+                  <th style={{ width: 44 }}>Sl No</th>
+                  <th>DC Code</th>
+                  <th>Item Code</th>
+                  <th>Item Name</th>
+                  <th style={{ width: 90 }}>HSN Code</th>
+                  <th style={{ width: 80 }}>GST Slab</th>
+                  <th style={{ width: 60 }}>UOM</th>
+                  <th className="!text-right" style={{ width: 60 }}>Qty</th>
+                  <th className="!text-right" style={{ width: 85 }}>Unit Rate</th>
+                  <th className="!text-right" style={{ width: 75 }}>Discount %</th>
+                  <th className="!text-right" style={{ width: 80 }}>R.Off Discount</th>
+                  <th className="!text-right" style={{ width: 85 }}>Final Rate</th>
+                  <th className="!text-right" style={{ width: 95 }}>Before Tax</th>
+                  <th className="!text-right" style={{ width: 85 }}>IGST Amount</th>
+                  <th className="!text-right" style={{ width: 85 }}>CGST Amount</th>
+                  <th className="!text-right" style={{ width: 85 }}>SGST Amount</th>
+                  <th className="!text-right" style={{ width: 95 }}>Net Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {previewRows.map((l, n) => (
+                  <tr key={l.key}>
+                    <td className="text-center">{n + 1}</td>
+                    <td>{l.dcNo || '-'}</td>
+                    <td>{l.itemCode || l.barcodeNo || '-'}</td>
+                    <td>{l.itemName || '-'}</td>
+                    <td>{l.hsn || '-'}</td>
+                    <td>GST {Number(l.igstPct || 0) || (Number(l.cgstPct || 0) + Number(l.sgstPct || 0))}%</td>
+                    <td>{l.uom || '-'}</td>
+                    <td className="!text-right">{qtyText(l.qty)}</td>
+                    <td className="!text-right">{money2(l.unitRate)}</td>
+                    <td className="!text-right">{money2(l.discountPct)}</td>
+                    <td className="!text-right">{money2(l.roffDiscount)}</td>
+                    <td className="!text-right">{money2(l.finalRate)}</td>
+                    <td className="!text-right">{money2(l.beforeTax)}</td>
+                    <td className="!text-right">{money2(l.igstAmount)}</td>
+                    <td className="!text-right">{money2(l.cgstAmount)}</td>
+                    <td className="!text-right">{money2(l.sgstAmount)}</td>
+                    <td className="!text-right font-semibold">{money2(l.netAmount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* one totals block per invoice Save will raise */}
+          <div className="mt-3 flex flex-wrap justify-end gap-4">
+            {previewGroups.map((g) => (
+              <div key={g.key} className="min-w-[320px] rounded border border-line p-3 text-[13px]">
+                {previewGroups.length > 1 && <div className="mb-1 font-semibold">{g.name}</div>}
+                <div className="flex justify-between gap-6"><span>Taxable Value</span><span>{money2(g.taxable)}</span></div>
+                {(g.cgst > 0 || g.sgst > 0) && (
+                  <div className="flex justify-between gap-6"><span>CGST + SGST{g.slab}</span><span>{money2(g.cgst + g.sgst)}</span></div>
+                )}
+                {g.igst > 0 && (
+                  <div className="flex justify-between gap-6"><span>IGST{g.igstSlab}</span><span>{money2(g.igst)}</span></div>
+                )}
+                <div className="flex justify-between gap-6"><span>Round Off</span><span>{money2(g.roundOff)}</span></div>
+                <div className="mt-1 flex justify-between gap-6 border-t border-line pt-1 text-[14px] font-bold">
+                  <span>Net Value</span><span>{money2(g.netValue)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="mb-5 mt-3 flex flex-wrap items-center gap-3 border-t border-line pt-3">
         <button
@@ -275,10 +496,18 @@ export default function IcItemSalesInvoicePage() {
                     <button type="button" className="act-btn act-slate" title="Print" onClick={() => window.open('/admin/transaction/intercompanysell/sales-invoice/print/' + inv.invoiceId, '_blank')}>
                       <Icon name="printer" size={12} />
                     </button>
-                    {/* the same document under the e-Invoice heading */}
-                    <button type="button" className="act-btn act-green" title="Print E-Invoice" onClick={() => window.open('/admin/transaction/intercompanysell/sales-invoice/print/' + inv.invoiceId + '?einv=1', '_blank')}>
-                      <Icon name="file" size={12} />
-                    </button>
+                    {/* E-Invoice: YELLOW until an IRN is generated (click
+                        opens Generate E-Invoice), GREEN once it has one
+                        (click prints it) */}
+                    {inv.einvoice?.status === 'GENERATED' ? (
+                      <button type="button" className="act-btn act-green" title={'Print E-Invoice (IRN ' + inv.einvoice.irn + ')'} onClick={() => openEinvoice(inv)}>
+                        <Icon name="file" size={12} />
+                      </button>
+                    ) : (
+                      <button type="button" className="act-btn border-[#eab308] bg-[#fde047] text-[#713f12]" title="E-Invoice not generated - click to generate" onClick={() => openEinvoice(inv)}>
+                        <Icon name="file" size={12} />
+                      </button>
+                    )}
                   </span>
                 </td>
               </tr>
@@ -286,6 +515,75 @@ export default function IcItemSalesInvoicePage() {
           </tbody>
         </table>
       </div>
+
+      {/* --------------------------------- Generate E-Invoice popup -- */}
+      {einv && (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4"
+          onMouseDown={() => { if (!einv.busy) setEinv(null); }}
+        >
+          <div
+            className="my-16 w-full max-w-lg rounded-lg bg-white shadow-xl"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="border-b border-line px-5 py-3">
+              <span className="card-title">{einv.result ? 'E-Invoice Generated' : 'Generate E-Invoice'}</span>
+            </div>
+
+            <div className="space-y-2 p-5 text-[13px]">
+              <div className="grid grid-cols-[110px_1fr] gap-y-1">
+                <span className="text-inkmuted">Invoice No</span><b>{einv.inv.invoiceNo || '-'}</b>
+                <span className="text-inkmuted">Date</span><span>{day(einv.inv.invoiceDate)}</span>
+                <span className="text-inkmuted">Receiver</span><span>{einv.inv.toBusinessName || '-'}</span>
+                <span className="text-inkmuted">Net Value</span><span>{money2(einv.inv.netValue)}</span>
+              </div>
+
+              {einv.result && (
+                <div className="rounded border border-[#c3e9d4] bg-[#e9f7ef] p-3">
+                  <div className="font-semibold text-okgreen">E-Invoice generated successfully.</div>
+                  <div className="mt-1 break-all"><b>IRN:</b> {einv.result.irn}</div>
+                  <div><b>Ack No:</b> {einv.result.ackNo}</div>
+                  <div><b>Ack Date:</b> {when(einv.result.ackDate)}</div>
+                  {einv.result.mode === 'mock' && (
+                    <div className="mt-1 text-[12px] font-semibold text-warnyellow">TEST (mock) IRN - not registered with GST.</div>
+                  )}
+                </div>
+              )}
+
+              {!einv.result && !einv.error && (
+                <div>Generate the e-invoice (IRN) for this invoice?</div>
+              )}
+
+              {einv.error && (
+                <div className="flash flash-err">
+                  {einv.error}
+                  {einv.problems.length > 0 && (
+                    <ul className="ml-5 list-disc">{einv.problems.map((p) => <li key={p}>{p}</li>)}</ul>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2 border-t border-line px-5 py-3">
+              {einv.result ? (
+                <>
+                  <button type="button" className="btn btn-primary" onClick={() => { printEinvoice(einv.inv.invoiceId); setEinv(null); }}>
+                    <Icon name="printer" size={14} /> Print E-Invoice
+                  </button>
+                  <button type="button" className="btn" onClick={() => setEinv(null)}>Close</button>
+                </>
+              ) : (
+                <>
+                  <button type="button" className="btn btn-primary" disabled={einv.busy} onClick={generateEinvoice}>
+                    {einv.busy ? <span className="spin" /> : <Icon name="file" size={14} />} Generate
+                  </button>
+                  <button type="button" className="btn" disabled={einv.busy} onClick={() => setEinv(null)}>Cancel</button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ------------------------------------- View Sales Invoice popup -- */}
       {viewInv && (

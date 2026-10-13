@@ -75,6 +75,11 @@ export default function IcConsignmentPage() {
     (a, ev) => a + (ev.lines || []).reduce((n, l) => n + (Number(l.qty) || 0), 0), 0
   );
 
+  /* the barcodes that actually came back on this challan, each once */
+  const returnedBarcodes = (row) => [...new Set((row.returns || [])
+    .flatMap((ev) => (ev.lines || []).map((l) => l.barcodeNo))
+    .filter(Boolean))];
+
   /* every OPEN request across the loaded challans, one row each - the
      sender's work to do, the receiver's asks in flight */
   const pendingRequests = rows.flatMap((row) =>
@@ -138,7 +143,7 @@ export default function IcConsignmentPage() {
         <table className="dt">
           <thead>
             <tr>
-              <th style={{ width: 36 }}>#</th>
+              <th style={{ width: 36 }}>Sl No.</th>
               <th>Business</th>
               <th style={{ width: 150 }}>DC No</th>
               <th style={{ width: 110 }}>Requested On</th>
@@ -208,9 +213,10 @@ export default function IcConsignmentPage() {
         <table className="dt">
           <thead>
             <tr>
-              <th style={{ width: 36 }}>#</th>
+              <th style={{ width: 36 }}>Sl No.</th>
               <th>Business</th>
               <th style={{ width: 150 }}>DC No</th>
+              <th style={{ width: 130 }}>Barcode</th>
               <th style={{ width: 100 }}>DC Date</th>
               <th>Location</th>
               <th className="!text-right" style={{ width: 90 }}>Total Qty</th>
@@ -220,12 +226,12 @@ export default function IcConsignmentPage() {
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={9} className="dt-empty">Loading...</td></tr>}
+            {loading && <tr><td colSpan={10} className="dt-empty">Loading...</td></tr>}
             {!loading && !scope.business && (
-              <tr><td colSpan={9} className="dt-empty">Select a Business in the top bar.</td></tr>
+              <tr><td colSpan={10} className="dt-empty">Select a Business in the top bar.</td></tr>
             )}
             {!loading && scope.business && !rows.length && (
-              <tr><td colSpan={9} className="dt-empty">No returns involving this branch.</td></tr>
+              <tr><td colSpan={10} className="dt-empty">No returns involving this branch.</td></tr>
             )}
             {!loading && rows.map((row, i) => (
               <tr key={row._id}>
@@ -237,6 +243,7 @@ export default function IcConsignmentPage() {
                   </div>
                 </td>
                 <td>{row.dcNo || '-'}</td>
+                <td className="font-mono text-[12px]">{returnedBarcodes(row).join(', ') || '-'}</td>
                 <td>{day(row.dcDate)}</td>
                 <td>{label(other(row).locationId)}</td>
                 <td className="!text-right">{money(row.totalQty)}</td>

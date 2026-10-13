@@ -4,6 +4,7 @@ import IcItemInvoice from '@/models/IcItemInvoice';
 import IcDeliveryChallan from '@/models/IcDeliveryChallan';
 import PosInvoice from '@/models/PosInvoice';
 import Business from '@/models/Business';
+import CompanyLocation from '@/models/CompanyLocation';
 import { BarcodeLabel, BARCODE_STATUS } from '@/lib/barcodeLabel';
 import { requireSession } from '@/lib/session';
 import { nextDocNumber } from '@/lib/docnumber';
@@ -211,6 +212,15 @@ export async function GET(req) {
       roundOff: num(inv.roundOff),
       netValue: num(inv.netValue),
       items: inv.items || [],
+      /* e-invoice state for the list's E-Invoice button (yellow until an
+         IRN is generated) - the signed blobs stay on the server */
+      einvoice: inv.einvoice ? {
+        status: inv.einvoice.status || '',
+        mode: inv.einvoice.mode || '',
+        irn: inv.einvoice.irn || '',
+        ackNo: inv.einvoice.ackNo || '',
+        ackDate: inv.einvoice.ackDate || null,
+      } : null,
     }));
 
     return json({ rows });
@@ -238,6 +248,13 @@ export async function GET(req) {
 
   const { challanById, posLineFor } = await joins(rows, business);
   const nameOf = await businessNames(rows.map((r) => challanById.get(String(r.icChallanId))?.toBusinessId).filter(Boolean));
+  /* the receiver's LOCATION too - the screen filters Not Billed by
+     receiver company and location (user, 13-10-2026) */
+  const locIds = [...new Set(rows.map((r) => String(challanById.get(String(r.icChallanId))?.toLocationId || ''))
+    .filter(isValidObjectId))];
+  const locName = new Map((locIds.length
+    ? await CompanyLocation.find({ _id: { $in: locIds } }).select('name businessPrintName').lean()
+    : []).map((l) => [String(l._id), l.name || l.businessPrintName || '']));
 
   return json({
     rows: items.map(({ row, sale }) => {
@@ -247,6 +264,8 @@ export async function GET(req) {
         ...line,
         toBusinessId: challan ? String(challan.toBusinessId || '') : '',
         toBusinessName: challan ? nameOf.get(String(challan.toBusinessId)) || '' : '',
+        toLocationId: challan ? String(challan.toLocationId || '') : '',
+        toLocationName: challan ? locName.get(String(challan.toLocationId)) || '' : '',
       };
     }),
   });

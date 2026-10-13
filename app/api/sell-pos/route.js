@@ -140,6 +140,14 @@ export async function GET(req) {
         _id: null,
         totalAmount: { $sum: { $ifNull: ['$totalAmount', 0] } },
         paid: { $sum: { $ifNull: ['$paid', 0] } },
+        /* change handed back - `paid` is what the customer HANDED OVER
+           (500 tendered on a 260 bill is paid 500), so the excess over the
+           bill went back across the counter */
+        returned: {
+          $sum: {
+            $max: [0, { $subtract: [{ $ifNull: ['$paid', 0] }, { $ifNull: ['$totalAmount', 0] }] }],
+          },
+        },
         sellDue: { $sum: { $ifNull: ['$sellDue', 0] } },
         totalQty: {
           $sum: {
@@ -221,13 +229,24 @@ export async function GET(req) {
     const bucket = _id?.loyalty === true ? 'Loyalty Points'
       : key === 'cash' ? 'Cash'
         : UPI_METHODS.includes(key) ? 'UPI'
-          : method || 'Other';
+          /* Bank Deposit on the payment dialog (and any "bank ..." name) */
+          : key.includes('bank') || key.includes('deposit') ? 'Bank'
+            : method || 'Other';
     paidBy.set(bucket, (paidBy.get(bucket) || 0) + (Number(amount) || 0));
   });
-  /* Only Cash and UPI are shown on the card, as asked - shown even at zero
-     so the card reads the same every day. Loyalty, Bank Deposit and the
-     rest are still inside the Collected total, just not itemised. */
-  const paidByList = ['Cash', 'UPI'].map((label) => ({ label, amount: round2(paidBy.get(label)) }));
+  /* Cash, UPI and Bank are shown on the card (Bank added, user,
+     12-10-2026) - shown even at zero so the card reads the same every day.
+     Loyalty and the rest are still inside the Collected total, just not
+     itemised. */
+  const paidByList = ['Cash', 'UPI', 'Bank'].map((label) => ({ label, amount: round2(paidBy.get(label)) }));
+  /* then the change given back and what stays in hand (user, 13-10-2026):
+     Collected counts the money tendered, so without these the card read
+     more than the bills came to */
+  const returned = round2(sums && sums.returned);
+  paidByList.push(
+    { label: 'Return', amount: -returned },
+    { label: 'Net', amount: round2((sums && sums.paid) - returned) }
+  );
 
   /* QTY SOLD SPLIT INTO PIECES AND METRES, over the same filtered set - 15
      sarees and 10 metres of cloth is not 25 of anything.

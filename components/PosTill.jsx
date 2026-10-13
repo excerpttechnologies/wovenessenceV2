@@ -940,9 +940,11 @@ export default function PosTill() {
        requestAnimationFrame can fire before that commit - which is why the
        first attempt silently did nothing. The effect below runs after the
        commit, when the input is really there. */
-    setFocusAfterAdd(
-      String(unit.batchType || '').trim().toLowerCase() === 'batch' ? 'qty' : 'scan'
-    );
+    /* The jump into a BATCH row's Qty box is switched off (user,
+       13-10-2026): every scan, batch or unique, hands the cursor back to the
+       scan box. The cashier clicks the Qty box when a batch quantity needs
+       changing. The 'qty' target is left in the effect above, unused. */
+    setFocusAfterAdd('scan');
     beep('ok');
   }
 
@@ -1304,7 +1306,9 @@ export default function PosTill() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Unable to save POS invoice');
       setShowMultiplePay(false);
-      router.push('/admin/transaction/sell/pos');
+      /* straight to the receipt, ready to print (user, 12-10-2026); its
+         Close button returns to the POS list as before */
+      router.push(data.id ? '/admin/transaction/sell/pos/print/' + data.id : '/admin/transaction/sell/pos');
     } catch (error) { setMsg(error.message); }
   }
 
