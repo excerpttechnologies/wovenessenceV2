@@ -3188,8 +3188,8 @@ const TWIN_OF = new Set(Object.values(TWINS));
    [field, label, read-only] */
 const ITEM_INFO = [
   ['itemCode', 'Item Code'], ['itemName', 'Item Name'], ['subGroup', 'Sub Group'], ['group', 'Group'], ['hsn', 'HSN'], ['gstSlab', 'GST Slab'],
-  ['uom', 'Unit / UOM'], ['ecomId', 'ECom ID', true], ['consignment', 'Is Consignment', true], ['description', 'Supplier Description'],
-  ['pma', 'P-M-F'], ['invoiceNo', 'Purchase Invoice'], ['grcNo', 'GRC No.'], ['caseNo', 'Print Description'],
+  ['uom', 'Unit / UOM'], ['ecomId', 'ECom ID', true], ['consignment', 'Is Consignment', true], ['supplierDescription', 'Supplier Description'],
+  ['pma', 'P-M-F'], ['invoiceNo', 'Purchase Invoice'], ['grcNo', 'GRC No.'], ['description', 'Print Description'],
 ];
 const PRICE_INFO = [['purRate', 'Purchase Rate'], ['discount', 'Discount'], ['finalNet', 'Final Rate'], ['retailPrice', 'RSP'], ['wspPrice', 'WSP'], ['dpPrice', 'DP']];
 const SUPPLIER_INFO = [['supplier', 'Supplier'], ['taxRegion', 'Tax Region'], ['note', 'Note', true]];
