@@ -28,6 +28,7 @@ input[type='number'] {
 @tailwind utilities;
 
 body,
+input:not([type]),
 input[type='text'],
 input[type='email'],
 input[type='search'],
@@ -39,6 +40,7 @@ select {
 
 /* The public pages - marketing and sign-in - are prose, not data entry. */
 .public-page,
+.public-page input:not([type]),
 .public-page input[type='text'],
 .public-page input[type='email'],
 .public-page input[type='search'],

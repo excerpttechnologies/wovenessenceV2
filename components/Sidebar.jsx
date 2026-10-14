@@ -514,7 +514,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
                     {ItemIcon && <ItemIcon size={18} strokeWidth={1.9} />}
                   </span>
 
-                  <span className="sb-label flex-1 truncate">{item.label}</span>
+                  <span className="sb-label flex-1 truncate uppercase">{item.label}</span>
 
                   <LuChevronRight size={14} strokeWidth={2} className="sb-chev" />
                 </Link>
@@ -560,7 +560,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
                   {ItemIcon && <ItemIcon size={18} strokeWidth={1.9} />}
                 </span>
 
-                <span className="sb-label flex-1 truncate">{item.label}</span>
+                <span className="sb-label flex-1 truncate uppercase">{item.label}</span>
 
                 {isOpen ? (
                   <LuChevronDown size={14} strokeWidth={2} className="sb-chev" />
