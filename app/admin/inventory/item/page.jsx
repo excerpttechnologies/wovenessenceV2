@@ -19,8 +19,8 @@ const CONFIG = {
     { k: "prefix", t: "Prefix" },
     { k: "itemCode", t: "Item Code" },
     { k: "ecommItemCode", t: "Ecomm Item Code" },
-    { k: "groupId", t: "Group", f: "ref" },
-    { k: "subGroupId", t: "Sub Group", f: "ref" },
+    // { k: "groupId", t: "Group", f: "ref" },
+    { k: "subGroupId", t: " Group", f: "ref" },
   ],
 };
 
