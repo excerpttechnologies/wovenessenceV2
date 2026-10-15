@@ -1005,7 +1005,7 @@ export default function TabbedFormView({ cfg, id, slug, onSaved }) {
                       : 'form-grid-4'
               }
             >
-              {(s.fields || []).filter((f) => !f.hidden && (!cfg.isFieldVisible || cfg.isFieldVisible(f, data))).map((f) => {
+              {(s.fields || []).filter((f) => !f.hidden && (id || !f.editOnly) && (!cfg.isFieldVisible || cfg.isFieldVisible(f, data))).map((f) => {
                 const add = cfg.quickAdds?.[f.k];
                 /* cfg.isFieldReadOnly is the sibling of cfg.isFieldVisible:
                    the page decides, this component only asks. The Supplier

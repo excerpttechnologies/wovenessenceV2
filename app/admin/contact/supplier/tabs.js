@@ -119,6 +119,16 @@ export const TABS = [
                    into a shape they are not */
                 { "v": "Others", "l": "Others" }
               ]
+            },
+            /* Generated on create from the Contact Type prefix, so it is shown
+               only when editing - editOnly hides it on every Add form. Last in
+               the section, beside Business Type, for the same reason as above:
+               anywhere earlier pushes the name fields out of their rows. */
+            {
+              "k": "contactId",
+              "label": "Supplier No",
+              "type": "text",
+              "editOnly": true
             }
           ]
         },

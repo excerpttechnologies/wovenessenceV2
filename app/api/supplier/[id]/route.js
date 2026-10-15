@@ -68,6 +68,8 @@ export async function PUT(req, { params }) {
   doc.gstNo = normalizeGstin(doc.gstNo);
   if (doc.gstNo && !isValidGstin(doc.gstNo)) errors.gstNo = GSTIN_FORMAT_MESSAGE;
   if (Object.keys(errors).length) return json({ errors }, 422);
+  /* Supplier No left blank keeps the number it already has */
+  if (!doc.contactId) delete doc.contactId;
 
   /* _id excluded: a supplier's own GST number is never its own duplicate */
   const conflict = await findSupplierGstConflict({ gstNo: doc.gstNo, businessId, excludeId: id });
