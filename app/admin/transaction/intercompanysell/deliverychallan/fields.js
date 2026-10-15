@@ -338,7 +338,8 @@ export const GRID_COLS = [
    raising a line's quantity still raises the amount. */
 export const COMPACT_GRID_COLS = [
   'Sl No.', 'Barcode', 'Qty', 'UOM', 'HSN', 'Item Name / Description',
-  'RSP Price', 'Image', 'Action',
+  /* Norashan: free text per line (user, 14-10-2026; saved as `remarks`) */
+  'RSP Price', 'Norashan', 'Image', 'Action',
 ];
 
 export const INFO = [

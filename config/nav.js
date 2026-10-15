@@ -472,7 +472,36 @@ export const NAV = [
   // },
 
 
-   {
+  //  {
+  //   label: 'Inter Company Sell',
+  //   icon: LuHouse,
+  //   children: [
+  //     { label: 'Delivery Challan', icon: LuFileCheck,
+  //       href: '/admin/transaction/intercompanysell/deliverychallan' },
+  //     { label: 'Receive Delivery Challan', icon: LuPackageCheck,
+  //       href: '/admin/transaction/intercompanysell/receivedeliverychallan' },
+  //     /* Consignment billing: the sender invoices the units its receivers
+  //        have SOLD - not the whole challan, which is what the older hidden
+  //        salesinvoice screen below did. */
+  //     { label: 'Sales Invoice', icon: LuFileText,
+  //       href: '/admin/transaction/intercompanysell/sales-invoice' },
+  //     /* the returns of IC challans, moved out of Receive Delivery
+  //        Challan's Returns tab onto a page of their own */
+  //     { label: 'Return Approval', icon: LuUndo2,
+  //       href: '/admin/transaction/intercompanysell/consignment' },
+  //     // { label: 'Sales Invoice', icon: LuFileText,
+  //     //   href: '/admin/transaction/intercompanysell/salesinvoice' },
+  //     // { label: 'Auto Purchases Received', icon: LuPackageCheck,
+  //     //   href: '/admin/transaction/intercompanysell/auto-purchases-received' },
+  //     // { label: 'Auto Purchases Return', icon: LuPackageMinus,
+  //     //   href: '/admin/transaction/intercompanysell/auto-purchases-return' },
+  //     // { label: 'Sales Return', icon: LuUndo2,
+  //     //   href: '/admin/transaction/intercompanysell/salereturn' },
+  //   ],
+  // },
+
+
+ {
     label: 'Inter Company Sell',
     icon: LuHouse,
     children: [
@@ -485,6 +514,10 @@ export const NAV = [
          salesinvoice screen below did. */
       { label: 'Sales Invoice', icon: LuFileText,
         href: '/admin/transaction/intercompanysell/sales-invoice' },
+      /* the receiver saves the sender's Sales Invoice as its purchase -
+         static page for now (14-10-2026) */
+      { label: 'Auto Purchases Receiveds', icon: LuPackageCheck,
+        href: '/admin/transaction/intercompanysell/auto-purchase-receiveds' },
       /* the returns of IC challans, moved out of Receive Delivery
          Challan's Returns tab onto a page of their own */
       { label: 'Return Approval', icon: LuUndo2,
@@ -499,6 +532,8 @@ export const NAV = [
       //   href: '/admin/transaction/intercompanysell/salereturn' },
     ],
   },
+
+
 
   /* A TOP-LEVEL group of its own, between Inter Company Sell and Reports, so
      the hierarchy is exactly:  Main Reports > Master Stock Report  - with no

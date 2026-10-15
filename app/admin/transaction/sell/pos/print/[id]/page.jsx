@@ -84,8 +84,10 @@
 
 'use client';
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useRouter } from 'next/navigation';
 import Icon from '@/components/Icon';
+import BarcodeSvg from '@/components/BarcodeSvg';
 import { uomTypeOf } from '@/lib/barcodeUnits';
 /* the logo is read straight from bill-template/ at the project root - an
    import, so Next bundles it; nothing is copied into public/ */
@@ -154,7 +156,8 @@ function setPageSize(format) {
   if (PAPER[format]) {
     size = PAPER[format].name + ' portrait';
   } else {
-    const el = document.querySelector('.pos-receipt');
+    /* the ON-SCREEN copy - the print copy is display:none until printing */
+    const el = document.querySelector('.pos-screen .pos-receipt');
     if (!el) return;
     size = '80mm ' + (Math.ceil((el.scrollHeight * 25.4) / 96) + 8) + 'mm';
   }
@@ -174,6 +177,10 @@ export default function PrintPosPage() {
   /* the paper last printed on, per PC - a counter with a thermal printer and
      a back office with an A4 one each keep their own */
   const [format, setFormat] = useState('receipt');
+  /* document.body exists only in the browser - the print copy is portalled
+     there once mounted */
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
   useEffect(() => {
     try {
       const saved = window.localStorage.getItem(FORMAT_KEY);
@@ -284,7 +291,16 @@ export default function PrintPosPage() {
         </div>
       </div>
 
-      {paper && (
+      {/* PRINTING (user, 15-10-2026 - it printed blank). globals.css hides
+          `body > *:not(.print-doc)` at print time, which removes the whole
+          app shell - and this invoice with it, since it sits inside the
+          shell. That rule is a teammate's and other print screens rely on
+          it, so it is not touched. Instead the document is rendered twice:
+          on screen inside the page (.pos-screen, never printed), and as a
+          print-only copy portalled straight under <body> as
+          `.print-doc.pos-print-copy`, which that rule keeps. */}
+      {(() => {
+        const docEl = paper ? (
         <SheetInvoice
           paper={paper}
           doc={doc}
@@ -301,10 +317,8 @@ export default function PrintPosPage() {
           totals={{ netSum, mrpSum, discSum, taxSum, taxable, cgst, sgst, shipping, netAmount, roundOff, pcs, mtr }}
           hsnRows={hsnRows}
         />
-      )}
-
-      {!paper && (
-      <main className="print-doc pos-receipt w-[80mm] bg-white px-2 py-3 text-[10.5px] leading-snug text-black shadow print:shadow-none">
+        ) : (
+      <main className="pos-receipt w-[80mm] bg-white px-2 py-3 text-[10.5px] leading-snug text-black shadow print:shadow-none">
         {/* ------------------------------------------------ letterhead -- */}
         <div className="text-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -442,11 +456,21 @@ export default function PrintPosPage() {
           <div className="font-bold">Terms &amp; Conditions:</div>
           {termLines.map((t, i) => <div key={i}>{t}</div>)}
         </div>
-        {/* the invoice-number barcode that sat here is removed (user,
-            06-10-2026) - the receipt ends with the terms and the note */}
+        {/* the bill's own barcode - the invoice number, scannable to find
+            this sale (removed 06-10-2026, back by request 13-10-2026) */}
+        <div className="mt-2 flex justify-center">
+          <BarcodeSvg value={doc.invoiceNo || ''} height={40} width={1.6} displayValue fontSize={13} className="block h-[16mm] w-[62mm]" />
+        </div>
         <div className="mt-2 text-center text-[12px] font-bold">{FOOTER_NOTE}</div>
       </main>
-      )}
+        );
+        return (
+          <>
+            <div className="pos-screen no-print">{docEl}</div>
+            {mounted && createPortal(<div className="print-doc pos-print-copy">{docEl}</div>, document.body)}
+          </>
+        );
+      })()}
 
       {/* an 80 mm roll, no page margins - scoped to this screen only */}
       <style jsx global>{`
@@ -458,10 +482,21 @@ export default function PrintPosPage() {
           font-family: 'Arial Narrow', 'Arial Unicode MS', 'Liberation Sans Narrow', 'Nimbus Sans Narrow', Arial, 'Liberation Sans', sans-serif;
           font-stretch: condensed;
         }
+        /* the print-only copy (see the PRINTING note above) never shows on
+           screen */
+        @media screen {
+          .pos-print-copy { display: none !important; }
+        }
         @media print {
-          /* the page SIZE is set by sizePrintPage() from the receipt's
+          /* the page SIZE is set by setPageSize() from the receipt's
              measured height; this is only the fallback margin */
           @page { margin: 0; }
+          /* globals.css gives every .print-doc width 100% / no padding; the
+             copy's own wrapper takes that, the receipt / sheet inside keep
+             their paper size - two classes, so these win over one */
+          .print-doc.pos-print-copy { padding: 0 !important; margin: 0 !important; }
+          .pos-print-copy .pos-receipt { width: 80mm !important; padding: 2mm !important; margin: 0 auto !important; box-shadow: none !important; }
+          .pos-print-copy .pos-sheet { margin: 0 auto !important; min-height: 0 !important; box-shadow: none !important; }
           /* centred on the sheet: on an 80mm roll it fills the width
              anyway, but a printer that ignores @page size (an A4 printer,
              "Save as PDF") used to put the receipt in the left corner -
@@ -498,7 +533,7 @@ function SheetInvoice({
 
   return (
     <main
-      className="print-doc pos-sheet bg-white leading-snug text-black shadow"
+      className="pos-sheet bg-white leading-snug text-black shadow"
       style={{
         width: paper.w + 'mm',
         minHeight: paper.h + 'mm',
@@ -653,6 +688,10 @@ function SheetInvoice({
       <div className="mt-1" style={{ breakInside: 'avoid' }}>
         <div className="font-bold">Terms &amp; Conditions:</div>
         {termLines.map((line, i) => <div key={i}>{line}</div>)}
+      </div>
+      {/* the bill's barcode, as on the receipt */}
+      <div className="mt-2 flex justify-center">
+        <BarcodeSvg value={doc.invoiceNo || ''} height={40} width={1.8} displayValue fontSize={13} className="block h-[16mm] w-[70mm]" />
       </div>
       <div className="mt-2 text-center font-bold" style={{ fontSize: '1.1em' }}>{FOOTER_NOTE}</div>
     </main>

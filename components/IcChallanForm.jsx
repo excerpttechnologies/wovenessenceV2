@@ -880,6 +880,8 @@ export default function IcChallanForm({ cfg, id }) {
           igstPct: num(r.igstPct), cgstPct: num(r.cgstPct), sgstPct: num(r.sgstPct),
           igstAmount: c.igst, cgstAmount: c.cgst, sgstAmount: c.sgst,
           netAmount: c.netAmount,
+          /* the line's free-text Remarks column */
+          remarks: String(r.remarks || '').trim(),
         };
       });
 
@@ -1116,6 +1118,18 @@ export default function IcChallanForm({ cfg, id }) {
                         the totals, so quantity remains the thing that moves
                         Net Value on this screen. */}
                     <td className="text-center">{money(r.unitRate)}</td>
+                    {/* REMARKS - anything extra the sender wants to note on this
+                        line (user, 14-10-2026). Free text, saved with the line. */}
+                    <td>
+                      <input
+                        type="text"
+                        className="f-input h-8 min-w-[180px]"
+                        placeholder="Norashan"
+                        maxLength={200}
+                        value={r.remarks ?? ''}
+                        onChange={(e) => setCell(i, 'remarks', e.target.value)}
+                      />
+                    </td>
                     {/* the same thumbnail component the POS till uses - a fixed
                         box whether the photo loads, fails or is missing, so a
                         bad image cannot knock the row out of line */}
