@@ -125,3 +125,6 @@ export async function DELETE(req, { params }) {
   await ProductGroup.deleteOne({ _id: id });
   return json({ ok: true });
 }
+
+/* ModalForm saves an edit with PUT, like every other by-id route. */
+export const PUT = PATCH;

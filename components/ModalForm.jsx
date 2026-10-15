@@ -39,7 +39,7 @@ export default function ModalForm({ cfg, slug, onClose, onSaved, recordId = null
           return;
         }
         // Populate form with existing data
-        setData(result.data || result);
+        setData(result.doc || result.data || result);
       } catch (err) {
         setFormError(err.message || 'Could not load record.');
       } finally {
@@ -61,7 +61,7 @@ export default function ModalForm({ cfg, slug, onClose, onSaved, recordId = null
       };
       
       const url = recordId ? `${cfg.endpoint}/${recordId}` : cfg.endpoint;
-      const method = recordId ? 'PATCH' : 'POST';
+      const method = recordId ? 'PUT' : 'POST';
       
       const r = await fetch(url, {
         method,
