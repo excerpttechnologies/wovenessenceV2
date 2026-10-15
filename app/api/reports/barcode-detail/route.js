@@ -625,11 +625,20 @@ export async function GET(req) {
 
   /* Item Info's Sub Group / Group / GST Slab - the item's masters (a barcode
      keeps no group of its own). The slab is the item's HSN's tax, else the
-     barcode's own GST %. */
+     barcode's own GST %.
+
+     The Item form stores its "Group" pick in item.subGroupId, and that pick can
+     be a sub-group (parentId set) OR a top-level group picked outright from the
+     product-group master - both live in the same collection, exactly the way
+     the Master Stock Report reads Group Name as item.subGroupId's own name. A
+     top-level group IS the item's Group; it is not a Sub Group with no parent.
+     So Group resolves parent-of-sub when there is a parent, and the group doc
+     itself when there is not - only then does Sub Group stay empty. */
   const sub = item?.subGroupId && isValidObjectId(String(item.subGroupId))
     ? await ProductGroup.findById(item.subGroupId).select('name parentId').lean() : null;
-  const group = sub?.parentId && isValidObjectId(String(sub.parentId))
-    ? await ProductGroup.findById(sub.parentId).select('name').lean() : null;
+  const isSubGroup = Boolean(sub?.parentId && isValidObjectId(String(sub.parentId)));
+  const group = isSubGroup
+    ? await ProductGroup.findById(String(sub.parentId)).select('name').lean() : null;
   const hsn = item?.hsnId && isValidObjectId(String(item.hsnId))
     ? await Hsn.findById(item.hsnId).select('taxSlabs').lean() : null;
   const slabId = hsn?.taxSlabs?.[0]?.gstTaxNameId;
@@ -637,7 +646,12 @@ export async function GET(req) {
 
   /* IDs for dropdown fields - so the edit form can pre-select the correct values */
   const subGroupId = sub?._id ? String(sub._id) : (item?.subGroupId ? String(item.subGroupId) : '');
-  const groupId = group?._id ? String(group._id) : (sub?.parentId ? String(sub.parentId) : '');
+  /* the Group id behind the display value: the parent's when the item's pick
+     was a sub-group, the pick's own id when it was a top-level group, so the
+     edit form preselects what actually holds */
+  const groupId = group?._id ? String(group._id)
+    : (isSubGroup && sub?.parentId ? String(sub.parentId)
+    : (sub?._id ? String(sub._id) : ''));
   const hsnId = hsn?._id ? String(hsn._id) : (item?.hsnId ? String(item.hsnId) : '');
   const gstSlabId = slab?._id ? String(slab._id) : '';
   const uomId = item?.uomId ? String(item.uomId) : (unit.uomId && isValidObjectId(String(unit.uomId)) ? String(unit.uomId) : '');
@@ -730,8 +744,9 @@ export async function GET(req) {
       finalRate: unit.finalNet ?? null,
       dp: unit.dp || unit.dpPrice || null,
 
-      subGroup: sub?.name || '',
-      group: group?.name || '',
+      /* a top-level group picked outright is the Group - not a Sub Group */
+      subGroup: (sub && isSubGroup ? sub.name : '') || '',
+      group: group?.name || (sub && !isSubGroup ? sub.name : '') || '',
       gstSlab: slab?.taxName || (str(unit.gst) ? 'GST ' + str(unit.gst) + ' %' : ''),
       subGroupId,
       groupId,

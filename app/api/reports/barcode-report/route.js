@@ -416,6 +416,25 @@ export async function GET(req) {
   const subOfItem = new Map(items.map((i) => [String(i._id), String(i.subGroupId || '')]));
   const subById = new Map(subs.map((s) => [String(s._id), s]));
   const groupName = new Map(parents.map((p) => [String(p._id), p.name || '']));
+
+  /* The Item form stores its "Group" pick in item.subGroupId, and that pick
+     can be a sub-group (parentId set) OR a top-level group picked outright -
+     both live in the same productgroup master, exactly the way the Master
+     Stock Report reads Group Name as item.subGroupId's own name. So the Group
+     of an item is its sub-group's parent when there is one, the group doc
+     itself when there is not; only then is there no Sub Group to show. */
+  const groupOf = (itemId) => {
+    const sub = subById.get(subOfItem.get(String(itemId)));
+    if (!sub) return '';
+    if (sub.parentId && isValidObjectId(String(sub.parentId))) {
+      return groupName.get(String(sub.parentId)) || '';
+    }
+    return sub.name || '';
+  };
+  const subGroupOf = (itemId) => {
+    const sub = subById.get(subOfItem.get(String(itemId)));
+    return sub && sub.parentId && isValidObjectId(String(sub.parentId)) ? (sub.name || '') : '';
+  };
   const supplierName = new Map(suppliers.map((s) => [String(s._id), s.businessName || '']));
 
   /* the GRC each barcode was received on */
@@ -437,8 +456,8 @@ export async function GET(req) {
     barcodeGenerated: canonicalBarcodeValue(r.barcodeGenerated) || '',
     itemCode: r.itemCode || '',
     description: r.printDescription || r.supplierDescription || '',
-    subGroup: subById.get(subOfItem.get(String(r.itemId)))?.name || '',
-    group: groupName.get(String(subById.get(subOfItem.get(String(r.itemId)))?.parentId || '')) || '',
+    subGroup: subGroupOf(r.itemId),
+    group: groupOf(r.itemId),
     designNo: r.designNo || '',
     supplier: supplierName.get(String(r.supplierId)) || '',
     qty: num(r.qty),
