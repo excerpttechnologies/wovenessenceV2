@@ -209,7 +209,13 @@ export async function GET(req) {
   ]);
 
   return json({
-    rows: rows.map((r) => ({ ...r, _id: String(r._id) })),
+    /* barcodeNo - every barcode on the challan, so the list's View popup
+       shows them (it lists every field a row carries; user, 15-10-2026) */
+    rows: rows.map((r) => ({
+      ...r,
+      _id: String(r._id),
+      barcodeNo: [...new Set((Array.isArray(r.items) ? r.items : []).map((l) => l?.barcodeNo).filter(Boolean))].join(', '),
+    })),
     labels: await resolveRefLabels(rows),
     summary: {
       count: summaryTotal,
