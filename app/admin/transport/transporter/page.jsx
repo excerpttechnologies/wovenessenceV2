@@ -9,6 +9,10 @@ const CONFIG = {
   basePath: '/admin/transport/',
   slugPath: 'transporter',
   endpoint: '/api/transporter',
+  /* numbered pager with Rows-per-page, and every column header sorts on
+     click (components/ListView.jsx) */
+  pager: 'numbered',
+  sortable: true,
   scope: ['business', 'location'],
   addTitle: 'Add Transporter',
   formMode: 'modal',

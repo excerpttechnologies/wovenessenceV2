@@ -5,6 +5,7 @@ import { requireSession } from '@/lib/session';
 import { validate, escapeRegex } from '@/lib/validate';
 import { FIELDS } from '@/app/admin/setting/split-barcode-setting/fields';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { sortedPage } from '@/lib/listSort';
 
 /* Permission gate for this screen.
 
@@ -47,7 +48,13 @@ export async function GET(req) {
   }
 
   const total = await SplitBarcodeSetting.countDocuments(filter);
-  const rows = await SplitBarcodeSetting.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(SplitBarcodeSetting, filter, sp, {
+    page,
+    perPage,
+    keys: ['useFor', 'prefix', 'suffix', 'startNumber', 'sampleBarcode', 'effectiveDate', 'expiryDate', 'finYear'],
+  })) ?? await SplitBarcodeSetting.find(filter)
     .sort({ createdAt: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)

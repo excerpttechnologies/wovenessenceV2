@@ -8,6 +8,10 @@ const CONFIG = {
   basePath: '/admin/setting/',
   slugPath: "split-barcode-setting",
   endpoint: '/api/split-barcode-setting',
+  /* numbered pager with Rows-per-page, and every column header sorts on
+     click (components/ListView.jsx) */
+  pager: 'numbered',
+  sortable: true,
   scope: ["business","finYear"],
   columns: [
     { k: "useFor", t: "Use For" },

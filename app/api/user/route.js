@@ -6,6 +6,7 @@ import { handler, json } from '@/lib/apiError';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac';
 import { escapeRegex } from '@/lib/validate';
 import { hashPassword } from '@/lib/auth';
+import { sortedPage } from '@/lib/listSort';
 
 /* /api/user - the accounts that can sign in, and what each may do.
 
@@ -41,7 +42,17 @@ export const GET = handler(async (req) => {
   }
 
   const total = await User.countDocuments(filter);
-  const rows = await User.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(User, filter, sp, {
+    page,
+    perPage,
+    keys: ['name', 'email', 'role', 'isActive', 'createdAt'],
+    computed: {
+      access: (d) => ((d.locationIds || []).length || Number.MAX_SAFE_INTEGER),
+    },
+    select: '-password',
+  })) ?? await User.find(filter)
     .select('-password')
     .sort({ createdAt: -1 })
     .skip((page - 1) * perPage)

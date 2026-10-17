@@ -22,6 +22,7 @@ import {
 const ITEM = { screen: SCREENS.ITEM, label: 'items' };
 
 import { FIELDS } from '@/app/admin/inventory/item/fields';
+import { sortedPage } from '@/lib/listSort';
 
 /* /api/item - list + create. */
 
@@ -62,7 +63,14 @@ export async function GET(req) {
   }
 
   const total = await Item.countDocuments(filter);
-  const rows = await Item.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(Item, filter, sp, {
+    page,
+    perPage,
+    keys: ['name', 'itemType', 'prefix', 'itemCode', 'ecommItemCode'],
+    refs: ['hsnId', 'uomId', 'subGroupId'],
+  })) ?? await Item.find(filter)
     .sort({ createdAt: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)

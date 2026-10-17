@@ -636,6 +636,7 @@ import CompanyLocation from '@/models/CompanyLocation';
 import Uom from '@/models/Uom';
 import { Supplier } from '@/lib/contacts';
 import { json, num, r2, scopeOf, pageOf } from '@/lib/reports';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 
 /* ==========================================================================
    /api/reports/master-stock-report  -  read-only.
@@ -1241,6 +1242,10 @@ export async function GET(req) {
 
   const { businessId, locationId, finYear } = scopeOf(sp);
   const { page, perPage } = pageOf(sp);
+
+  /* Roles & Permissions (17-10-2026): Master Stock Report -> Read */
+  const denied = await screenDenial({ session, screen: SCREENS.MASTER_STOCK_REPORT, label: 'the master stock report', action: PERM.READ, businessId });
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   /* ---- scope -----------------------------------------------------------
      barcodeLabel keeps its scope as plain STRINGS (lib/barcodeLabel.js:93-94)

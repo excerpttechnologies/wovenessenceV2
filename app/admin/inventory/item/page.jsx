@@ -8,6 +8,10 @@ const CONFIG = {
   basePath: '/admin/inventory/',
   slugPath: "item",
   endpoint: '/api/item',
+  /* numbered pager with Rows-per-page, and every column header sorts on
+     click (components/ListView.jsx) */
+  pager: 'numbered',
+  sortable: true,
   scope: ["business"],
   addTitle: "Add Item",
   serialNumber: true,  // Enable serial numbers

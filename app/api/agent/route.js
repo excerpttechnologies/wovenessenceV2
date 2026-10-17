@@ -9,6 +9,7 @@ import { TABS } from '@/app/admin/contact/agent/tabs';
 import ContactType from '@/models/ContactType';
 import { nextContactId } from '@/lib/contactId';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { sortedPage } from '@/lib/listSort';
 
 const AGENT = { screen: SCREENS.AGENT, label: 'agents' };
 
@@ -52,7 +53,21 @@ export async function GET(req) {
   }
 
   const total = await Agent.countDocuments(filter);
-  const rows = await Agent.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(Agent, filter, sp, {
+    page,
+    perPage,
+    keys: ['contactId', 'billingMobile', 'billingEmail', 'billingAddressLine1'],
+    computed: {
+      /* the Name cell: business name, else the person's name - as the list shows it */
+      businessName: {
+        select: 'businessName firstName lastName',
+        value: (d) => String(d.businessName || '').trim()
+          || [d.firstName, d.lastName].map((x) => String(x || '').trim()).filter(Boolean).join(' '),
+      },
+    },
+  })) ?? await Agent.find(filter)
     .sort({ createdAt: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)

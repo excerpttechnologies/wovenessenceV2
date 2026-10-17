@@ -3190,7 +3190,7 @@ const GRT_VIEW_LABELS = {
 
 export default function ListView({ cfg, slug }) {
   const router = useRouter();
-  const { business, location, finYear, businessReady, locationReady } = useScope();
+  const { business, location, finYear, businessReady, locationReady, can } = useScope();
   const [grtBusiness, setGrtBusiness] = useState(null);
   const [state, setState] = useState({
     rows: [],
@@ -3321,6 +3321,21 @@ export default function ListView({ cfg, slug }) {
  
   const slugPath = cfg.slugPath || slug;
   const base = (cfg.basePath || "/admin/setting/") + slugPath;
+  /* Roles & Permissions (17-10-2026): hide what the server would refuse.
+     base is the screen's own href (/admin/transaction/purchase/grt). An
+     action icon this list does not name renders as Delete below, so it is
+     judged as Delete here too. */
+  const mayCreate = can(base, "create");
+  const mayUpdate = can(base, "update");
+  const mayDelete = can(base, "delete");
+  const iconAllowed = (a) => {
+    if (a === "view" || a === "print" || a === "share") return true;
+    if (a === "edit") return mayUpdate;
+    if (a === "upload") return mayCreate || mayUpdate;
+    return mayDelete;
+  };
+  const menuAllowed = (m) => !m.need
+    || (m.need === "update" ? mayUpdate : m.need === "create" ? mayCreate : m.need === "delete" ? mayDelete : true);
  
   const searched = !cfg.searchOnly || Object.keys(filters).length > 0;
  
@@ -3686,7 +3701,7 @@ export default function ListView({ cfg, slug }) {
               }
               return router.push(base + "/add");
             }}
-            showAdd={cfg.showAdd !== false}
+            showAdd={cfg.showAdd !== false && mayCreate}
             showCsv={cfg.showCsv !== false}
             onExportCsv={() =>
               download(
@@ -3772,9 +3787,10 @@ export default function ListView({ cfg, slug }) {
                                   label: "Edit",
                                   icon: "pencil",
                                   to: (r) => base + "/" + r._id,
+                                  need: "update",
                                 },
                               ]
-                            ).map((m) => ({ 
+                            ).filter(menuAllowed).map((m) => ({ 
                               ...m, 
                               href: m.to ? m.to(row) : undefined,
                               rowId: row._id 
@@ -3808,7 +3824,7 @@ export default function ListView({ cfg, slug }) {
                               typeof cfg.actionIcons === "function"
                                 ? cfg.actionIcons(row) || []
                                 : cfg.actionIcons || ["view", "edit", "delete"]
-                            ).map((a) => {
+                            ).filter(iconAllowed).map((a) => {
                               if (a === "view")
                                 return (
                                   <button

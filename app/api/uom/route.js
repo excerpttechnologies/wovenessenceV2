@@ -10,6 +10,7 @@ import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 const UOM = { screen: SCREENS.UOM, label: 'units of measurement' };
 
 import { FIELDS } from '@/app/admin/inventory/uom/fields';
+import { sortedPage } from '@/lib/listSort';
 
 /* /api/uom - list + create. */
 
@@ -43,7 +44,14 @@ export async function GET(req) {
   }
 
   const total = await Uom.countDocuments(filter);
-  const rows = await Uom.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(Uom, filter, sp, {
+    page,
+    perPage,
+    keys: ['name', 'shortName', 'allowDecimal', 'defaultValue'],
+    refs: ['businessId'],
+  })) ?? await Uom.find(filter)
     .sort({ createdAt: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)

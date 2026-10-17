@@ -73,6 +73,10 @@ export const LIST = {
   basePath: '/admin/setting/',
   slugPath: 'users',
   endpoint: '/api/user',
+  /* numbered pager with Rows-per-page, and every column header sorts on
+     click (components/ListView.jsx) */
+  pager: 'numbered',
+  sortable: true,
   scope: ['business'],
   addHref: '/admin/setting/users/add',
   actionPosition: 'left',

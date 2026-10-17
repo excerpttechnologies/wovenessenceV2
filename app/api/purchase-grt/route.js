@@ -7,6 +7,7 @@ import { resolveRefLabels } from '@/lib/refLabels';
 import { validate, escapeRegex } from '@/lib/validate';
 import { nextSeriesNumber } from '@/lib/docnumber';
 import { FORM } from '@/app/admin/transaction/purchase/grt/form';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 
 /* header fields AND the totals rows - the totals card holds real stored
    numbers (taxable value, round off, net value, the editable discounts).
@@ -48,6 +49,12 @@ export async function GET(req) {
 
   const sp = new URL(req.url).searchParams;
   await dbConnect();
+
+  /* Roles & Permissions (17-10-2026): GRT -> Read */
+  {
+    const denied = await screenDenial({ session, screen: SCREENS.GRT, label: 'GRT', action: PERM.READ, businessId: sp.get('business') });
+    if (denied) return json({ error: denied.message, code: denied.code }, 403);
+  }
 
   const page = Math.max(1, Number(sp.get('page') || 1));
   const perPage = Math.min(500, Number(sp.get('perPage') || PER_PAGE));
@@ -115,6 +122,12 @@ export async function POST(req) {
 
   const body = await req.json();
   await dbConnect();
+
+  /* Roles & Permissions (17-10-2026): GRT -> Create */
+  {
+    const denied = await screenDenial({ session, screen: SCREENS.GRT, label: 'GRT', action: PERM.CREATE, businessId: body.business });
+    if (denied) return json({ error: denied.message, code: denied.code }, 403);
+  }
 
   const { errors, doc, ok } = validate(FIELDS, body.data || {});
   if (!ok) return json({ errors }, 422);

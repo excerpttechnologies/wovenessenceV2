@@ -8,6 +8,10 @@ const CONFIG = {
   basePath: '/admin/setting/',
   slugPath: "paymentmethod",
   endpoint: '/api/payment-method',
+  /* numbered pager with Rows-per-page, and every column header sorts on
+     click (components/ListView.jsx) */
+  pager: 'numbered',
+  sortable: true,
   scope: ["business","location"],
   columns: [
     { k: "paymentMethodName", t: "Method Name" },

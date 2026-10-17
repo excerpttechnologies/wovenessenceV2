@@ -8,6 +8,10 @@ const CONFIG = {
   basePath: '/admin/setting/',
   slugPath: "poscounter",
   endpoint: '/api/pos-counter',
+  /* numbered pager with Rows-per-page, and every column header sorts on
+     click (components/ListView.jsx) */
+  pager: 'numbered',
+  sortable: true,
   scope: ["business","location"],
   columns: [
     { k: "counterName", t: "Counter Name" },

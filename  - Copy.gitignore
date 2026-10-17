@@ -1,0 +1,29 @@
+/node_modules
+.env
+.next
+.next-dev
+
+grc-import-report.json
+backups/
+supplier-import-report.json
+agent-import-report.json
+
+newbarcodeIImage
+wovenessenceerp.rar
+newbarcodeIMage
+/newbarcodeIMage
+
+
+OLD=wovenessenceerp.rar
+/OLD=wovenessenceerp.rarOLD=wovenessenceerp.rar
+wovenessenceerp-without roles.rar
+/wovenessenceerp-without roles.rar
+wovenessenceerp.rar
+/wovenessenceerp.rar.backups/
+
+/wovenessenceerp-shs.rar
+wovenessenceerp-shs.rar
+ wovenessenceerp-shs(final ,ui not intigrated).rar
+ / wovenessenceerp-shs(final ,ui not intigrated).rar
+  wovenessenceerp-shs----.rar
+  / wovenessenceerp-shs----.rar

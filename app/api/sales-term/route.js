@@ -5,6 +5,7 @@ import { requireSession } from '@/lib/session';
 import { validate, escapeRegex } from '@/lib/validate';
 import { FIELDS } from '@/app/admin/setting/sales/master/term/fields';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { sortedPage } from '@/lib/listSort';
 
 /* Permission gate for this screen.
 
@@ -47,7 +48,13 @@ export async function GET(req) {
   }
 
   const total = await SalesTerm.countDocuments(filter);
-  const rows = await SalesTerm.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(SalesTerm, filter, sp, {
+    page,
+    perPage,
+    keys: ['name'],
+  })) ?? await SalesTerm.find(filter)
     .sort({ createdAt: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)

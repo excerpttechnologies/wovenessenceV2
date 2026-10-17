@@ -10,6 +10,7 @@ import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 const ATTRIBUTE_ADDON = { screen: SCREENS.ATTRIBUTE_ADDON, label: 'attribute addons' };
 
 import { FIELDS } from '@/app/admin/inventory/attribute-addon/fields';
+import { sortedPage } from '@/lib/listSort';
 
 /* /api/attribute-addon - list + create. */
 
@@ -46,7 +47,14 @@ export async function GET(req) {
   filter.name = { $nin: ['SUPPLIER DESCRIPTION', 'Supplier Description', 'supplier description'] };
 
   const total = await AttributeAddon.countDocuments(filter);
-  const rows = await AttributeAddon.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(AttributeAddon, filter, sp, {
+    page,
+    perPage,
+    keys: ['name', 'status'],
+    refs: ['businessId'],
+  })) ?? await AttributeAddon.find(filter)
     .sort({ createdAt: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)

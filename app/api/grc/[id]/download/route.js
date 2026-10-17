@@ -8,6 +8,7 @@ import { requireSession } from '@/lib/session';
 import { amountInWords } from '@/lib/amountWords';
 import { grcTotals, grcMoney, rowTaxable } from '@/lib/grcMoney';
 import { encodedBarcodeValue } from '@/lib/barcodeValue';
+import { screenDenialAnyAction, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 
 /* /api/grc/<id>/download
    Downloads the GRC as a standalone HTML file with proper pagination
@@ -36,6 +37,11 @@ export async function GET(req, { params }) {
 
   const grc = await Grc.findById(id).lean();
   if (!grc) return Response.json({ error: 'Not found' }, { status: 404 });
+
+  /* Roles & Permissions (17-10-2026): printing a GRC - GRC Read, Create or
+     Update */
+  const denied = await screenDenialAnyAction({ session, screens: [SCREENS.GRC], actions: [PERM.READ, PERM.CREATE, PERM.UPDATE], businessId: grc.businessId, label: 'GRC' });
+  if (denied) return Response.json({ error: denied.message, code: denied.code }, { status: 403 });
 
   const [business, location, supplier, barcodeRows] = await Promise.all([
     grc.businessId ? Business.findById(grc.businessId).lean() : null,

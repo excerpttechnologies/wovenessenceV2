@@ -567,6 +567,12 @@ function DeliveryGrid({
      It lives HERE, in the grid that owns the Action column - DeliveryDialog
      is a different component and could not reach it. */
   const [uploadRow, setUploadRow] = useState(null);
+  /* Roles & Permissions (17-10-2026): hide what the server would refuse */
+  const { can } = useScope();
+  const GR_HREF = '/admin/transport/delivery';
+  const mayCreate = can(GR_HREF, 'create');
+  const mayUpdate = can(GR_HREF, 'update');
+  const mayDelete = can(GR_HREF, 'delete');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -650,8 +656,8 @@ function DeliveryGrid({
           }
           search={search}
           onSearch={setSearch}
-          {...(onAdd && showAdd ? { onAdd } : {})}
-          showAdd={showAdd}
+          {...(onAdd && showAdd && mayCreate ? { onAdd } : {})}
+          showAdd={showAdd && mayCreate}
           onExportCsv={() => download(fileBase + '.csv', toCsv(exportHeaders(), exportRows()), 'text/csv')}
           onExportExcel={() =>
             download(fileBase + '.xls', toXlsHtml(title, exportHeaders(), exportRows()),
@@ -683,16 +689,22 @@ function DeliveryGrid({
                       <button className="act-btn bg-[#2b7fd4]" title="View" onClick={() => onView(row, state.labels)}>
                         <Icon name="eye" size={12} />
                       </button>
+                      {mayUpdate && (
                       <button className="act-btn bg-warnyellow" title="Edit" onClick={() => onEdit(row)}>
                         <Icon name="pencil" size={12} />
                       </button>
+                      )}
                       {/* documents and photos attached to THIS consignment */}
+                      {(mayCreate || mayUpdate) && (
                       <button className="act-btn bg-[#0d9488]" title="Upload document / photo" onClick={() => setUploadRow(row)}>
                         <Icon name="upload" size={12} />
                       </button>
+                      )}
+                      {mayDelete && (
                       <button className="act-btn bg-danger" title="Delete" onClick={() => remove(row._id)}>
                         <Icon name="trash" size={12} />
                       </button>
+                      )}
                     </span>
                   </td>
                 </tr>

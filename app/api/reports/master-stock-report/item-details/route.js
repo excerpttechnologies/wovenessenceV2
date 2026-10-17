@@ -1,6 +1,7 @@
 import { isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { BarcodeLabel } from '@/lib/barcodeLabel';
 import Item from '@/models/Item';
 import ProductGroup from '@/models/ProductGroup';
@@ -27,6 +28,10 @@ export async function GET(req) {
   if (!itemId && !itemCode && !itemName) return json({ error: 'An item is required.' }, 422);
 
   await dbConnect();
+
+  /* Roles & Permissions (17-10-2026): Master Stock Report -> Read */
+  const denied = await screenDenial({ session, screen: SCREENS.MASTER_STOCK_REPORT, label: 'the master stock report', action: PERM.READ, businessId: business });
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const identity = itemId && isValidObjectId(itemId)
     ? { _id: itemId, businessId: business }

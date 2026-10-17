@@ -12,6 +12,7 @@ import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 const STOCK_ADJUSTMENT = { screen: SCREENS.STOCK_ADJUSTMENT, label: 'stock adjustments' };
 
 import { FORM } from '@/app/admin/inventory/stock-adjustment/form';
+import { sortedPage } from '@/lib/listSort';
 
 /* header fields AND the totals rows - the totals card holds real stored
    numbers (taxable value, round off, net value, the editable discounts).
@@ -61,7 +62,13 @@ export async function GET(req) {
   }
 
   const total = await StockAdjustment.countDocuments(filter);
-  const rows = await StockAdjustment.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(StockAdjustment, filter, sp, {
+    page,
+    perPage,
+    keys: ['adjustmentNo', 'type', 'createdAt', 'adjustmentReason', 'createdBy'],
+  })) ?? await StockAdjustment.find(filter)
     .sort({ createdAt: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)

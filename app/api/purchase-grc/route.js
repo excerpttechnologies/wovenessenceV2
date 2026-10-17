@@ -11,6 +11,9 @@ import { validate, escapeRegex } from '@/lib/validate';
 import { nextDocNumber } from '@/lib/docnumber';
 import { itemPriceErrors } from '@/lib/purchasePrice';
 import { FORM } from '@/app/admin/transaction/purchase/grc/form';
+import { screenDenial, screenDenialAnyAction, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+
+const GRC_SCREEN = { screen: SCREENS.GRC, label: 'GRC' };
 
 /* header fields AND the totals rows - the totals card holds real stored
    numbers (taxable value, round off, net value, the editable discounts).
@@ -42,6 +45,16 @@ export async function GET(req) {
 
   const sp = new URL(req.url).searchParams;
   await dbConnect();
+
+  /* Roles & Permissions (17-10-2026), Purchase > GRC: the list needs Read;
+     the ?availableLr=1 picker (used while raising a document) also lets
+     Create / Update through */
+  {
+    const denied = sp.get('availableLr') === '1'
+      ? await screenDenialAnyAction({ session, screens: [SCREENS.GRC], actions: [PERM.READ, PERM.CREATE, PERM.UPDATE], businessId: sp.get('business'), label: 'GRC' })
+      : await screenDenial({ session, ...GRC_SCREEN, action: PERM.READ, businessId: sp.get('business') });
+    if (denied) return json({ error: denied.message, code: denied.code }, 403);
+  }
 
   if (sp.get('availableLr') === '1') {
     const deliveryFilter = {};
@@ -194,6 +207,10 @@ export async function POST(req) {
 
   const body = await req.json();
   await dbConnect();
+
+  /* Roles & Permissions (17-10-2026): GRC -> Create */
+  const denied = await screenDenial({ session, ...GRC_SCREEN, action: PERM.CREATE, businessId: body.business });
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const { errors, doc, ok } = validate(FIELDS, body.data || {});
   if (!ok) return json({ errors }, 422);

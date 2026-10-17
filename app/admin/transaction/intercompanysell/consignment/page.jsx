@@ -26,6 +26,9 @@ const day = (v) => (v ? new Date(v).toLocaleDateString('en-GB') : '-');
 
 export default function IcConsignmentPage() {
   const scope = useScope();
+  /* Roles & Permissions: approving / rejecting needs this screen's Update
+     (the API refuses it too - app/api/ic-receive-delivery-challan) */
+  const mayApprove = scope.can ? scope.can('/admin/transaction/intercompanysell/consignment', 'update') : true;
   const [rows, setRows] = useState([]);
   const [labels, setLabels] = useState({});
   const [loading, setLoading] = useState(false);
@@ -177,7 +180,9 @@ export default function IcConsignmentPage() {
                   {(req.lines || []).reduce((a, l) => a + (Number(l.qty) || 0), 0)}
                 </td>
                 <td>
-                  {weSent(row) ? (
+                  {weSent(row) && !mayApprove ? (
+                    <span className="text-[12px] text-inkmuted">No permission to approve</span>
+                  ) : weSent(row) ? (
                     <span className="inline-flex items-center gap-1.5">
                       <button
                         type="button"

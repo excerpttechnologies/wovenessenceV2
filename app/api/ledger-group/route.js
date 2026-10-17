@@ -6,6 +6,7 @@ import { resolveRefLabels } from '@/lib/refLabels';
 import { validate, escapeRegex } from '@/lib/validate';
 import { FIELDS } from '@/app/admin/setting/ledgergroups/fields';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { sortedPage } from '@/lib/listSort';
 
 /* Permission gate for this screen.
 
@@ -47,7 +48,14 @@ export async function GET(req) {
   }
 
   const total = await LedgerGroup.countDocuments(filter);
-  const rows = await LedgerGroup.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(LedgerGroup, filter, sp, {
+    page,
+    perPage,
+    keys: ['groupName', 'status'],
+    refs: ['parentGroupId'],
+  })) ?? await LedgerGroup.find(filter)
     .sort({ createdAt: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)

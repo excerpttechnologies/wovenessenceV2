@@ -169,6 +169,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import ReportView from '@/components/ReportView';
 import BarcodeDetailView from '@/components/BarcodeDetailView';
 import BarcodeReportImport from '@/components/BarcodeReportImport';
+import { useScope } from '@/components/ScopeContext';
 import { REPORT } from './fields';
 
 /* Reports -> Barcode Report
@@ -190,6 +191,10 @@ function BarcodeReportScreens() {
   const params = useSearchParams();
   const router = useRouter();
   const barcodeNo = (params.get('barcodeNo') || '').trim();
+  /* Roles & Permissions (17-10-2026): the Import Barcodes button shows only
+     for a role with Barcode Report -> Create (the API refuses it too) */
+  const scope = useScope();
+  const mayImport = scope.can ? scope.can('/admin/reports/barcode-report', 'create') : true;
 
   if (barcodeNo) {
     return (
@@ -206,7 +211,7 @@ function BarcodeReportScreens() {
   /* Import - the other ERP's Barcode Report brought in as stock, the way
      Supplier's Import from GST works (components/BarcodeReportImport.jsx);
      its search button picks ERP V1 or ERP V2 to copy from */
-  return <ReportView spec={REPORT} toolbar={(api) => <BarcodeReportImport api={api} />} />;
+  return <ReportView spec={REPORT} toolbar={(api) => (mayImport ? <BarcodeReportImport api={api} /> : null)} />;
 }
 
 export default function BarcodeReportPage() {

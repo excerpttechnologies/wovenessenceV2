@@ -18,6 +18,14 @@ const IC_RDC = {
   screen: SCREENS.IC_RECEIVE_DELIVERY_CHALLAN,
   label: 'incoming inter company challans',
 };
+/* Return Approval (the Consignment page) is a screen of its own on the
+   Roles & Permissions grid (17-10-2026): its list (view=returns) needs its
+   Read, and approving / rejecting a return needs its Update. Raising a
+   return request stays with Receive Delivery Challan. */
+const IC_RA = {
+  screen: SCREENS.IC_RETURN_APPROVAL,
+  label: 'inter company returns',
+};
 
 /* The register entry every stock event in this app leaves behind.
 
@@ -100,12 +108,12 @@ export async function GET(req) {
 
   /* Only refuses when this role has a saved permission matrix that withholds
      it - see lib/screenPermission.js. */
+  const view = sp.get('view') === 'returns' ? 'returns' : 'incoming';
+
   const denied = await screenDenial({
-    session, ...IC_RDC, action: PERM.READ, businessId: business,
+    session, ...(view === 'returns' ? IC_RA : IC_RDC), action: PERM.READ, businessId: business,
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
-
-  const view = sp.get('view') === 'returns' ? 'returns' : 'incoming';
 
   /* Incoming looks at where the goods are GOING; returns looks at where they
      came FROM, because a return travels back to whoever sent the challan. */
@@ -198,10 +206,11 @@ async function handlePost(req) {
   const business = String(body.business || '');
   if (!isValidObjectId(business)) return json({ error: 'No business selected.' }, 400);
 
-  /* one permission covers the whole handshake - requesting, approving and
-     receiving are all updates to a challan this branch did not raise alone */
+  /* receiving and requesting a return are updates on Receive Delivery
+     Challan; approving / rejecting one is an update on Return Approval */
+  const approving = body.action === 'approve-return' || body.action === 'reject-return';
   const denied = await screenDenial({
-    session, ...IC_RDC, action: PERM.UPDATE, businessId: business,
+    session, ...(approving ? IC_RA : IC_RDC), action: PERM.UPDATE, businessId: business,
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 

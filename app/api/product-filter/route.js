@@ -10,6 +10,7 @@ import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 const PRODUCT_FILTER = { screen: SCREENS.PRODUCT_FILTER, label: 'product filters' };
 
 import { FIELDS } from '@/app/admin/inventory/product/filter/fields';
+import { sortedPage } from '@/lib/listSort';
 
 /* /api/product-filter - list + create. */
 
@@ -43,7 +44,13 @@ export async function GET(req) {
   }
 
   const total = await ProductFilter.countDocuments(filter);
-  const rows = await ProductFilter.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(ProductFilter, filter, sp, {
+    page,
+    perPage,
+    keys: ['name', 'description', 'parentId'],
+  })) ?? await ProductFilter.find(filter)
     .sort({ createdAt: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)

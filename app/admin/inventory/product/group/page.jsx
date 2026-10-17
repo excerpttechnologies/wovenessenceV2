@@ -44,6 +44,10 @@ const CONFIG = {
   basePath: '/admin/inventory/',
   slugPath: "product/group",
   endpoint: '/api/product-group',
+  /* numbered pager with Rows-per-page, and every column header sorts on
+     click (components/ListView.jsx) */
+  pager: 'numbered',
+  sortable: true,
   scope: ["business"],
   addTitle: "Add Product Group",
   formMode: "modal",

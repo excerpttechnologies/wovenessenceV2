@@ -13,6 +13,7 @@ import {
 import ContactType from '@/models/ContactType';
 import { nextContactId } from '@/lib/contactId';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { sortedPage } from '@/lib/listSort';
 
 const SUPPLIER = { screen: SCREENS.SUPPLIER, label: 'suppliers' };
 
@@ -92,7 +93,13 @@ export async function GET(req) {
   }
 
   const total = await Supplier.countDocuments(filter);
-  const rows = await Supplier.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(Supplier, filter, sp, {
+    page,
+    perPage,
+    keys: ['businessName', 'contactId', 'firstName', 'billingMobile', 'billingEmail', 'billingAddressLine1'],
+  })) ?? await Supplier.find(filter)
     .sort({ _id: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)

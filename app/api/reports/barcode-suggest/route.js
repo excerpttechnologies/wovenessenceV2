@@ -3,6 +3,7 @@ import dbConnect from '@/lib/db';
 import { BarcodeLabel } from '@/lib/barcodeLabel';
 import { requireSession } from '@/lib/session';
 import { escapeRegex } from '@/lib/validate';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 
 /* /api/reports/barcode-suggest?q=<part>&business=<id>
 
@@ -41,6 +42,12 @@ export async function GET(req) {
   await dbConnect();
 
   const business = sp.get('business');
+
+  /* Roles & Permissions (17-10-2026): the Master Stock Report's Barcode
+     filter - that report's Read */
+  const denied = await screenDenial({ session, screen: SCREENS.MASTER_STOCK_REPORT, label: 'the master stock report', action: PERM.READ, businessId: business });
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
+
   const rx = { $regex: escapeRegex(q), $options: 'i' };
 
   const rows = await BarcodeLabel.find({

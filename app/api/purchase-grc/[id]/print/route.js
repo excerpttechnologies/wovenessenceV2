@@ -90,6 +90,7 @@ import Grc from '@/models/Grc';
 import Business from '@/models/Business';
 import { Supplier } from '@/lib/contacts';
 import { requireSession } from '@/lib/session';
+import { screenDenialAnyAction, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 
 /* /api/purchase-grc/<id>/print
    Everything the printable challan needs, joined in one call: the GRC itself,
@@ -106,6 +107,11 @@ export async function GET(req, { params }) {
 
   const grc = await Grc.findById(id).lean();
   if (!grc) return json({ error: 'Not found' }, 404);
+
+  /* Roles & Permissions (17-10-2026): printing a GRC - its Read (or Update,
+     printed from the edit page) */
+  const denied = await screenDenialAnyAction({ session, screens: [SCREENS.GRC], actions: [PERM.READ, PERM.UPDATE], businessId: grc.businessId, label: 'GRC' });
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const [business, supplier] = await Promise.all([
     grc.businessId ? Business.findById(grc.businessId).lean() : null,

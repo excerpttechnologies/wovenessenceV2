@@ -123,11 +123,21 @@ export async function GET(req) {
     filter.$or = [{ name: rx }, { businessPrintName: rx }, { landmark: rx }, { city: rx }, { state: rx }, { country: rx }, { zipCode: rx }, { addressLine1: rx }, { addressLine2: rx }, { mobile: rx }, { alternateContactNumber: rx }, { email: rx }, { websiteUrl: rx }, { gstin: rx }];
   }
 
+  /* Sorting by a column header (the list's numbered pager screen). Only
+     whitelisted keys; without them the order below is exactly as before. */
+  const SORTABLE = { name: 'name', zipCode: 'zipCode', state: 'state', city: 'city', isActive: 'isActive' };
+  const sortKey = SORTABLE[sp.get('sortBy')];
+  const sortDir = sp.get('sortDir') === 'desc' ? -1 : sp.get('sortDir') === 'asc' ? 1 : 0;
+  const headerSort = sortKey && sortDir;
+
   const total = await Business.countDocuments(filter);
-  const rows = await Business.find(filter)
+  let query = Business.find(filter);
+  query = headerSort
+    ? query.sort({ [sortKey]: sortDir, _id: 1 }).collation({ locale: 'en', strength: 2 })
     /* main store first, then newest - it's the parent of everything else,
        so it shouldn't drift down the list as branches are added */
-    .sort({ isMainBranch: -1, createdAt: -1 })
+    : query.sort({ isMainBranch: -1, createdAt: -1 });
+  const rows = await query
     .skip((page - 1) * perPage)
     .limit(perPage)
     .lean();

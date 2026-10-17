@@ -5,6 +5,7 @@ import { BarcodeLabel } from '@/lib/barcodeLabel';
 import { handler, json } from '@/lib/apiError';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac';
 import { nextSerialNo, highestSerialNo, serialFloorOf } from '@/lib/barcodeValue';
+import { screenDenialAnyAction, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 
 /* GET /api/barcode-generation/next-serial?grcId=...&billSlNo=...
    Returns the next Serial No. for the given GRC and Bill Sl No.
@@ -14,7 +15,7 @@ import { nextSerialNo, highestSerialNo, serialFloorOf } from '@/lib/barcodeValue
    highest serial the line's stored VALUES carry, and after the highest the
    GRC ever gave on that line. */
 export const GET = handler(async (req) => {
-  await requirePermission(PERMISSIONS.BARCODE_GENERATE);
+  const session = await requirePermission(PERMISSIONS.BARCODE_GENERATE);
   await dbConnect();
 
   const sp = new URL(req.url).searchParams;
@@ -26,6 +27,16 @@ export const GET = handler(async (req) => {
   }
   if (!billSlNo || !String(billSlNo).trim()) {
     return json({ error: 'Bill Sl No. is required', code: 'BAD_INPUT' }, 400);
+  }
+
+  /* Roles & Permissions (17-10-2026): a preview while working a GRC's
+     barcodes - GRC Read, Create or Update */
+  {
+    const rec = await Grc.findById(grcId).select('businessId').lean();
+    if (rec) {
+      const denied = await screenDenialAnyAction({ session, screens: [SCREENS.GRC], actions: [PERM.READ, PERM.CREATE, PERM.UPDATE], businessId: rec.businessId, label: 'GRC' });
+      if (denied) return json({ error: denied.message, code: denied.code }, 403);
+    }
   }
 
   const [existingBarcodes, grc] = await Promise.all([
