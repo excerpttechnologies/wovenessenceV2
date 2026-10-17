@@ -8,6 +8,10 @@ const CONFIG = {
   basePath: '/admin/setting/',
   slugPath: "docsetup",
   endpoint: '/api/doc-setup',
+  /* numbered pager with Rows-per-page, and every column header sorts on
+     click (components/ListView.jsx) */
+  pager: 'numbered',
+  sortable: true,
   scope: ["business","finYear"],
   columns: [
     { k: "documentName", t: "Name" },

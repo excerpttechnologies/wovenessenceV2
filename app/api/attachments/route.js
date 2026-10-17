@@ -3,6 +3,7 @@ import dbConnect from '@/lib/db';
 import Delivery from '@/models/Delivery';
 import Grt from '@/models/Grt';
 import { requireSession } from '@/lib/session';
+import { screenDenialAnyAction, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import {
   saveBuffer,
   isAllowedMime,
@@ -47,6 +48,24 @@ const ATTACHABLE = {
 
 const json = (d, s = 200) => Response.json(d, { status: s });
 
+/* Roles & Permissions (17-10-2026): attachments belong to their record's
+   screen - a Delivery's to Goods Received, a GRT's to Goods Return Note -
+   judged against the record's own business. A missing record is left to
+   answer exactly as before (404), so no check runs for it. Returns a 403
+   Response or null. */
+const ATTACH_SCREEN = {
+  delivery: { screen: SCREENS.DELIVERY, label: 'goods received' },
+  grt: { screen: SCREENS.GRT, label: 'GRT' },
+};
+async function attachDenied(session, t, actions) {
+  const s = ATTACH_SCREEN[t.kind];
+  if (!s) return null;
+  const rec = await t.model.findById(t.id).select('businessId').lean();
+  if (!rec) return null;
+  const denied = await screenDenialAnyAction({ session, screens: [s.screen], actions, businessId: rec.businessId, label: s.label });
+  return denied ? json({ error: denied.message, code: denied.code }, 403) : null;
+}
+
 /* The shape the browser gets back. _id is what the delete button names. */
 const toClient = (a) => ({
   _id: String(a._id),
@@ -87,6 +106,9 @@ export async function GET(req) {
   if (t.error) return json({ error: t.error }, t.status);
 
   await dbConnect();
+  /* listing - the record's Read, Create or Update */
+  const no = await attachDenied(session, t, [PERM.READ, PERM.CREATE, PERM.UPDATE]);
+  if (no) return no;
   const doc = await t.model.findById(t.id).select('attachments').lean();
   if (!doc) return json({ error: t.label + ' not found.' }, 404);
 
@@ -107,6 +129,11 @@ export async function POST(req) {
 
   const t = target(form.get('kind'), form.get('id'));
   if (t.error) return json({ error: t.error }, t.status);
+
+  /* attaching - the record's Create or Update */
+  await dbConnect();
+  const no = await attachDenied(session, t, [PERM.CREATE, PERM.UPDATE]);
+  if (no) return no;
 
   const file = form.get('file');
   if (!file || typeof file.arrayBuffer !== 'function') {
@@ -206,6 +233,9 @@ export async function DELETE(req) {
   }
 
   await dbConnect();
+  /* detaching - the record's Update or Delete */
+  const no = await attachDenied(session, t, [PERM.UPDATE, PERM.DELETE]);
+  if (no) return no;
   const updated = await t.model.findByIdAndUpdate(
     t.id,
     { $pull: { attachments: { _id: attachmentId } } },

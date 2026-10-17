@@ -1042,7 +1042,7 @@ import { nextDocNumber } from '@/lib/docnumber';
 import { BarcodeLabel, BARCODE_STATUS } from '@/lib/barcodeLabel';
 import { reserveBarcodeNumbers, loadFormat, uomTypeOf, batchTypeOf } from '@/lib/barcodeEngine';
 import { withTransaction, receiveIntoStock, restateReceipt, voidUnits, InventoryError } from '@/lib/inventory';
-import { screenDenialAny, ACTIONS as PERM, BARCODE_ROW_SCREENS } from '@/lib/screenPermission';
+import { screenDenialAny, screenDenialAnyAction, SCREENS, ACTIONS as PERM, BARCODE_ROW_SCREENS } from '@/lib/screenPermission';
 import { matchRowsToUnits, editedFields, toGridRow, rowBarcode, unitBarcode, clientIdOf, pmfOf, PMF_REQUIRED_MESSAGE, GRID_INPUT_FIELDS } from '@/lib/barcodeRowSync';
 import {
   BARCODE_SEPARATOR, composeBarcodeValue, barcodeValueProblem, billSlNoProblem, billSlNoForBarcode,
@@ -1190,6 +1190,13 @@ export const POST = handler(async (req) => {
 
   const session = await requirePermission(PERMISSIONS.BARCODE_GENERATE, { locationId: location });
   await dbConnect();
+
+  /* Roles & Permissions (17-10-2026): saving barcode rows is part of a GRC -
+     a new GRC is its Create, an existing one its Update; either is enough */
+  {
+    const denied = await screenDenialAnyAction({ session, screens: [SCREENS.GRC], actions: [PERM.CREATE, PERM.UPDATE], businessId: business, label: 'GRC' });
+    if (denied) return json({ error: denied.message, code: denied.code }, 403);
+  }
 
   /* an edit of an existing GRC may consist of deletions alone */
   if (!Array.isArray(rows) || (rows.length === 0 && !(grcId && deleteIds.length))) {
@@ -1639,6 +1646,25 @@ export const DELETE = handler(async (req) => {
   const body = await req.json().catch(() => ({}));
   const session = await requirePermission(PERMISSIONS.GRC_MANAGE);
   await dbConnect();
+
+  /* Roles & Permissions (17-10-2026): a whole GRC -> GRC Delete; one barcode
+     row off a GRC -> GRC Update or Delete. Nothing found -> no check, the
+     route answers as before. */
+  {
+    let businessId = null;
+    let actions = null;
+    if (body?.grcId && isValidObjectId(String(body.grcId))) {
+      businessId = (await Grc.findById(body.grcId).select('businessId').lean())?.businessId;
+      actions = [PERM.DELETE];
+    } else if (body?.id && isValidObjectId(String(body.id))) {
+      businessId = (await BarcodeLabel.findById(body.id).select('businessId').lean())?.businessId;
+      actions = [PERM.UPDATE, PERM.DELETE];
+    }
+    if (businessId) {
+      const denied = await screenDenialAnyAction({ session, screens: [SCREENS.GRC], actions, businessId, label: 'GRC' });
+      if (denied) return json({ error: denied.message, code: denied.code }, 403);
+    }
+  }
 
   if (body?.grcId) {
     return withTransaction(async (dbSession) => {

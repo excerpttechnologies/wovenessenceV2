@@ -80,6 +80,7 @@ import Hsn from '@/models/Hsn';
 import { requireSession } from '@/lib/session';
 import { validate, escapeRegex } from '@/lib/validate';
 import { FIELDS, ROWS_TABLE } from '@/app/admin/setting/hsn/fields';
+import { sortedPage } from '@/lib/listSort';
 import {
   screenDenial, screenDenialAny, SCREENS, ACTIONS as PERM, HSN_LOOKUP_SCREENS,
 } from '@/lib/screenPermission';
@@ -129,7 +130,13 @@ export async function GET(req) {
   }
 
   const total = await Hsn.countDocuments(filter);
-  const rows = await Hsn.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(Hsn, filter, sp, {
+    page,
+    perPage,
+    keys: ['code', 'effectiveDate', 'status'],
+  })) ?? await Hsn.find(filter)
     .sort({ createdAt: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)

@@ -6,6 +6,7 @@ import { resolveRefLabels } from '@/lib/refLabels';
 import { validate, escapeRegex } from '@/lib/validate';
 import { FIELDS } from '@/app/admin/contact/contact-type/fields';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { sortedPage } from '@/lib/listSort';
 
 const CONTACT_TYPE = { screen: SCREENS.CONTACT_TYPE, label: 'contact types' };
 
@@ -42,7 +43,14 @@ export async function GET(req) {
   }
 
   const total = await ContactType.countDocuments(filter);
-  const rows = await ContactType.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(ContactType, filter, sp, {
+    page,
+    perPage,
+    keys: ['name', 'contactType', 'prefix', 'status'],
+    refs: ['businessId'],
+  })) ?? await ContactType.find(filter)
     .sort({ createdAt: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)

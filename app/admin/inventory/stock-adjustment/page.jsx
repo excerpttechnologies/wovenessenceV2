@@ -9,6 +9,10 @@ const CONFIG = {
   basePath: '/admin/inventory/',
   slugPath: "stock-adjustment",
   endpoint: '/api/stock-adjustment',
+  /* numbered pager with Rows-per-page, and every column header sorts on
+     click (components/ListView.jsx) */
+  pager: 'numbered',
+  sortable: true,
   scope: ["business","location","finYear"],
   addTitle: "Stock Adjustment",
   actionIcons: ["view"],

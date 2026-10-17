@@ -367,6 +367,7 @@ import { barcodeFilter, unitFor, imageUrl, withTransaction, MOVEMENT_TYPES } fro
 import { barcodeImageSrc } from '@/lib/barcodeImageService';
 import { handler } from '@/lib/apiError';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac';
+import { screenDenial, screenDenialAny, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 
 /* /api/reports/barcode-detail?barcodeNo=<no>&business=<id>
 
@@ -400,6 +401,11 @@ export const PATCH = handler(async (req) => {
   await requirePermission(PERMISSIONS.BARCODE_GENERATE, {
     locationId: String(initial.currentLocationId || initial.locationId || '') || undefined,
   });
+
+  /* Roles & Permissions (17-10-2026): editing a barcode on its Details view
+     also needs Barcode Report -> Update */
+  const deniedEdit = await screenDenial({ session, screen: SCREENS.BARCODE_REPORT, label: 'the barcode report', action: PERM.UPDATE, businessId: initial.businessId });
+  if (deniedEdit) return json({ error: deniedEdit.message, code: deniedEdit.code }, 403);
 
   if (initial.status !== BARCODE_STATUS.IN_STOCK) {
     return json({ error: 'Only barcodes currently in stock can be edited.' }, 409);
@@ -591,6 +597,18 @@ export async function GET(req) {
   await dbConnect();
 
   const business = sp.get('business');
+
+  /* Roles & Permissions (17-10-2026): the Details view is opened from the
+     Barcode Report and from the Master Stock Report's barcode links - Read
+     on either lets it through */
+  const denied = await screenDenialAny({
+    session,
+    screens: [SCREENS.BARCODE_REPORT, SCREENS.MASTER_STOCK_REPORT],
+    action: PERM.READ,
+    businessId: business,
+    label: 'the barcode report',
+  });
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   /* Matched on every spelling the number can take - its own number, the
      composed value the bars carry, or the vendor's old printed one - which is

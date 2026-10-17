@@ -15,6 +15,7 @@ import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 const PRODUCT_GROUP = { screen: SCREENS.PRODUCT_GROUP, label: 'product groups' };
 
 import { FIELDS } from '@/app/admin/inventory/product/group/fields';
+import { sortedPage } from '@/lib/listSort';
 
 /* /api/product-group - list + create. */
 
@@ -48,7 +49,14 @@ export async function GET(req) {
   }
 
   const total = await ProductGroup.countDocuments(filter);
-  const rows = await ProductGroup.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(ProductGroup, filter, sp, {
+    page,
+    perPage,
+    keys: ['name', 'prefix', 'parentId'],
+    refs: ['businessId'],
+  })) ?? await ProductGroup.find(filter)
     .sort({ createdAt: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)

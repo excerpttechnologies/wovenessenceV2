@@ -6,6 +6,7 @@ import { resolveRefLabels } from '@/lib/refLabels';
 import { validate, escapeRegex } from '@/lib/validate';
 import { FIELDS } from '@/app/admin/setting/purchasegroup/fields';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { sortedPage } from '@/lib/listSort';
 
 /* Permission gate for this screen.
 
@@ -46,7 +47,14 @@ export async function GET(req) {
   }
 
   const total = await PurchaseGroup.countDocuments(filter);
-  const rows = await PurchaseGroup.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(PurchaseGroup, filter, sp, {
+    page,
+    perPage,
+    keys: ['purchaseGroup', 'status'],
+    refs: ['businessId'],
+  })) ?? await PurchaseGroup.find(filter)
     .sort({ createdAt: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)

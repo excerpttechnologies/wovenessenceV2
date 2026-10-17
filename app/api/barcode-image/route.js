@@ -2,6 +2,8 @@ import { isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
 import { handler, json } from '@/lib/apiError';
 import { requireUser, requirePermission, PERMISSIONS } from '@/lib/rbac';
+import { requireSession } from '@/lib/session';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { BarcodeLabel } from '@/lib/barcodeLabel';
 import { verifyBarcodeImage, setBarcodeImage, barcodeImageSrc } from '@/lib/barcodeImageService';
 
@@ -37,6 +39,10 @@ async function unitFor(body) {
     return { error: json({ error: 'That barcode belongs to another business - its image was not changed.' }, 403) };
   }
   await requirePermission(PERMISSIONS.BARCODE_GENERATE, { locationId: String(unit.currentLocationId || unit.locationId || '') || undefined });
+  /* Roles & Permissions (17-10-2026): changing a barcode's image on its
+     Details view also needs Barcode Report -> Update */
+  const denied = await screenDenial({ session: await requireSession(), screen: SCREENS.BARCODE_REPORT, label: 'the barcode report', action: PERM.UPDATE, businessId: unit.businessId });
+  if (denied) return { error: json({ error: denied.message, code: denied.code }, 403) };
   return { unit };
 }
 

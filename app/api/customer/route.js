@@ -133,6 +133,7 @@ import { TABS } from '@/app/admin/contact/customer/tabs';
 import ContactType from '@/models/ContactType';
 import { nextContactId } from '@/lib/contactId';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { sortedPage } from '@/lib/listSort';
 
 const CUSTOMER = { screen: SCREENS.CUSTOMER, label: 'customers' };
 
@@ -195,7 +196,13 @@ export async function GET(req) {
   }
 
   const total = await Contact.countDocuments(filter);
-  const rows = await Contact.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(Contact, filter, sp, {
+    page,
+    perPage,
+    keys: ['businessName', 'contactId', 'firstName', 'billingMobile', 'billingEmail', 'billingAddressLine1'],
+  })) ?? await Contact.find(filter)
     .sort({ createdAt: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)

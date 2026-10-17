@@ -9,6 +9,10 @@ const CONFIG = {
   basePath: '/admin/inventory/',
   slugPath: "attribute-addon",
   endpoint: '/api/attribute-addon',
+  /* numbered pager with Rows-per-page, and every column header sorts on
+     click (components/ListView.jsx) */
+  pager: 'numbered',
+  sortable: true,
   scope: ["business"],
   addTitle: "Add Addon Attribute",
   formMode: "modal",

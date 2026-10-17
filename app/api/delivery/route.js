@@ -151,6 +151,7 @@ import { requireSession } from '@/lib/session';
 import { validate, escapeRegex } from '@/lib/validate';
 import { nextSeriesNumber, previewSeriesNumber, raiseSeriesFloor } from '@/lib/docnumber';
 import { FIELDS, DERIVED_FIELDS, freightBreakdown } from '@/app/admin/transport/delivery/fields';
+import { screenDenial, screenDenialAnyAction, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 
 /* /api/delivery - Delivery / LR transactions: list + create. */
 
@@ -254,6 +255,21 @@ export async function GET(req) {
 
   const sp = new URL(req.url).searchParams;
   await dbConnect();
+
+  /* Roles & Permissions (17-10-2026), Purchase > Goods Received:
+       ?nextNumber=1   the Add dialog's number preview  -> Create or Update
+       ?availableLr=1  the GRC Add form's LR picker     -> Goods Received OR
+                       GRC, Read / Create / Update
+       otherwise       the list                         -> Read */
+  {
+    const business = sp.get('business');
+    const denied = sp.get('nextNumber') === '1'
+      ? await screenDenialAnyAction({ session, screens: [SCREENS.DELIVERY], actions: [PERM.CREATE, PERM.UPDATE], businessId: business, label: 'goods received' })
+      : sp.get('availableLr') === '1'
+        ? await screenDenialAnyAction({ session, screens: [SCREENS.DELIVERY, SCREENS.GRC], actions: [PERM.READ, PERM.CREATE, PERM.UPDATE], businessId: business, label: 'goods received' })
+        : await screenDenial({ session, screen: SCREENS.DELIVERY, label: 'goods received', action: PERM.READ, businessId: business });
+    if (denied) return json({ error: denied.message, code: denied.code }, 403);
+  }
 
   /* Preview only. This is a GET, and a GET must not move the sequence: the
      dialog asks what the next number looks like, it does not reserve it.
@@ -439,6 +455,10 @@ export async function POST(req) {
 
   const body = await req.json();
   await dbConnect();
+
+  /* Roles & Permissions (17-10-2026): Goods Received -> Create */
+  const denied = await screenDenial({ session, screen: SCREENS.DELIVERY, label: 'goods received', action: PERM.CREATE, businessId: body.business });
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const { errors, doc, ok } = validate(FIELDS, body.data || {});
   if (!ok) return json({ errors }, 422);

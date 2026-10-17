@@ -8,6 +8,10 @@ const CONFIG = {
   basePath: '/admin/setting/',
   slugPath: "tax",
   endpoint: '/api/tax',
+  /* numbered pager with Rows-per-page, and every column header sorts on
+     click (components/ListView.jsx) */
+  pager: 'numbered',
+  sortable: true,
   scope: ["business"],
   columns: [
     { k: "taxName", t: "Tax Name" },

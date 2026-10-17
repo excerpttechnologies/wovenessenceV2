@@ -3,6 +3,7 @@ import dbConnect from '@/lib/db';
 import { BarcodeLabel, BARCODE_STATUS } from '@/lib/barcodeLabel';
 import { requireSession } from '@/lib/session';
 import { escapeRegex } from '@/lib/validate';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 
 /* /api/ic-delivery-challan/item-codes?search=&business=&location=
 
@@ -35,6 +36,18 @@ export async function GET(req) {
   const search = (sp.get('search') || '').trim();
   const business = sp.get('business');
   const location = sp.get('location');
+
+  /* the Delivery Challan form's suggestions (17-10-2026) - used while
+     creating or editing a challan, so Read, Create OR Update on that screen
+     lets it through; refused only when all three are withheld */
+  let denied = null;
+  for (const action of [PERM.READ, PERM.CREATE, PERM.UPDATE]) {
+    denied = await screenDenial({
+      session, screen: SCREENS.IC_DELIVERY_CHALLAN, label: 'inter company delivery challans', action, businessId: business,
+    });
+    if (!denied) break;
+  }
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const match = { status: BARCODE_STATUS.IN_STOCK };
   if (business && isValidObjectId(business)) match.businessId = String(business);

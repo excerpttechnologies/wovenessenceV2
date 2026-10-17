@@ -5,6 +5,7 @@ import { requireSession } from '@/lib/session';
 import { resolveRefLabels } from '@/lib/refLabels';
 import { validate, escapeRegex } from '@/lib/validate';
 import { FIELDS } from '@/app/admin/setting/poscounter/fields';
+import { sortedPage } from '@/lib/listSort';
 import {
   screenDenial, screenDenialAny, SCREENS, ACTIONS as PERM, COUNTER_PICKER_SCREENS,
 } from '@/lib/screenPermission';
@@ -50,7 +51,14 @@ export async function GET(req) {
   }
 
   const total = await PosCounter.countDocuments(filter);
-  const rows = await PosCounter.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(PosCounter, filter, sp, {
+    page,
+    perPage,
+    keys: ['counterName', 'invoiceLayout', 'status', 'repeatInvoice'],
+    refs: ['businessId', 'locationId'],
+  })) ?? await PosCounter.find(filter)
     .sort({ createdAt: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)

@@ -190,6 +190,7 @@ import { BarcodeLabel, BARCODE_STATUS } from '@/lib/barcodeLabel';
 import { requireSession } from '@/lib/session';
 import { escapeRegex } from '@/lib/validate';
 import { imageUrl } from '@/lib/inventory';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 
 /* /api/ic-delivery-challan/item-lookup?code=<item code>&business=&location=&finYear=
    &stockPoint=&toBusiness=
@@ -257,6 +258,17 @@ export async function GET(req) {
   await dbConnect();
 
   const business = sp.get('business');
+  /* the Delivery Challan form's barcode lookup (17-10-2026) - used while
+     creating or editing a challan, so Read, Create OR Update on that screen
+     lets it through; refused only when all three are withheld */
+  let denied = null;
+  for (const action of [PERM.READ, PERM.CREATE, PERM.UPDATE]) {
+    denied = await screenDenial({
+      session, screen: SCREENS.IC_DELIVERY_CHALLAN, label: 'inter company delivery challans', action, businessId: business,
+    });
+    if (!denied) break;
+  }
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
   const location = sp.get('location');
   const scope = {
     businessId: business && isValidObjectId(business) ? business : null,

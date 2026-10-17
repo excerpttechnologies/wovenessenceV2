@@ -2529,6 +2529,7 @@ import Toolbar from "./Toolbar";
 import ModalForm from "./ModalForm";
 import FilterPanel, { filterDefaults } from "./FilterPanel";
 import { useScope } from "./ScopeContext";
+import NumberedPager, { SortHeader } from "./NumberedPager";
 import Modal from "./Modal";
 import ConfirmDialog from "./ConfirmDialog";
 import { fmt, toCsv, toXlsHtml, download, printTable } from "@/lib/format";
@@ -2651,6 +2652,15 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [page, setPage] = useState(1);
+  /* cfg.pager === "numbered" (17-10-2026): a Rows-per-page select and a
+     numbered pager; cfg.sortable lists the column keys whose header sorts
+     the list on the server (true = every column; a column may name its own
+     sort key with `sortKey`). Both opt-in - a screen without them sends and
+     renders exactly what it always did. perPage stays null until the
+     operator picks one, so the endpoint's own default page size is kept. */
+  const numberedPager = cfg.pager === "numbered";
+  const [perPage, setPerPage] = useState(null);
+  const [sort, setSort] = useState({ key: null, dir: null });
   const [modal, setModal] = useState(false);
   const [editRow, setEditRow] = useState(null);
   /* seeded from the filter specs' `def` values, so a screen whose dates
@@ -2785,6 +2795,11 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
     Object.entries(filters).forEach(([k, v]) => {
       if (v) qs.set(k, v);
     });
+    if (numberedPager && perPage) qs.set("perPage", String(perPage));
+    if (sort.key && sort.dir) {
+      qs.set("sortBy", sort.key);
+      qs.set("sortDir", sort.dir);
+    }
  
     /* cfg.fixedQuery pins query parameters the SCREEN owns rather than the
        operator - the Incoming Transfers list is the same endpoint as Stock
@@ -2822,6 +2837,7 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
            filtered set - see the endpoint. Absent on endpoints that do not
            send one, which is why the cards render only when both exist. */
         summary: d.summary || null,
+        perPage: Number(d.perPage) || null,
       });
     } catch (e) {
       if (seq === reqRef.current) setError("Network error - could not reach the server.");
@@ -2842,6 +2858,9 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
     cfg.fixedQuery,
     scopePending,
     noBusiness,
+    numberedPager,
+    perPage,
+    sort,
   ]);
  
   useEffect(() => {
@@ -3095,6 +3114,11 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
         finYear: finYear || "",
       });
       Object.entries(filters).forEach(([k, v]) => { if (v) qs.set(k, v); });
+      /* a sorted list exports in the order it is shown */
+      if (sort.key && sort.dir) {
+        qs.set("sortBy", sort.key);
+        qs.set("sortDir", sort.dir);
+      }
       Object.entries(cfg.fixedQuery || {}).forEach(([k, v]) => {
         if (v !== undefined && v !== null && v !== "") qs.set(k, String(v));
       });
@@ -3393,7 +3417,17 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
                   {actionPos === "left" && <th>Action</th>}
                   {cfg.serialNumber && <th>#</th>}
                   {visible.map((c, i) => (
-                    <th key={c.t + i}>{c.t}</th>
+                    c.k && (cfg.sortable === true || (cfg.sortable || []).includes(c.k)) ? (
+                      <SortHeader
+                        key={c.t + i}
+                        label={c.t}
+                        sortKey={c.sortKey || c.k}
+                        sort={sort}
+                        onSort={(next) => { setSort(next); setPage(1); }}
+                      />
+                    ) : (
+                      <th key={c.t + i}>{c.t}</th>
+                    )
                   ))}
                   {actionPos === "right" && <th>Action</th>}
                 </tr>
@@ -3593,7 +3627,7 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
                     return (
                       <tr key={row._id}>
                         {actionPos === "left" && actions}
-                        {cfg.serialNumber && <td>{(page - 1) * PER_PAGE + rowIndex + 1}</td>}
+                        {cfg.serialNumber && <td>{(page - 1) * (numberedPager ? (perPage || state.perPage || PER_PAGE) : PER_PAGE) + rowIndex + 1}</td>}
                         {visible.map((c, i) => (
                           <td key={c.t + i}>{cellValue(row, c)}</td>
                         ))}
@@ -3605,6 +3639,17 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
             </table>
           </div>
  
+          {numberedPager ? (
+            <NumberedPager
+              page={state.page}
+              pages={state.pages}
+              total={state.total}
+              shown={state.rows.length}
+              perPage={perPage || state.perPage || PER_PAGE}
+              onPage={setPage}
+              onPerPage={(n) => { setPerPage(n); setPage(1); }}
+            />
+          ) : (
           <div className="flex items-center pt-3 text-[13px] text-cell">
             <span>
               Page <b className="text-brand-link">{state.page}</b> of{" "}
@@ -3634,6 +3679,7 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
               </button>
             </span>
           </div>
+          )}
         </div>
       </div>
       {/* A SCREEN'S OWN VIEW POPUP. cfg.viewModal above is the Goods Received

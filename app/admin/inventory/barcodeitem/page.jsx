@@ -13,6 +13,10 @@ const CONFIG = {
   slugPath: "barcodeitem",
 
   endpoint: '/api/inventory-barcode-list',
+  /* numbered pager with Rows-per-page, and the column headers sort on
+     click (components/ListView.jsx) */
+  pager: 'numbered',
+  sortable: ["barcodeNo", "itemId", "rsp", "cp", "grcNo"],
 
   scope: ["business", "location"],
 

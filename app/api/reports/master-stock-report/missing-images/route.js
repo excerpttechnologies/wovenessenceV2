@@ -2,6 +2,7 @@ import * as XLSX from 'xlsx';
 import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
 import { json, scopeOf } from '@/lib/reports';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { findMissingImages, SHEET_HEADERS, sheetRows } from '@/lib/missingImages';
 
 /* ==========================================================================
@@ -31,6 +32,11 @@ export async function GET(req) {
   await dbConnect();
 
   const scope = scopeOf(sp);
+
+  /* Roles & Permissions (17-10-2026): Master Stock Report -> Read */
+  const denied = await screenDenial({ session, screen: SCREENS.MASTER_STOCK_REPORT, label: 'the master stock report', action: PERM.READ, businessId: scope.businessId });
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
+
   const { rows, counts, scanned } = await findMissingImages(scope);
 
   if (sp.get('format') !== 'xlsx') {

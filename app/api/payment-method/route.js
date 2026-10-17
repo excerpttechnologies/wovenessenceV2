@@ -6,6 +6,7 @@ import { resolveRefLabels } from '@/lib/refLabels';
 import { validate, escapeRegex } from '@/lib/validate';
 import { FIELDS } from '@/app/admin/setting/paymentmethod/fields';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { sortedPage } from '@/lib/listSort';
 
 /* Permission gate for this screen.
 
@@ -48,7 +49,14 @@ export async function GET(req) {
   }
 
   const total = await PaymentMethod.countDocuments(filter);
-  const rows = await PaymentMethod.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(PaymentMethod, filter, sp, {
+    page,
+    perPage,
+    keys: ['paymentMethodName', 'counterId', 'isActive', 'isDefault', 'isCash', 'isLoyalty'],
+    refs: ['ledgerId'],
+  })) ?? await PaymentMethod.find(filter)
     .sort({ createdAt: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)

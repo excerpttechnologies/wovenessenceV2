@@ -52,6 +52,7 @@ import { FORM } from '@/app/admin/transaction/purchase/grc/form';
 import { LABEL_MODE, resolveBarcodeType, resolveBarcodeLabelCount } from '@/lib/barcodeLabelPrint';
 import { TABS as SUPPLIER_TABS } from '@/app/admin/contact/supplier/tabs';
 import { priceSetupFieldDefs, buildSupplierPriceSetup } from '@/lib/supplierPriceSetup';
+import { screenDenial, screenDenialAnyAction, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 
 const json = (data, status = 200) => Response.json(data, { status });
 
@@ -72,6 +73,16 @@ export async function GET(_req, { params }) {
 
   const grc = await Grc.findById(id).lean();
   if (!grc) return json({ error: 'GRC not found' }, 404);
+
+  /* Roles & Permissions (17-10-2026): one GRC with its barcode rows - read
+     by the GRC edit / print / barcode-generation pages (GRC Read, Create or
+     Update; barcode generation follows straight after creating) and by
+     Inventory > Print Label (its Read) */
+  {
+    const viaGrc = await screenDenialAnyAction({ session, screens: [SCREENS.GRC], actions: [PERM.READ, PERM.CREATE, PERM.UPDATE], businessId: grc.businessId, label: 'GRC' });
+    const denied = viaGrc && await screenDenial({ session, screen: SCREENS.PRINT_LABEL, label: 'GRC', action: PERM.READ, businessId: grc.businessId });
+    if (denied) return json({ error: denied.message, code: denied.code }, 403);
+  }
 
   const [rows, supplier] = await Promise.all([
     /* _id breaks ties: one Submit inserts its rows within the same few
@@ -146,6 +157,14 @@ export async function DELETE(_req, { params }) {
   await dbConnect();
   const { id } = await params;
 
+  /* Roles & Permissions (17-10-2026): GRC -> Delete (a missing GRC still
+     answers ok, exactly as before) */
+  const existing = isValidObjectId(id) ? await Grc.findById(id).select('businessId').lean() : null;
+  if (existing) {
+    const denied = await screenDenial({ session, screen: SCREENS.GRC, label: 'GRC', action: PERM.DELETE, businessId: existing.businessId });
+    if (denied) return json({ error: denied.message, code: denied.code }, 403);
+  }
+
   await Promise.all([
     Grc.findByIdAndDelete(id),
     BarcodeLabel.deleteMany({ grcId: id }),
@@ -160,6 +179,14 @@ export async function PUT(req, { params }) {
   await dbConnect();
   const { id } = await params;
   const body = await req.json();
+  /* Roles & Permissions (17-10-2026): GRC -> Update */
+  {
+    const existing = isValidObjectId(id) ? await Grc.findById(id).select('businessId').lean() : null;
+    if (existing) {
+      const denied = await screenDenial({ session, screen: SCREENS.GRC, label: 'GRC', action: PERM.UPDATE, businessId: existing.businessId });
+      if (denied) return json({ error: denied.message, code: denied.code }, 403);
+    }
+  }
   /* Header fields, plus the Voucher Section columns marked `header: true`
      (Round Off). The rest of the Voucher Section lives in voucherRows and is
      deliberately left out, exactly as it was before. */

@@ -116,6 +116,7 @@ import { isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
 import { handler, json } from '@/lib/apiError';
 import { requirePermission, canUseLocation, PERMISSIONS } from '@/lib/rbac';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import Business from '@/models/Business';
 import CompanyLocation from '@/models/CompanyLocation';
 import { barcodeKey } from '@/lib/barcodeValue';
@@ -190,6 +191,11 @@ export const POST = handler(async (req) => {
   }
   const business = isValidObjectId(businessId) ? await Business.findById(businessId).select('_id').lean() : null;
   if (!business) return json({ error: 'That location\'s business no longer exists - choose another location.' }, 422);
+
+  /* Roles & Permissions (17-10-2026): Import Barcodes also needs Barcode
+     Report -> Create, for the business the barcodes go into */
+  const denied = await screenDenial({ session, screen: SCREENS.BARCODE_REPORT, label: 'the barcode report', action: PERM.CREATE, businessId });
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const records = Array.isArray(body?.records) ? body.records : [];
   if (!records.length) return json({ error: 'There are no barcodes to import.' }, 422);

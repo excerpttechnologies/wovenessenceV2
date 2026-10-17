@@ -8,11 +8,15 @@ const CONFIG = {
   basePath: '/admin/setting/',
   slugPath: "citygroup",
   endpoint: '/api/city-group',
+  /* numbered pager with Rows-per-page, and every column header sorts on
+     click (components/ListView.jsx) */
+  pager: 'numbered',
+  sortable: true,
   scope: ["business"],
   columns: [
     { k: "groupName", t: "Group Name" },
     { k: "cities", t: "Cities", f: "list" },
-    { k: "cities", t: "No. of Cities", f: "count" },
+    { k: "cities", t: "No. of Cities", f: "count", sortKey: "citiesCount" },
     { k: "createdAt", t: "Created", f: "datetime" },
   ],
 };

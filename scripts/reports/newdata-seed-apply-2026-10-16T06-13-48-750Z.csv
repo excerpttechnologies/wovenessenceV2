@@ -1,0 +1,11 @@
+row,barcode,location,qty,action,masters,note
+"2","OU2818","TEMPLE FABRIC JNR (TEMPLE FABRICS)","274","seeded","all existing",""
+"3","OU2862","TEMPLE FABRIC JNR (TEMPLE FABRICS)","198","seeded","all existing",""
+"4","54313","TEMPLE FABRIC JNR (TEMPLE FABRICS)","63","seeded","all existing",""
+"5","8A3280","TEMPLE FABRIC JNR (TEMPLE FABRICS)","11","seeded","created: hsn",""
+"6","9A2150","TEMPLE FABRIC JNR (TEMPLE FABRICS)","176","seeded","all existing",""
+"7","8A3280","TEMPLE FABRICS WAREHOUSE (TEMPLE FABRICS)","80","skipped-exists","","already in DB (IN_STOCK, qty 1000)"
+"8","9A2150","Temple Fabrics Warehouse","0","skipped-qty0","","Close Qty is 0"
+"9","8A3124","Temple Fabrics Warehouse","0","skipped-qty0","","Close Qty is 0"
+"10","6A1535","TEMPLE FABRICS WAREHOUSE (TEMPLE FABRICS)","1","seeded","created: hsn",""
+"11","10A2163","TEMPLE FABRICS WAREHOUSE (TEMPLE FABRICS)","242","seeded","all existing",""

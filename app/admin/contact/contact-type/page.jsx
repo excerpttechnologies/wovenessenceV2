@@ -9,6 +9,10 @@ const CONFIG = {
   basePath: '/admin/contact/',
   slugPath: "contact-type",
   endpoint: '/api/contact-type',
+  /* numbered pager with Rows-per-page, and every column header sorts on
+     click (components/ListView.jsx) */
+  pager: 'numbered',
+  sortable: true,
   scope: ["business"],
   addTitle: "Add Contact Type",
   formMode: "modal",

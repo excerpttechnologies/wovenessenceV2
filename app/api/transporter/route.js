@@ -5,6 +5,7 @@ import { requireSession } from '@/lib/session';
 import { validate, escapeRegex } from '@/lib/validate';
 import { FIELDS } from '@/app/admin/transport/transporter/fields';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { sortedPage } from '@/lib/listSort';
 
 /* Permission gate for this screen.
 
@@ -50,7 +51,18 @@ export async function GET(req) {
   }
 
   const total = await Transporter.countDocuments(filter);
-  const rows = await Transporter.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(Transporter, filter, sp, {
+    page,
+    perPage,
+    keys: ['transporterName', 'gstApplicable'],
+    computed: {
+      freight: (d) => (Array.isArray(d.freight) ? d.freight.join(', ') : ''),
+      autoChargesMode: (d) => (Array.isArray(d.autoChargesMode) ? d.autoChargesMode.join(', ') : ''),
+      tipsMode: (d) => (Array.isArray(d.tipsMode) ? d.tipsMode.join(', ') : ''),
+    },
+  })) ?? await Transporter.find(filter)
     .sort({ createdAt: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)

@@ -5,6 +5,7 @@ import { requireSession } from '@/lib/session';
 import { validate, escapeRegex } from '@/lib/validate';
 import { FIELDS } from '@/app/admin/setting/citygroup/fields';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { sortedPage } from '@/lib/listSort';
 
 /* Permission gate for this screen.
 
@@ -45,7 +46,17 @@ export async function GET(req) {
   }
 
   const total = await CityGroup.countDocuments(filter);
-  const rows = await CityGroup.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(CityGroup, filter, sp, {
+    page,
+    perPage,
+    keys: ['groupName', 'createdAt'],
+    computed: {
+      cities: (d) => (Array.isArray(d.cities) ? d.cities.join(', ') : ''),
+      citiesCount: (d) => (Array.isArray(d.cities) ? d.cities.length : 0),
+    },
+  })) ?? await CityGroup.find(filter)
     .sort({ createdAt: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)

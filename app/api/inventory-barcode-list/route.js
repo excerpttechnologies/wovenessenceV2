@@ -8,6 +8,7 @@ import { screenDenialAny, ACTIONS as PERM, BARCODE_LIST_SCREENS } from '@/lib/sc
 import { escapeRegex } from '@/lib/validate';
 import { imageUrl } from '@/lib/inventory';
 import { barcodeSearchPattern } from '@/lib/barcodeValue';
+import { sortedPage } from '@/lib/listSort';
 
 /* /api/inventory-barcode-list - read-only list for Inventory > Barcode Item.
    Separate from /api/barcodeitem on purpose (that route/model is left
@@ -126,7 +127,31 @@ export async function GET(req) {
   }
 
   const total = await BarcodeLabel.countDocuments(filter);
-  const rows = await BarcodeLabel.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(BarcodeLabel, filter, sp, {
+    page,
+    perPage,
+    keys: ['barcodeNo'],
+    computed: {
+      /* what the list shows, worked out exactly as the response below does */
+      itemId: {
+        select: 'printDescription supplierDescription itemCode',
+        value: (d) => d.printDescription || d.supplierDescription || d.itemCode || '',
+      },
+      rsp: { select: 'retailPrice', value: (d) => Number(d.retailPrice) || 0 },
+      cp: { select: 'finalNet purRate', value: (d) => Number(d.finalNet || d.purRate) || 0 },
+      grcNo: {
+        select: 'grcId',
+        prepare: async (docs) => {
+          const ids = [...new Set(docs.map((d) => d.grcId).filter(Boolean))];
+          const grcs = ids.length ? await Grc.find({ _id: { $in: ids } }).select('_id grcNumber').lean() : [];
+          return Object.fromEntries(grcs.map((g) => [String(g._id), g.grcNumber]));
+        },
+        value: (d, byId) => byId[d.grcId] || '',
+      },
+    },
+  })) ?? await BarcodeLabel.find(filter)
     .sort({ createdAt: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)

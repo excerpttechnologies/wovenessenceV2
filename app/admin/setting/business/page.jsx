@@ -34,6 +34,10 @@ const CONFIG = {
   slugPath: "business",
   endpoint: '/api/business',
   scope: [],
+  /* numbered pager with Rows-per-page, and every column header sorts on
+     click (components/ListView.jsx) */
+  pager: "numbered",
+  sortable: ["name", "zipCode", "state", "city", "isActive"],
   columns: [
     {
       k: "name",

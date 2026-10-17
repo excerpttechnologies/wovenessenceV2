@@ -1,5 +1,7 @@
+import { isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
 import Grc from '@/models/Grc';
+import { screenDenialAnyAction, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import PurchaseInvoice from '@/models/PurchaseInvoice';
 import { BarcodeLabel } from '@/lib/barcodeLabel';
 import { requireSession } from '@/lib/session';
@@ -30,6 +32,17 @@ const FIELDS = (FORM.cards || []).flatMap((c) => {
 
 const json = (d, s = 200) => Response.json(d, { status: s });
 
+/* Roles & Permissions (17-10-2026), Purchase > GRC: judged against the
+   record's own business. A missing record is left to answer exactly as it
+   did before (404 / ok), so no check runs for it. Returns a 403 Response or
+   null. */
+async function grcDenied(session, id, actions) {
+  const rec = isValidObjectId(id) ? await Grc.findById(id).select('businessId').lean() : null;
+  if (!rec) return null;
+  const denied = await screenDenialAnyAction({ session, screens: [SCREENS.GRC], actions, businessId: rec.businessId, label: 'GRC' });
+  return denied ? json({ error: denied.message, code: denied.code }, 403) : null;
+}
+
 export async function GET(req, { params }) {
   const session = await requireSession();
   if (!session) return json({ error: 'Unauthorized' }, 401);
@@ -39,6 +52,9 @@ export async function GET(req, { params }) {
 
   const doc = await Grc.findById(id).lean();
   if (!doc) return json({ doc: null }, 404);
+  /* read while viewing or editing the GRC */
+  const no = await grcDenied(session, id, [PERM.READ, PERM.UPDATE]);
+  if (no) return no;
   return json({ doc: { ...doc, _id: String(doc._id) } });
 }
 
@@ -49,6 +65,9 @@ export async function PUT(req, { params }) {
   const { id } = await params;
   const body = await req.json();
   await dbConnect();
+
+  const no = await grcDenied(session, id, [PERM.UPDATE]);
+  if (no) return no;
 
   const { errors, doc, ok } = validate(FIELDS, body.data || {});
   if (!ok) return json({ errors }, 422);
@@ -83,6 +102,9 @@ export async function POST(req, { params }) {
   if (!session) return json({ error: 'Unauthorized' }, 401);
   await dbConnect();
   const { id } = await params;
+  /* Generate Purchase Invoice - an action on the GRC: its Update */
+  const no = await grcDenied(session, id, [PERM.UPDATE]);
+  if (no) return no;
   const grc = await Grc.findById(id);
   if (!grc) return json({ error: 'GRC not found' }, 404);
   if (grc.purchaseInvoiceId) return json({ ok: true, id: String(grc.purchaseInvoiceId), existing: true });
@@ -121,6 +143,9 @@ export async function DELETE(req, { params }) {
 
   const { id } = await params;
   await dbConnect();
+
+  const no = await grcDenied(session, id, [PERM.DELETE]);
+  if (no) return no;
 
   await Grc.findByIdAndDelete(id);
   return json({ ok: true });

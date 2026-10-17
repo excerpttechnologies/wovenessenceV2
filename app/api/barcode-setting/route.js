@@ -59,6 +59,7 @@ import BarcodeSetting from '@/models/BarcodeSetting';
 import { requireSession } from '@/lib/session';
 import { validate, escapeRegex } from '@/lib/validate';
 import { ROW_FIELDS, sampleBarcode, rowName } from '@/app/admin/setting/barcodesetting/fields';
+import { sortedPage } from '@/lib/listSort';
 import {
   screenDenial, screenDenialAny, SCREENS, ACTIONS as PERM, BARCODE_SETTING_SCREENS,
 } from '@/lib/screenPermission';
@@ -122,7 +123,13 @@ export async function GET(req) {
   }
 
   const total = await BarcodeSetting.countDocuments(filter);
-  const rows = await BarcodeSetting.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(BarcodeSetting, filter, sp, {
+    page,
+    perPage,
+    keys: ['type', 'subType', 'prefix', 'suffix', 'startNumber', 'sampleBarcode', 'effectiveDate', 'expiryDate', 'finYear'],
+  })) ?? await BarcodeSetting.find(filter)
     /* the natural reading order of the screen: oldest configuration first,
        then period 1..n within it */
     .sort({ createdAt: 1, periodIndex: 1 })

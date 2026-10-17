@@ -286,6 +286,7 @@ import Item from '@/models/Item';
 import ProductGroup from '@/models/ProductGroup';
 import { Supplier } from '@/lib/contacts';
 import { json, num, r2, scopeOf, pageOf } from '@/lib/reports';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 
 /* /api/reports/barcode-report - read-only.
 
@@ -357,6 +358,10 @@ export async function GET(req) {
   /* never unscoped: without a business this would read every business's
      barcodes - and an export would write them all to one file */
   if (!businessId) return json({ error: 'Select a business in the top bar.' }, 422);
+
+  /* Roles & Permissions (17-10-2026): Barcode Report -> Read */
+  const denied = await screenDenial({ session, screen: SCREENS.BARCODE_REPORT, label: 'the barcode report', action: PERM.READ, businessId });
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   /* BarcodeLabel stores its scope as plain strings, and locationId is very
      often blank - the barcode screen does not always set it. Filtering

@@ -6,6 +6,7 @@ import { resolveRefLabels } from '@/lib/refLabels';
 import { validate, escapeRegex } from '@/lib/validate';
 import { FIELDS } from '@/app/admin/setting/stockpoint/fields';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { sortedPage } from '@/lib/listSort';
 
 /* Permission gate for this screen.
 
@@ -48,7 +49,13 @@ export async function GET(req) {
   }
 
   const total = await StockPoint.countDocuments(filter);
-  const rows = await StockPoint.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(StockPoint, filter, sp, {
+    page,
+    perPage,
+    keys: ['stockPoint', 'type', 'status', 'parentId'],
+  })) ?? await StockPoint.find(filter)
     .sort({ createdAt: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)

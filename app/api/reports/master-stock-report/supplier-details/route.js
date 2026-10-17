@@ -5,6 +5,7 @@ import Grc from '@/models/Grc';
 import CompanyLocation from '@/models/CompanyLocation';
 import StockPoint from '@/models/StockPoint';
 import { requireSession } from '@/lib/session';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 
 const json = (data, status = 200) => Response.json(data, { status });
 const str = (value) => String(value ?? '').trim();
@@ -30,6 +31,10 @@ export async function GET(req) {
   }
 
   await dbConnect();
+
+  /* Roles & Permissions (17-10-2026): Master Stock Report -> Read */
+  const denied = await screenDenial({ session, screen: SCREENS.MASTER_STOCK_REPORT, label: 'the master stock report', action: PERM.READ, businessId: business });
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const supplierQuery = supplierId && isValidObjectId(supplierId)
     ? {

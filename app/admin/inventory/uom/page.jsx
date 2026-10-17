@@ -9,6 +9,10 @@ const CONFIG = {
   basePath: '/admin/inventory/',
   slugPath: "uom",
   endpoint: '/api/uom',
+  /* numbered pager with Rows-per-page, and every column header sorts on
+     click (components/ListView.jsx) */
+  pager: 'numbered',
+  sortable: true,
   scope: ["business"],
   addTitle: "Add Unit of Measurement",
   formMode: "modal",

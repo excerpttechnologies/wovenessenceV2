@@ -4,10 +4,12 @@ import Delivery from '@/models/Delivery';
 import { requireSession } from '@/lib/session';
 import { validate } from '@/lib/validate';
 import { FIELDS, DERIVED_FIELDS, freightBreakdown } from '@/app/admin/transport/delivery/fields';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 
 /* /api/delivery/<id> - read one, update, delete. */
 
 const json = (d, s = 200) => Response.json(d, { status: s });
+const GR = { screen: SCREENS.DELIVERY, label: 'goods received' };
 
 export async function GET(req, { params }) {
   const session = await requireSession();
@@ -18,6 +20,9 @@ export async function GET(req, { params }) {
 
   const doc = await Delivery.findById(id).lean();
   if (!doc) return json({ doc: null }, 404);
+  /* Roles & Permissions (17-10-2026): Goods Received -> Read */
+  const denied = await screenDenial({ session, ...GR, action: PERM.READ, businessId: doc.businessId });
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
   return json({ doc: { ...doc, _id: String(doc._id) } });
 }
 
@@ -28,6 +33,14 @@ export async function PUT(req, { params }) {
   const { id } = await params;
   const body = await req.json();
   await dbConnect();
+
+  /* Roles & Permissions (17-10-2026): Goods Received -> Update, against
+     the record's own business (a missing record still answers 404 below) */
+  const existing = isValidObjectId(id) ? await Delivery.findById(id).select('businessId').lean() : null;
+  if (existing) {
+    const denied = await screenDenial({ session, ...GR, action: PERM.UPDATE, businessId: existing.businessId });
+    if (denied) return json({ error: denied.message, code: denied.code }, 403);
+  }
 
   const { errors, doc, ok } = validate(FIELDS, body.data || {});
   if (!ok) return json({ errors }, 422);
@@ -55,6 +68,13 @@ export async function DELETE(req, { params }) {
 
   const { id } = await params;
   await dbConnect();
+
+  /* Roles & Permissions (17-10-2026): Goods Received -> Delete */
+  const existing = isValidObjectId(id) ? await Delivery.findById(id).select('businessId').lean() : null;
+  if (existing) {
+    const denied = await screenDenial({ session, ...GR, action: PERM.DELETE, businessId: existing.businessId });
+    if (denied) return json({ error: denied.message, code: denied.code }, 403);
+  }
 
   await Delivery.findByIdAndDelete(id);
   return json({ ok: true });

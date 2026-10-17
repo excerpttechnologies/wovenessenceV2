@@ -1,6 +1,7 @@
 import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
 import { loyaltyRules, pointsBalance, allowedRedemption } from '@/lib/loyalty';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 
 /* /api/loyalty?business=<id>&customer=<id>&amount=<bill>
 
@@ -28,6 +29,16 @@ export async function GET(req) {
 
   const sp = new URL(req.url).searchParams;
   await dbConnect();
+
+  /* Roles & Permissions (17-10-2026): the till reads this while billing, so
+     POS Read, Create OR Update lets it through; refused only when all three
+     are withheld for the business */
+  let denied = null;
+  for (const action of [PERM.READ, PERM.CREATE, PERM.UPDATE]) {
+    denied = await screenDenial({ session, screen: SCREENS.POS, label: 'POS', action, businessId: sp.get('business') });
+    if (!denied) break;
+  }
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const rules = await loyaltyRules(sp.get('business'));
   /* Not configured, or switched off. `active: false` rather than an error -
