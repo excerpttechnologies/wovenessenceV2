@@ -3085,6 +3085,8 @@ import ErpSelectorModal from './ErpSelectorModal';
 import { readImport, editRecord, EDIT_FIELDS, FIELD_LABELS, REQUIRED, movementTotals, splitSupplier } from '@/lib/barcodeReportImport';
 import { imagePlan } from '@/lib/barcodeImage';
 import { BarcodeImageInput, BarcodeImageThumb, uploadBarcodeImage } from './BarcodeImagePicker';
+import BarcodeImportEcommerceSection from './BarcodeImportEcommerceSection';
+import { getRowValues } from '@/lib/barcodeImportEcommerceFields';
 import {
   imageProblem, ocrImages, reviewOcrRecords, IMAGE_MAX_COUNT, OCR_MESSAGES, POOR_CONFIDENCE, BARCODE_MIN_CONFIDENCE,
 } from '@/lib/barcodeReportOcr';
@@ -3348,6 +3350,8 @@ export default function BarcodeReportImport({ api }) {
   /* validation modal for missing required fields */
   const [showValidationModal, setShowValidationModal] = useState(false);
   const [missingFields, setMissingFields] = useState([]);
+  /* E-commerce section expanded state: Set of line numbers */
+  const [ecommerceExpanded, setEcommerceExpanded] = useState(new Set());
 
   const { showToast } = useToast();
 
@@ -3389,6 +3393,7 @@ export default function BarcodeReportImport({ api }) {
     setLocation(scopeLocation || '');
     dropImages(); setStage(''); clearBarcodeImages();
     setQtyDecrease(0); setQtyIncrease(0); setShowValidationModal(false); setMissingFields([]);
+    setEcommerceExpanded(new Set());
   }
 
   /* images in: each checked (type, extension, size) before it is kept - and
@@ -5336,6 +5341,15 @@ function DetailsCard({
           </ul>
         </details>
       )}
+
+      {/* E-COMMERCE FIELDS SECTION */}
+      <BarcodeImportEcommerceSection
+        row={row}
+        values={getRowValues(row, edits)}
+        onEdit={onEdit}
+        businessId={business}
+        disabled={busy}
+      />
     </article>
   );
 }

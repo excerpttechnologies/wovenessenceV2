@@ -67,6 +67,53 @@ const ItemSchema = new mongoose.Schema(
     description: { type: String, default: '' },
     attributeAddonIds: { type: [mongoose.Schema.Types.ObjectId], default: [] },
     itemType: { type: String, default: "Simple" },
+    
+    /* ============================================ E-COMMERCE FIELDS ============================================ */
+    
+    /* Product Type - determines which classification fields are visible */
+    productType: { 
+      type: String, 
+      default: '',
+      enum: ['', 'SAREES', 'FABRICS', 'PLAIN FABRICS', 'DUPATTA', 'OTHER']
+    },
+    
+    /* Product Classifications - References to ProductClassificationOption */
+    byWeave: { type: [mongoose.Schema.Types.ObjectId], ref: 'productClassificationOption', default: [] },
+    byFabric: { type: [mongoose.Schema.Types.ObjectId], ref: 'productClassificationOption', default: [] },
+    byCraft: { type: [mongoose.Schema.Types.ObjectId], ref: 'productClassificationOption', default: [] },
+    byOccasion: { type: [mongoose.Schema.Types.ObjectId], ref: 'productClassificationOption', default: [] },
+    byColour: { type: [mongoose.Schema.Types.ObjectId], ref: 'productClassificationOption', default: [] },
+    
+    /* Descriptive Fields - Rich text descriptions for each classification */
+    weaveDescription: { type: String, default: '' },
+    fabricDescription: { type: String, default: '' },
+    craftDescription: { type: String, default: '' },
+    occasionDescription: { type: String, default: '' },
+    colourDescription: { type: String, default: '' },
+    printDescriptionOverride: { type: String, default: '' },
+    
+    /* SEO Fields */
+    slug: { type: String, default: '', index: true, sparse: true },
+    seoTitle: { type: String, default: '' },
+    seoDescription: { type: String, default: '' },
+    
+    /* E-commerce Stock & Pricing Overrides */
+    ecommOffPercent: { type: Number, default: null }, // E-commerce discount percentage
+    barcodePriceOverride: { type: Number, default: null }, // Override price for e-commerce
+    barcodeQtyOverride: { type: Number, default: null }, // Override quantity for e-commerce
+    barcodeStatusOverride: { 
+      type: String, 
+      default: '',
+      enum: ['', 'IN_STOCK', 'OUT_OF_STOCK', 'PRE_ORDER', 'DISCONTINUED']
+    },
+    
+    /* Storefront Settings */
+    isFeatured: { type: Boolean, default: false, index: true },
+    salesCount: { type: Number, default: 0 }, // Total units sold (for popularity sorting)
+    displayName: { type: String, default: '' }, // Override for storefront display
+    
+    /* Additional Images */
+    additionalImages: { type: [String], default: [] }, // Array of image URLs
   },
   { timestamps: true }
 );
