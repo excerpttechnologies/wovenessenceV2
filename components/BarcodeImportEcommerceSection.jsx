@@ -1,11 +1,12 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import ClassificationPicker from '@/components/ClassificationPicker';
 import Icon from '@/components/Icon';
+import Modal from '@/components/Modal';
+import { ECOMMERCE_FIELDS } from '@/lib/barcodeImportEcommerceFields';
 import { 
   PRODUCT_TYPE_CLASSIFICATIONS,
   PRODUCT_TYPES,
-  CLASSIFICATION_TYPE_LABELS 
 } from '@/lib/productClassificationConstants';
 
 /* E-commerce Fields Section for Barcode Import Preview
@@ -35,42 +36,107 @@ const STATUS_OPTIONS = [
   { value: 'DISCONTINUED', label: 'Discontinued' },
 ];
 
-const DESCRIPTION_LABELS = {
-  weaveDescription: 'Weave Description',
-  fabricDescription: 'Fabric Description',
-  craftDescription: 'Craft Description',
-  occasionDescription: 'Occasion Description',
-  colourDescription: 'Colour Description',
-};
-
 export default function BarcodeImportEcommerceSection({
   row,
   values = {},
-  onEdit,
   businessId,
   disabled = false,
-  expanded = false,
-  onToggleExpand,
 }) {
-  const [localExpanded, setLocalExpanded] = useState(expanded);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [draftValues, setDraftValues] = useState(values);
+  const [loadingProduct, setLoadingProduct] = useState(false);
+  const [savingProduct, setSavingProduct] = useState(false);
+  const [productError, setProductError] = useState('');
+  const [productSaved, setProductSaved] = useState(false);
+  const initialValues = useRef(values);
+  const [productTypes, setProductTypes] = useState(PRODUCT_TYPES);
+
+  // Helper to get field value (from values prop which includes edits)
+  const getValue = (field) => draftValues[field] ?? '';
+  const setValue = (field, value) => setDraftValues((current) => ({ ...current, [field]: value }));
 
   useEffect(() => {
-    setLocalExpanded(expanded);
-  }, [expanded]);
+    if (!businessId) return;
 
-  const handleToggle = () => {
-    const newExpanded = !localExpanded;
-    setLocalExpanded(newExpanded);
-    if (onToggleExpand) {
-      onToggleExpand(newExpanded);
+    let cancelled = false;
+    fetch(`/api/v1/admin/product-types?business=${encodeURIComponent(businessId)}`)
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error('Unable to load product types')))
+      .then((data) => {
+        if (!cancelled && Array.isArray(data.types)) setProductTypes(data.types);
+      })
+      .catch((error) => console.error('Failed to load product types:', error));
+
+    return () => { cancelled = true; };
+  }, [businessId]);
+
+  const openModal = async () => {
+    initialValues.current = values;
+    setDraftValues(values);
+    setProductError('');
+    setProductSaved(false);
+    setModalOpen(true);
+    const itemCode = String(row.values?.itemCode || row.itemCode || '').trim();
+    if (!businessId || !itemCode) {
+      setProductError('A business and matching Item Code are required to load saved product data.');
+      return;
+    }
+    setLoadingProduct(true);
+    try {
+      const params = new URLSearchParams({ business: businessId, itemCode });
+      const response = await fetch(`/api/v1/admin/ecommerce-product?${params}`);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Unable to load e-commerce product data.');
+      const saved = data.product || {};
+      const merged = { ...saved, ...values };
+      ECOMMERCE_FIELDS.forEach((field) => {
+        if (values[field] === undefined || values[field] === null || values[field] === '') {
+          if (saved[field] !== undefined) merged[field] = saved[field];
+        }
+      });
+      setDraftValues(merged);
+      initialValues.current = merged;
+    } catch (error) {
+      setProductError(error.message || 'Unable to load e-commerce product data.');
+    } finally {
+      setLoadingProduct(false);
     }
   };
 
-  const productType = values.productType || '';
-  const applicableClassifications = PRODUCT_TYPE_CLASSIFICATIONS[productType] || [];
+  const closeModal = () => {
+    if (!disabled && !savingProduct) {
+      setModalOpen(false);
+      setDraftValues(initialValues.current);
+      setProductError('');
+    }
+  };
 
-  // Helper to get field value (from values prop which includes edits)
-  const getValue = (field) => values[field] ?? '';
+  const saveProduct = async () => {
+    if (savingProduct || loadingProduct) return;
+    const itemCode = String(row.values?.itemCode || row.itemCode || '').trim();
+    setSavingProduct(true);
+    setProductError('');
+    setProductSaved(false);
+    try {
+      const response = await fetch('/api/v1/admin/ecommerce-product', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ business: businessId, itemCode, updates: draftValues }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Unable to save e-commerce product data.');
+      const saved = { ...draftValues, ...data.product };
+      setDraftValues(saved);
+      initialValues.current = saved;
+      setProductSaved(true);
+    } catch (error) {
+      setProductError(error.message || 'Unable to save e-commerce product data.');
+    } finally {
+      setSavingProduct(false);
+    }
+  };
+
+  const productType = getValue('productType') || '';
+  const applicableClassifications = PRODUCT_TYPE_CLASSIFICATIONS[productType] || [];
   
   // Helper to check if field has changes
   const hasChange = (field) => {
@@ -85,44 +151,62 @@ export default function BarcodeImportEcommerceSection({
     'productType', 'displayName', 'printDescriptionOverride',
     'slug', 'seoTitle', 'seoDescription',
     'ecommOffPercent', 'barcodePriceOverride', 'barcodeQtyOverride', 'barcodeStatusOverride',
-    'isFeatured', 'salesCount',
+    'isFeatured', 'salesCount', 'status', 'isPublished',
     'weaveDescription', 'fabricDescription', 'craftDescription', 'occasionDescription', 'colourDescription',
   ].filter(f => getValue(f) !== '' && getValue(f) !== null && getValue(f) !== undefined).length;
 
   const classificationsCount = applicableClassifications.reduce((count, type) => {
-    const val = values[type];
+    const val = draftValues[type];
     return count + (Array.isArray(val) ? val.length : 0);
   }, 0);
 
   const totalCount = fieldsWithData + classificationsCount;
 
   return (
-    <div className="mt-3 rounded border border-line bg-white">
+    <>
       <button
         type="button"
-        onClick={handleToggle}
-        className="flex w-full items-center justify-between px-3 py-2.5 text-left hover:bg-[#f7f9fc]"
-        aria-expanded={localExpanded}
+        onClick={openModal}
+        disabled={disabled}
+        className="btn mt-3"
+        aria-haspopup="dialog"
       >
-        <div className="flex items-center gap-2">
-          <Icon name={localExpanded ? 'chevD' : 'chevR'} size={14} className="text-inkmuted" />
-          <span className="text-[13px] font-semibold uppercase tracking-wide text-ink">
-            E-commerce Fields
-          </span>
-          {totalCount > 0 && (
-            <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-brand px-1.5 text-[11px] font-semibold text-white">
-              {totalCount}
-            </span>
-          )}
-        </div>
-        <span className="text-[12px] text-inkmuted">
-          {localExpanded ? 'Hide' : 'Show'}
-        </span>
+        <Icon name="pencil" size={14} /> E-commerce Fields
+        {totalCount > 0 && <span className="ml-1 rounded-full bg-brand px-1.5 text-[11px] font-semibold text-white">{totalCount}</span>}
       </button>
 
-      {localExpanded && (
-        <div className="border-t border-line px-3 py-3">
+      <Modal
+        open={modalOpen}
+        title="E-commerce Fields"
+        onClose={closeModal}
+        size="lg"
+        closeOnBackdrop={!disabled}
+        footer={(
+          <div className="flex justify-end gap-2">
+            <button type="button" className="btn" onClick={closeModal} disabled={disabled}>Cancel</button>
+            <button type="button" className="btn btn-primary" onClick={saveProduct} disabled={disabled || loadingProduct || savingProduct}>
+              {savingProduct ? 'Saving...' : 'Save Product Details'}
+            </button>
+          </div>
+        )}
+      >
+        <div className="max-h-[70vh] space-y-3 overflow-y-auto pr-1">
+          {loadingProduct && <div className="text-[12px] text-inkmuted" role="status">Loading saved product details...</div>}
+          {productError && <div className="rounded border border-[#f1b0b0] bg-[#fdecec] px-3 py-2 text-[12px] text-danger" role="alert">{productError}</div>}
+          {productSaved && <div className="rounded border border-[#b7dfc2] bg-okgreenbg px-3 py-2 text-[12px] text-okgreen" role="status">E-commerce product details saved.</div>}
           {/* Product Type */}
+          <div className="mb-3">
+            <label className="mb-1 block text-[13px] text-ink">E-commerce Item Code</label>
+            <input
+              type="text"
+              value={getValue('ecommItemCode')}
+              onChange={(e) => setValue('ecommItemCode', e.target.value)}
+              disabled={disabled || loadingProduct || savingProduct}
+              placeholder="Storefront SKU / item code"
+              className="f-input w-full"
+            />
+          </div>
+
           <div className="mb-3">
             <label className="mb-1 block text-[13px] text-ink">
               Product Type
@@ -130,14 +214,29 @@ export default function BarcodeImportEcommerceSection({
             </label>
             <select
               value={getValue('productType')}
-              onChange={(e) => onEdit('productType', e.target.value)}
+              onChange={(e) => setValue('productType', e.target.value)}
               disabled={disabled}
               className="f-input w-full"
             >
-              {PRODUCT_TYPES.map(opt => (
+              {productTypes.map(opt => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
               ))}
             </select>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-[13px] text-ink">Product Status</label>
+              <select value={getValue('status') || 'draft'} onChange={(e) => setValue('status', e.target.value)} disabled={disabled || loadingProduct || savingProduct} className="f-input w-full">
+                <option value="draft">Draft</option>
+                <option value="active">Active</option>
+                <option value="archived">Archived</option>
+              </select>
+            </div>
+            <label className="flex items-center gap-2 self-end pb-2 text-[13px] text-ink">
+              <input type="checkbox" checked={getValue('isPublished') === true} onChange={(e) => setValue('isPublished', e.target.checked)} disabled={disabled || loadingProduct || savingProduct} className="h-4 w-4" />
+              Published on storefront
+            </label>
           </div>
 
           {/* Product Classifications */}
@@ -151,8 +250,8 @@ export default function BarcodeImportEcommerceSection({
                   <ClassificationPicker
                     key={type}
                     type={type}
-                    value={Array.isArray(values[type]) ? values[type] : []}
-                    onChange={(newValue) => onEdit(type, newValue)}
+                    value={Array.isArray(draftValues[type]) ? draftValues[type] : []}
+                    onChange={(newValue) => setValue(type, newValue)}
                     businessId={businessId}
                     disabled={disabled}
                     allowCreate={true}
@@ -174,7 +273,7 @@ export default function BarcodeImportEcommerceSection({
               <input
                 type="text"
                 value={getValue('displayName')}
-                onChange={(e) => onEdit('displayName', e.target.value)}
+                onChange={(e) => setValue('displayName', e.target.value)}
                 disabled={disabled}
                 placeholder="Override item name for storefront..."
                 className="f-input w-full"
@@ -188,7 +287,7 @@ export default function BarcodeImportEcommerceSection({
               </label>
               <textarea
                 value={getValue('printDescriptionOverride')}
-                onChange={(e) => onEdit('printDescriptionOverride', e.target.value)}
+                onChange={(e) => setValue('printDescriptionOverride', e.target.value)}
                 disabled={disabled}
                 rows={2}
                 placeholder="Custom description for printing..."
@@ -196,35 +295,6 @@ export default function BarcodeImportEcommerceSection({
               />
             </div>
 
-            {/* Descriptive fields for classifications */}
-            {applicableClassifications.length > 0 && (
-              <div className="mt-2 space-y-2 rounded border border-line bg-[#f7f9fc] p-2">
-                <div className="text-[11.5px] font-semibold text-inkmuted">Classification Descriptions</div>
-                {Object.entries(DESCRIPTION_LABELS).map(([field, label]) => {
-                  // Only show if this classification type is applicable
-                  const classificationField = field.replace('Description', '');
-                  const capitalized = 'by' + classificationField.charAt(0).toUpperCase() + classificationField.slice(1);
-                  if (!applicableClassifications.includes(capitalized)) return null;
-
-                  return (
-                    <div key={field}>
-                      <label className="mb-1 block text-[12px] text-ink">
-                        {label}
-                        {hasChange(field) && <span className="ml-2 text-[11px] text-[#8a5a00]">●</span>}
-                      </label>
-                      <textarea
-                        value={getValue(field)}
-                        onChange={(e) => onEdit(field, e.target.value)}
-                        disabled={disabled}
-                        rows={2}
-                        placeholder={`Describe ${label.replace(' Description', '').toLowerCase()}...`}
-                        className="f-input w-full resize-y text-[12px]"
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-            )}
           </div>
 
           {/* SEO Fields */}
@@ -239,7 +309,7 @@ export default function BarcodeImportEcommerceSection({
               <input
                 type="text"
                 value={getValue('slug')}
-                onChange={(e) => onEdit('slug', e.target.value)}
+                onChange={(e) => setValue('slug', e.target.value)}
                 disabled={disabled}
                 placeholder="product-url-slug"
                 className="f-input w-full font-mono text-[12px]"
@@ -255,7 +325,7 @@ export default function BarcodeImportEcommerceSection({
               <input
                 type="text"
                 value={getValue('seoTitle')}
-                onChange={(e) => onEdit('seoTitle', e.target.value)}
+                onChange={(e) => setValue('seoTitle', e.target.value)}
                 disabled={disabled}
                 placeholder="SEO optimized page title..."
                 className="f-input w-full"
@@ -269,7 +339,7 @@ export default function BarcodeImportEcommerceSection({
               </label>
               <textarea
                 value={getValue('seoDescription')}
-                onChange={(e) => onEdit('seoDescription', e.target.value)}
+                onChange={(e) => setValue('seoDescription', e.target.value)}
                 disabled={disabled}
                 rows={2}
                 maxLength={160}
@@ -295,7 +365,7 @@ export default function BarcodeImportEcommerceSection({
                 <input
                   type="number"
                   value={getValue('ecommOffPercent')}
-                  onChange={(e) => onEdit('ecommOffPercent', e.target.value)}
+                  onChange={(e) => setValue('ecommOffPercent', e.target.value)}
                   disabled={disabled}
                   min="0"
                   max="100"
@@ -313,7 +383,7 @@ export default function BarcodeImportEcommerceSection({
                 <input
                   type="number"
                   value={getValue('barcodePriceOverride')}
-                  onChange={(e) => onEdit('barcodePriceOverride', e.target.value)}
+                  onChange={(e) => setValue('barcodePriceOverride', e.target.value)}
                   disabled={disabled}
                   min="0"
                   step="0.01"
@@ -330,7 +400,7 @@ export default function BarcodeImportEcommerceSection({
                 <input
                   type="number"
                   value={getValue('barcodeQtyOverride')}
-                  onChange={(e) => onEdit('barcodeQtyOverride', e.target.value)}
+                  onChange={(e) => setValue('barcodeQtyOverride', e.target.value)}
                   disabled={disabled}
                   min="0"
                   step="1"
@@ -346,7 +416,7 @@ export default function BarcodeImportEcommerceSection({
                 </label>
                 <select
                   value={getValue('barcodeStatusOverride')}
-                  onChange={(e) => onEdit('barcodeStatusOverride', e.target.value)}
+                  onChange={(e) => setValue('barcodeStatusOverride', e.target.value)}
                   disabled={disabled}
                   className="f-input w-full"
                 >
@@ -367,7 +437,7 @@ export default function BarcodeImportEcommerceSection({
                 <input
                   type="checkbox"
                   checked={getValue('isFeatured') === true || getValue('isFeatured') === 'true'}
-                  onChange={(e) => onEdit('isFeatured', e.target.checked)}
+                  onChange={(e) => setValue('isFeatured', e.target.checked)}
                   disabled={disabled}
                   className="h-4 w-4"
                 />
@@ -385,7 +455,7 @@ export default function BarcodeImportEcommerceSection({
                 <input
                   type="number"
                   value={getValue('salesCount')}
-                  onChange={(e) => onEdit('salesCount', e.target.value)}
+                  onChange={(e) => setValue('salesCount', e.target.value)}
                   disabled={disabled}
                   min="0"
                   step="1"
@@ -401,7 +471,7 @@ export default function BarcodeImportEcommerceSection({
             <span className="text-[#8a5a00]">●</span> = Field has changes from existing data
           </div>
         </div>
-      )}
-    </div>
+      </Modal>
+    </>
   );
 }

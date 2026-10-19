@@ -39,6 +39,7 @@ export default function ClassificationPicker({
 }) {
   const [options, setOptions] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [creating, setCreating] = useState(false);
@@ -51,18 +52,37 @@ export default function ClassificationPicker({
 
   // Load options on mount and when businessId/type changes
   useEffect(() => {
-    if (!businessId || !type) return;
+    if (!businessId || !type) {
+      setOptions([]);
+      return;
+    }
     
+    let cancelled = false;
     setLoading(true);
+    setLoadError('');
     fetch(`/api/v1/admin/product-classification-options?business=${businessId}&type=${type}`)
-      .then(res => res.json())
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Unable to load classification options');
+        return data;
+      })
       .then(data => {
-        if (data.options && data.options[type]) {
-          setOptions(data.options[type]);
+        if (!cancelled) {
+          setOptions(data.options?.[type] || []);
         }
       })
-      .catch(err => console.error('Failed to load classification options:', err))
-      .finally(() => setLoading(false));
+      .catch(err => {
+        if (!cancelled) {
+          setOptions([]);
+          setLoadError(err.message || 'Unable to load classification options');
+          console.error('Failed to load classification options:', err);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => { cancelled = true; };
   }, [businessId, type]);
 
   // Close dropdown when clicking outside
@@ -191,6 +211,10 @@ export default function ClassificationPicker({
             {loading ? (
               <div className="px-3 py-2 text-center text-[13px] text-inkmuted">
                 Loading options...
+              </div>
+            ) : loadError ? (
+              <div className="px-3 py-2 text-center text-[13px] text-danger" role="alert">
+                {loadError}
               </div>
             ) : filteredOptions.length === 0 ? (
               <div className="px-3 py-2 text-center text-[13px] text-inkmuted">

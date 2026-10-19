@@ -1,6 +1,6 @@
 import { isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
-import Item from '@/models/Item';
+import EcommerceProduct from '@/models/EcommerceProduct';
 import { requireSession } from '@/lib/session';
 
 const json = (d, s = 200) => Response.json(d, { status: s });
@@ -28,16 +28,16 @@ export async function GET(req) {
   }
 
   // Get unique product types
-  const productTypes = await Item.distinct('productType', filter);
+  const productTypes = await EcommerceProduct.distinct('productType', filter);
 
   // Get counts for featured
-  const featuredCount = await Item.countDocuments({ 
+  const featuredCount = await EcommerceProduct.countDocuments({ 
     ...filter, 
     isFeatured: true 
   });
 
   // Get status override values used
-  const statusValues = await Item.distinct('barcodeStatusOverride', filter);
+  const statusValues = await EcommerceProduct.distinct('barcodeStatusOverride', filter);
 
   return json({
     facets: {

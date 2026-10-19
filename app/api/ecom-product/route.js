@@ -4,6 +4,7 @@ import { requireSession } from '@/lib/session';
 import { escapeRegex } from '@/lib/validate';
 import { BarcodeLabel } from '@/lib/barcodeLabel';
 import Item from '@/models/Item';
+import EcommerceProduct from '@/models/EcommerceProduct';
 import ProductGroup from '@/models/ProductGroup';
 import Uom from '@/models/Uom';
 import Hsn from '@/models/Hsn';
@@ -65,7 +66,16 @@ export async function GET(req) {
 
   if (search) {
     const rx = { $regex: escapeRegex(search), $options: 'i' };
-    filter.$or = [{ name: rx }, { itemCode: rx }, { prefix: rx }];
+    const matches = await EcommerceProduct.find({
+      ...(business ? { businessId: business } : {}),
+      displayName: rx,
+    }).select('itemId').lean();
+    filter.$or = [
+      { name: rx },
+      { itemCode: rx },
+      { prefix: rx },
+      { _id: { $in: matches.map((product) => product.itemId) } },
+    ];
   }
 
   const total = await Item.countDocuments(filter);
@@ -74,6 +84,14 @@ export async function GET(req) {
     .skip((page - 1) * perPage)
     .limit(perPage)
     .lean();
+
+  const ecommerceProducts = items.length
+    ? await EcommerceProduct.find({
+      ...(business ? { businessId: business } : {}),
+      itemId: { $in: items.map((item) => item._id) },
+    }).lean()
+    : [];
+  const ecommerceByItem = new Map(ecommerceProducts.map((product) => [String(product.itemId), product]));
 
   /* ------------------------------------- resolve the page's references -- */
   const subGroupIds = [...new Set(items.map((i) => i.subGroupId).filter(Boolean).map(String))];
@@ -166,6 +184,7 @@ export async function GET(req) {
 
   /* --------------------------------------------------------------- map -- */
   const rows = items.map((i) => {
+    const ecommerce = ecommerceByItem.get(String(i._id));
     const sub = subGroupById.get(String(i.subGroupId));
     const uom = uomById.get(String(i.uomId));
     const hsn = hsnById.get(String(i.hsnId));
@@ -183,8 +202,13 @@ export async function GET(req) {
     const stock = byCode || byName;
 
     return {
+      ...(ecommerce || {}),
       _id: String(i._id),
-      name: i.name || '',
+      itemId: String(i._id),
+      name: ecommerce?.displayName || i.name || '',
+      displayName: ecommerce?.displayName || '',
+      image: ecommerce?.image || i.image || '',
+      additionalImages: ecommerce?.additionalImages || [],
       itemCode: i.itemCode || '',
       hsnCode: hsn?.code || '',
       group: groupName,

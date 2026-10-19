@@ -12,6 +12,8 @@
     "seed:items": "node --env-file=.env scripts/seedItems.mjs",
     "seed:barcodes": "node scripts/seedBarcodeDump.mjs",
     "seed:barcodes:apply": "node scripts/seedBarcodeDump.mjs --apply",
+    "migrate:ecommerce": "node --env-file=.env scripts/migrateEcommerceProducts.mjs",
+    "migrate:ecommerce:apply": "node --env-file=.env scripts/migrateEcommerceProducts.mjs --apply",
     "delete:barcodes": "node scripts/deleteBarcodeDump.mjs",
     "delete:barcodes:apply": "node scripts/deleteBarcodeDump.mjs --apply",
     "test:inventory": "node --env-file=.env scripts/testInventoryFlow.mjs",

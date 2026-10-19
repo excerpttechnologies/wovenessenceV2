@@ -6,6 +6,44 @@ import { escapeRegex } from '@/lib/validate';
 
 const json = (d, s = 200) => Response.json(d, { status: s });
 
+const DEFAULT_OPTIONS = {
+  byWeave: ['Brocade', 'Crepe', 'Double Ikat', 'Handloom', 'Jacquard', 'Jamdani', 'Kadwa', 'Korvai', 'Kuppadam', 'Plain Weave', 'Single Ikat', 'Tissue'],
+  byFabric: ['Banarasi Silk Sarees', 'Chanderi Sarees', 'Cotton Sarees', 'Gadwal Silk Sarees', 'Georgette Sarees', 'Kanchipuram Silk Sarees', 'Linen Sarees', 'Mysore Silk Sarees', 'Organza Sarees', 'Paithani Silk Sarees', 'Patola Silk Sarees', 'Tussar Silk Sarees'],
+  byCraft: ['Bandhani', 'Block Print', 'Cutwork', 'Hand Embroidery', 'Jamdani', 'Kalamkari', 'Meenakari', 'Zari'],
+  byOccasion: ['Bridal', 'Casual', 'Festive', 'Office', 'Party', 'Pooja', 'Wedding'],
+  byColour: ['Red', 'Blue', 'Green', 'Yellow', 'Pink', 'Purple', 'Orange', 'Black', 'White', 'Beige', 'Gold', 'Silver', 'Maroon', 'Navy Blue', 'Teal', 'Magenta', 'Peach', 'Cream', 'Brown', 'Grey', 'Multicolour', 'Pastel', 'Neon', 'Metallic'],
+};
+
+async function ensureDefaultOptions(businessId, requestedType) {
+  const types = requestedType ? [requestedType] : Object.keys(DEFAULT_OPTIONS);
+  const defaults = types.flatMap((type) =>
+    DEFAULT_OPTIONS[type].map((name, index) => ({ type, name, displayOrder: index + 1 }))
+  );
+  const existing = await ProductClassificationOption.find({ businessId, type: { $in: types } })
+    .select('type name')
+    .lean();
+  const existingNames = new Set(existing.map((option) => `${option.type}:${option.name.trim().toLowerCase()}`));
+  const missing = defaults.filter((option) => !existingNames.has(`${option.type}:${option.name.toLowerCase()}`));
+
+  const writes = await Promise.allSettled(missing.map((option) => ProductClassificationOption.updateOne(
+    {
+      businessId,
+      type: option.type,
+      name: { $regex: `^${escapeRegex(option.name)}$`, $options: 'i' },
+    },
+    {
+      $setOnInsert: {
+        businessId,
+        ...option,
+        isActive: true,
+      },
+    },
+    { upsert: true }
+  )));
+  const failure = writes.find((result) => result.status === 'rejected' && result.reason?.code !== 11000);
+  if (failure) throw failure.reason;
+}
+
 /* /api/v1/admin/product-classification-options
    
    GET: List all classification options for a business, optionally filtered by type
@@ -25,16 +63,18 @@ export async function GET(req) {
     return json({ error: 'Valid business ID required' }, 422);
   }
 
-  const filter = { businessId, isActive: true };
-  
   // Filter by type if provided
   const type = sp.get('type');
   if (type) {
     if (!Object.values(CLASSIFICATION_TYPES).includes(type)) {
       return json({ error: 'Invalid classification type' }, 422);
     }
-    filter.type = type;
   }
+
+  await ensureDefaultOptions(businessId, type);
+
+  const filter = { businessId, isActive: true };
+  if (type) filter.type = type;
 
   // Search by name if provided
   const search = (sp.get('search') || '').trim();

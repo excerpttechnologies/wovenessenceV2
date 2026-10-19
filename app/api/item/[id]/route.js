@@ -14,6 +14,17 @@ const ITEM = { screen: SCREENS.ITEM, label: 'items' };
 
 import { FIELDS } from '@/app/admin/inventory/item/fields';
 
+const LEGACY_ECOMMERCE_FIELDS = new Set([
+  'ecommItemCode', 'productType', 'byWeave', 'byFabric', 'byCraft', 'byOccasion', 'byColour',
+  'weaveDescription', 'fabricDescription', 'craftDescription', 'occasionDescription', 'colourDescription',
+  'printDescriptionOverride', 'slug', 'seoTitle', 'seoDescription', 'ecommOffPercent',
+  'barcodePriceOverride', 'barcodeQtyOverride', 'barcodeStatusOverride', 'isFeatured',
+  'salesCount', 'displayName', 'additionalImages', 'isPublished', 'status',
+]);
+const itemFieldsOnly = (item) => Object.fromEntries(
+  Object.entries(item).filter(([field]) => !LEGACY_ECOMMERCE_FIELDS.has(field))
+);
+
 /* /api/item/<id> - read one, update, delete. */
 
 const json = (d, s = 200) => Response.json(d, { status: s });
@@ -35,7 +46,7 @@ export async function GET(req, { params }) {
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
-  return json({ doc: { ...doc, _id: String(doc._id) } });
+  return json({ doc: { ...itemFieldsOnly(doc), _id: String(doc._id) } });
 }
 
 export async function PUT(req, { params }) {

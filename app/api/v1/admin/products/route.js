@@ -1,6 +1,7 @@
 import { isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
 import Item from '@/models/Item';
+import EcommerceProduct from '@/models/EcommerceProduct';
 import { BarcodeLabel } from '@/lib/barcodeLabel';
 import { requireSession } from '@/lib/session';
 import { escapeRegex } from '@/lib/validate';
@@ -33,27 +34,32 @@ export async function GET(req) {
     filter.businessId = businessId;
   }
 
+  const ecommerceFilter = {};
+  if (businessId && isValidObjectId(businessId)) ecommerceFilter.businessId = businessId;
+
+  const productType = sp.get('productType');
+  if (productType) ecommerceFilter.productType = productType;
+
+  const featured = sp.get('featured');
+  if (featured === 'true') ecommerceFilter.isFeatured = true;
+
+  if (productType || featured === 'true') {
+    const matches = await EcommerceProduct.find(ecommerceFilter).select('itemId').lean();
+    filter._id = { $in: matches.map((product) => product.itemId) };
+  }
+
   if (search) {
     const rx = { $regex: escapeRegex(search), $options: 'i' };
+    const matchingProducts = await EcommerceProduct.find({
+      ...ecommerceFilter,
+      $or: [{ displayName: rx }, { ecommItemCode: rx }],
+    }).select('itemId').lean();
     filter.$or = [
       { name: rx },
       { itemCode: rx },
-      { ecommItemCode: rx },
       { description: rx },
-      { displayName: rx }
+      { _id: { $in: matchingProducts.map((product) => product.itemId) } },
     ];
-  }
-
-  // Filter by product type if provided
-  const productType = sp.get('productType');
-  if (productType) {
-    filter.productType = productType;
-  }
-
-  // Filter by featured status
-  const featured = sp.get('featured');
-  if (featured === 'true') {
-    filter.isFeatured = true;
   }
 
   const total = await Item.countDocuments(filter);
@@ -62,6 +68,14 @@ export async function GET(req) {
     .skip((page - 1) * perPage)
     .limit(perPage)
     .lean();
+
+  const ecommerceProducts = rows.length
+    ? await EcommerceProduct.find({
+      itemId: { $in: rows.map((row) => row._id) },
+      ...(businessId && isValidObjectId(businessId) ? { businessId } : {}),
+    }).lean()
+    : [];
+  const ecommerceByItem = new Map(ecommerceProducts.map((product) => [String(product.itemId), product]));
 
   // Get stock counts from barcode labels
   const itemCodes = rows.map(r => r.itemCode).filter(Boolean);
@@ -83,11 +97,27 @@ export async function GET(req) {
   });
 
   return json({
-    rows: rows.map(r => ({
-      ...r,
-      _id: String(r._id),
-      stock: stockByCode.get(String(r.itemCode || '').toLowerCase()) || 0,
-    })),
+    rows: rows.map((r) => {
+      const ecommerce = ecommerceByItem.get(String(r._id));
+      const itemFields = { ...r };
+      [
+        'ecommItemCode', 'productType', 'byWeave', 'byFabric', 'byCraft', 'byOccasion', 'byColour',
+        'weaveDescription', 'fabricDescription', 'craftDescription', 'occasionDescription', 'colourDescription',
+        'printDescriptionOverride', 'slug', 'seoTitle', 'seoDescription', 'ecommOffPercent',
+        'barcodePriceOverride', 'barcodeQtyOverride', 'barcodeStatusOverride', 'isFeatured',
+        'salesCount', 'displayName', 'additionalImages', 'isPublished', 'status',
+      ].forEach((field) => { delete itemFields[field]; });
+      return {
+        ...itemFields,
+        ...(ecommerce || {}),
+        _id: String(r._id),
+        itemId: String(r._id),
+        name: r.name || '',
+        displayName: ecommerce?.displayName || '',
+        image: ecommerce?.image || r.image || '',
+        stock: stockByCode.get(String(r.itemCode || '').toLowerCase()) || 0,
+      };
+    }),
     labels: await resolveRefLabels(rows),
     total,
     page,
@@ -113,13 +143,12 @@ export async function PATCH(req) {
     return json({ error: 'Updates object is required' }, 422);
   }
 
-  // Find item by itemCode or ecommItemCode
-  const item = await Item.findOne({
-    $or: [
-      { itemCode: { $regex: `^${escapeRegex(sku)}$`, $options: 'i' } },
-      { ecommItemCode: { $regex: `^${escapeRegex(sku)}$`, $options: 'i' } }
-    ]
-  });
+  const skuPattern = { $regex: `^${escapeRegex(sku)}$`, $options: 'i' };
+  let item = await Item.findOne({ itemCode: skuPattern });
+  if (!item) {
+    const ecommerce = await EcommerceProduct.findOne({ ecommItemCode: skuPattern }).select('businessId itemId').lean();
+    if (ecommerce) item = await Item.findOne({ _id: ecommerce.itemId, businessId: ecommerce.businessId });
+  }
 
   if (!item) {
     return json({ error: `Product with SKU "${sku}" not found` }, 404);
@@ -134,8 +163,8 @@ export async function PATCH(req) {
     'slug', 'seoTitle', 'seoDescription',
     'ecommOffPercent', 'barcodePriceOverride', 'barcodeQtyOverride', 
     'barcodeStatusOverride',
-    'isFeatured', 'salesCount', 'displayName',
-    'image', 'additionalImages',
+    'isFeatured', 'isPublished', 'status', 'salesCount', 'displayName',
+    'image', 'additionalImages', 'ecommItemCode',
     'description'
   ];
 
@@ -156,7 +185,7 @@ export async function PATCH(req) {
         }
       }
       // Validate boolean fields
-      else if (field === 'isFeatured') {
+      else if (field === 'isFeatured' || field === 'isPublished') {
         updateDoc[field] = Boolean(updates[field]);
       }
       // String fields
@@ -170,18 +199,29 @@ export async function PATCH(req) {
     return json({ error: 'No valid updates provided' }, 422);
   }
 
-  // Update the item
-  const updated = await Item.findByIdAndUpdate(
-    item._id,
-    { $set: updateDoc },
-    { new: true, runValidators: true }
+  if (updateDoc.slug) {
+    const duplicateSlug = await EcommerceProduct.findOne({
+      businessId: item.businessId,
+      slug: updateDoc.slug,
+      itemId: { $ne: item._id },
+    }).lean();
+    if (duplicateSlug) return json({ error: 'That product URL slug is already in use.' }, 409);
+  }
+
+  const updated = await EcommerceProduct.findOneAndUpdate(
+    { businessId: item.businessId, itemId: item._id },
+    { $set: updateDoc, $setOnInsert: { businessId: item.businessId, itemId: item._id } },
+    { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true }
   ).lean();
 
   return json({ 
     ok: true, 
     product: {
+      ...item.toObject(),
       ...updated,
-      _id: String(updated._id)
+      _id: String(item._id),
+      itemId: String(item._id),
+      name: item.name || '',
     }
   });
 }

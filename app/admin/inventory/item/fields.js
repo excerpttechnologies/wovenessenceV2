@@ -28,7 +28,6 @@ export const FIELDS = [
        code typed into "Item Code" was the only identifier stored. */
     { k: "name", label: "Item Name", type: "text", req: true },
     { k: "itemCode", label: "Item Code", type: "text", req: true },
-    { k: "ecommItemCode", label: "Ecomm Item Code", type: "text", req: true },
     { k: "subGroupId", label: "Group", type: "ref", ref: "product/group", req: true },
     { k: "uomId", label: "UOM", type: "ref", ref: "uom", req: true },
     { k: "hsnId", label: "HSN", type: "ref", ref: "hsn", req: true },
@@ -47,56 +46,4 @@ export const FIELDS = [
        checkboxes — tick any number, value saved as array of ObjectId strings */
     { k: "attributeAddonIds", label: "Attribute Addons", type: "checkref", ref: "attribute-addon" },
     { k: "itemType", label: "Item Type", type: "select", req: true, def: "Simple", opts: [{"v":"Simple","l":"Simple"},{"v":"Variant","l":"Variant"}] },
-    
-    /* ============================================ E-COMMERCE FIELDS ============================================ */
-    
-    { k: "productType", label: "Product Type", type: "select", def: "", opts: [
-      {"v":"","l":"Not Specified"},
-      {"v":"SAREES","l":"Sarees"},
-      {"v":"FABRICS","l":"Fabrics"},
-      {"v":"PLAIN FABRICS","l":"Plain Fabrics"},
-      {"v":"DUPATTA","l":"Dupatta"},
-      {"v":"OTHER","l":"Other"}
-    ]},
-    
-    { k: "displayName", label: "Display Name (Storefront)", type: "text" },
-    { k: "printDescriptionOverride", label: "Print Description Override", type: "textarea" },
-    
-    // SEO Fields
-    { k: "slug", label: "URL Slug", type: "text" },
-    { k: "seoTitle", label: "SEO Title", type: "text" },
-    { k: "seoDescription", label: "SEO Description", type: "textarea", maxlength: 160 },
-    
-    // E-commerce Overrides
-    { k: "ecommOffPercent", label: "E-comm Discount %", type: "number", min: 0, max: 100 },
-    { k: "barcodePriceOverride", label: "Price Override (E-comm)", type: "number", min: 0 },
-    { k: "barcodeQtyOverride", label: "Quantity Override (E-comm)", type: "number", min: 0 },
-    { k: "barcodeStatusOverride", label: "Status Override", type: "select", def: "", opts: [
-      {"v":"","l":"Use Actual Status"},
-      {"v":"IN_STOCK","l":"In Stock"},
-      {"v":"OUT_OF_STOCK","l":"Out of Stock"},
-      {"v":"PRE_ORDER","l":"Pre-Order"},
-      {"v":"DISCONTINUED","l":"Discontinued"}
-    ]},
-    
-    { k: "isFeatured", label: "Featured Product", type: "checkbox" },
-    { k: "salesCount", label: "Sales Count", type: "number", min: 0 },
   ];
-
-/* Product type-specific classification fields - these use ClassificationPicker component
-   and are rendered conditionally based on productType value */
-export const CLASSIFICATION_FIELDS = {
-  SAREES: ['byWeave', 'byFabric', 'byCraft', 'byOccasion'],
-  FABRICS: ['byFabric', 'byColour'],
-  'PLAIN FABRICS': ['byFabric', 'byColour'],
-  DUPATTA: ['byFabric', 'byColour'],
-};
-
-/* Descriptive fields corresponding to classifications */
-export const DESCRIPTION_FIELDS = {
-  byWeave: 'weaveDescription',
-  byFabric: 'fabricDescription',
-  byCraft: 'craftDescription',
-  byOccasion: 'occasionDescription',
-  byColour: 'colourDescription',
-};
