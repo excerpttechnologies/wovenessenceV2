@@ -94,6 +94,9 @@ import { uomTypeOf } from '@/lib/barcodeUnits';
 import logoFile from '@/bill-template/posinvoice-temp.png';
 
 const LOGO = logoFile.src || logoFile;
+/* the second logo, printed under the first (user, 19-10-2026) */
+import logoFile2 from '@/bill-template/posinvoice-temp1.png';
+const LOGO2 = logoFile2.src || logoFile2;
 const TAGLINE = 'TRADITION | FABRICS | TIMELESS YOU';
 const THANK_YOU = '!! Thank you for your purchase, YOU MAKE OUR DAY !!';
 const DEFAULT_TERMS = [
@@ -121,6 +124,9 @@ const lineNet = (item) => {
   const gross = Number(item.rsp || 0) * Number(item.qty || 0);
   return gross * (1 - Number(item.discountPct || 0) / 100);
 };
+/* A5 / A4 only (19-10-2026): the line's discount in rupees - MRP x qty less
+   what it nets to, never negative (the same rule as the Disc Amt total) */
+const lineDisc = (item) => Math.max(0, r2(Number(item.rsp || 0) * Number(item.qty || 0) - lineNet(item)));
 const lineTax = (item) => {
   const rate = Number(item.gst || 0);
   const net = lineNet(item);
@@ -323,6 +329,8 @@ export default function PrintPosPage() {
         <div className="text-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={LOGO} alt={seller.name || 'Logo'} className="mx-auto mb-1 w-[62mm]" />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={LOGO2} alt="" className="mx-auto mb-1 w-[50mm]" />
           <div className="text-[8.5px] tracking-[0.15em]">{TAGLINE}</div>
           <div className="mt-1 text-[12px] font-bold">{seller.name || doc.businessName}</div>
           {address && <div>{address}</div>}
@@ -517,10 +525,10 @@ export default function PrintPosPage() {
 
 /* ==========================================================================
    A5 / A4 GST INVOICE - EXACTLY the receipt's details, nothing added
-   (user, 13-10-2026), laid out as a page in the receipt's own style
-   (19-10-2026): letterhead, customer beside the bill particulars, the
-   lines, payments beside the tax figures, the HSN tax summary, then the
-   thank-you line, terms and the footer note - dashed rules, no boxes. Same figures and rounding as the receipt: whole rupees for
+   (user, 13-10-2026), laid out as a page: letterhead, customer beside the
+   bill particulars, one ruled table of lines, payments beside the tax
+   figures, the HSN tax summary, then the thank-you line, terms and the
+   footer note. Same figures and rounding as the receipt: whole rupees for
    MRP / Net Amt / payments, paise for the tax figures. A5 is the same
    layout at a smaller type size.
    ========================================================================== */
@@ -528,16 +536,17 @@ function SheetInvoice({
   paper, doc, seller, items, when, billDate, address, place, phones, termLines,
   paidBy, changeReturn, totals: t, hsnRows,
 }) {
-  /* Laid out like the 80 mm receipt (client, 19-10-2026 - "too many boxes"):
-     centred letterhead, dashed rules between sections, rows without cell
-     borders. Every detail and figure is the one the boxed sheet printed. */
+  /* No boxes (client, 19-10-2026): laid out like the 4-inch bill - centred
+     letterhead, dashed rules between sections, rows without cell borders.
+     The content is exactly what this sheet printed. A5 / A4 only; the 4-inch
+     receipt above is frozen and untouched. */
   const th = 'px-1.5 py-1 font-bold';
   const td = 'px-1.5 py-0.5 align-top';
   const Rule = () => <div className="my-1.5 border-t border-dashed border-black" />;
-  const sellerName = seller.name || doc.businessName || '';
   const Line = ({ label, children }) => (
     <div className="flex justify-between gap-2"><span>{label}</span><span>{children}</span></div>
   );
+  const sellerName = seller.name || doc.businessName || '';
 
   return (
     <main
@@ -551,9 +560,14 @@ function SheetInvoice({
     >
       {/* ------------------------------------------------ letterhead -- */}
       <div className="text-center">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={LOGO} alt={sellerName || 'Logo'} className="mx-auto" style={{ width: paper.w * 0.32 + 'mm' }} />
-        <div className="tracking-[0.15em]" style={{ fontSize: '0.75em' }}>{TAGLINE}</div>
+        {/* both logos in one row, centred (user, 19-10-2026) */}
+        <div className="flex items-center justify-center" style={{ gap: paper.w * 0.05 + 'mm' }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={LOGO} alt={sellerName || 'Logo'} style={{ width: paper.w * 0.32 + 'mm' }} />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={LOGO2} alt="" style={{ width: paper.w * 0.32 + 'mm' }} />
+        </div>
+        <div className="mt-0.5 tracking-[0.15em]" style={{ fontSize: '0.75em' }}>{TAGLINE}</div>
         <div className="mt-1 font-bold" style={{ fontSize: '1.35em' }}>{sellerName}</div>
         {address && <div>{address}</div>}
         {place && <div>{place}</div>}
@@ -569,13 +583,13 @@ function SheetInvoice({
           <div>Customer: {doc.customerName || 'Walk-in Customer'}{doc.customerContact ? ' (' + doc.customerContact + ')' : ''}</div>
           {doc.customerAddress && <div>Address: {doc.customerAddress}</div>}
           {doc.customerGstn && <div>GSTIN: {doc.customerGstn}</div>}
-          <div>SP: {doc.salesPersonName || '-'}</div>
-          <div>Counter: {doc.counterName || '-'}</div>
         </div>
-        <div className="text-right">
-          <div>Inv #: <b>{doc.invoiceNo || '-'}</b></div>
-          <div>Date: {billDate.toLocaleDateString('en-GB')}</div>
-          <div>Time: {when.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</div>
+        <div className="grid grid-cols-[auto_1fr] justify-end gap-x-2">
+          <span>Inv #</span><b>: {doc.invoiceNo || '-'}</b>
+          <span>Date</span><span>: {billDate.toLocaleDateString('en-GB')}</span>
+          <span>Time</span><span>: {when.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
+          <span>Counter</span><span>: {doc.counterName || '-'}</span>
+          <span>SP</span><span>: {doc.salesPersonName || '-'}</span>
         </div>
       </div>
 
@@ -583,15 +597,19 @@ function SheetInvoice({
       <table className="mt-1.5 w-full border-collapse">
         <thead>
           <tr className="border-y border-dashed border-black">
+            {/* the client's order for A5 / A4 (19-10-2026): Sl, Item
+                Description, Barcode, Qty, HSN, GST, MRP, Disc%, Disc Amt,
+                Net Amt. The 4-inch receipt is frozen and keeps its own. */}
             <th className={th + ' text-left'} style={{ width: '5%' }}>Sl.</th>
-            <th className={th + ' text-left'}>Description</th>
-            <th className={th + ' text-right'} style={{ width: '7%' }}>GST</th>
-            <th className={th + ' text-center'} style={{ width: '11%' }}>HSN</th>
+            <th className={th + ' text-left'}>Item Description</th>
+            <th className={th + ' text-left'} style={{ width: '12%' }}>Barcode</th>
             <th className={th + ' text-right'} style={{ width: '6%' }}>Qty</th>
-            <th className={th + ' text-left'} style={{ width: '12%' }}>Bar Code</th>
-            <th className={th + ' text-right'} style={{ width: '10%' }}>MRP</th>
-            <th className={th + ' text-right'} style={{ width: '8%' }}>Disc%</th>
-            <th className={th + ' text-right'} style={{ width: '11%' }}>Net Amt</th>
+            <th className={th + ' text-center'} style={{ width: '10%' }}>HSN</th>
+            <th className={th + ' text-right'} style={{ width: '6%' }}>GST</th>
+            <th className={th + ' text-right'} style={{ width: '9%' }}>MRP</th>
+            <th className={th + ' text-right'} style={{ width: '7%' }}>Disc%</th>
+            <th className={th + ' text-right'} style={{ width: '9%' }}>Disc Amt</th>
+            <th className={th + ' text-right'} style={{ width: '10%' }}>Net Amt</th>
           </tr>
         </thead>
         <tbody>
@@ -599,22 +617,23 @@ function SheetInvoice({
             <tr key={i}>
               <td className={td}>{i + 1}</td>
               <td className={td + ' font-semibold'}>{it.description || it.itemName || it.name || it.itemCode || '-'}</td>
-              <td className={td + ' text-right'}>{r2(it.gst)}%</td>
-              <td className={td + ' text-center'}>{it.hsn || '-'}</td>
-              <td className={td + ' text-right'}>{qtyText(it.qty)}</td>
               <td className={td}>{it.barcodeNo || it.barcode || '-'}</td>
+              <td className={td + ' text-right'}>{qtyText(it.qty)}</td>
+              <td className={td + ' text-center'}>{it.hsn || '-'}</td>
+              <td className={td + ' text-right'}>{r2(it.gst)}%</td>
               <td className={td + ' text-right'}>{inr0(it.rsp)}</td>
               <td className={td + ' text-right'}>{r2(it.discountPct)}</td>
+              <td className={td + ' text-right'}>{inr0(lineDisc(it))}</td>
               <td className={td + ' text-right'}>{inr0(lineNet(it))}</td>
             </tr>
           ))}
-          {/* as on the receipt: MRP total, the discount AMOUNT under Disc%,
-              and the net total, captioned because Disc% holds an amount */}
+          {/* MRP, discount and net totals under their own headings */}
           <tr className="border-y border-dashed border-black font-bold">
             <td className={td} colSpan={6}>Totals &nbsp; Pc(s) {qtyText(t.pcs)} &nbsp; Mtr {qtyText(t.mtr)}</td>
-            <td className={td + ' text-right'}>{inr0(t.mrpSum)}<div className="font-normal" style={{ fontSize: '0.75em' }}>MRP</div></td>
-            <td className={td + ' text-right'}>{inr0(t.discSum)}<div className="font-normal" style={{ fontSize: '0.75em' }}>Disc Amt</div></td>
-            <td className={td + ' text-right'}>{inr0(t.netSum)}<div className="font-normal" style={{ fontSize: '0.75em' }}>Net Amt</div></td>
+            <td className={td + ' text-right'}>{inr0(t.mrpSum)}</td>
+            <td className={td} />
+            <td className={td + ' text-right'}>{inr0(t.discSum)}</td>
+            <td className={td + ' text-right'}>{inr0(t.netSum)}</td>
           </tr>
         </tbody>
       </table>
@@ -645,11 +664,17 @@ function SheetInvoice({
       <table className="mt-0.5 w-full border-collapse">
         <thead>
           <tr className="border-y border-black">
-            <th className={th + ' text-left'}>HSN</th>
-            <th className={th + ' text-right'}>Taxable Value</th>
-            <th className={th + ' text-right'}>CGST</th>
-            <th className={th + ' text-right'}>SGST</th>
-            <th className={th + ' text-right'}>Total Tax</th>
+            <th className={th + ' text-left'} rowSpan={2}>HSN</th>
+            <th className={th + ' text-right'} rowSpan={2}>Taxable Value</th>
+            <th className={th + ' text-center'} colSpan={2}>CGST</th>
+            <th className={th + ' text-center'} colSpan={2}>SGST</th>
+            <th className={th + ' text-right'} rowSpan={2}>Total Tax</th>
+          </tr>
+          <tr className="border-b border-black">
+            <th className={th + ' text-right'}>Rate</th>
+            <th className={th + ' text-right'}>Amount</th>
+            <th className={th + ' text-right'}>Rate</th>
+            <th className={th + ' text-right'}>Amount</th>
           </tr>
         </thead>
         <tbody>
@@ -657,15 +682,19 @@ function SheetInvoice({
             <tr key={h.hsn + h.rate}>
               <td className={td}>{h.hsn}</td>
               <td className={td + ' text-right'}>{inr(h.taxable)}</td>
-              <td className={td + ' text-right'}>{r2(h.rate / 2)}% &nbsp;{inr(h.tax / 2)}</td>
-              <td className={td + ' text-right'}>{r2(h.rate / 2)}% &nbsp;{inr(h.tax / 2)}</td>
+              <td className={td + ' text-right'}>{r2(h.rate / 2)}%</td>
+              <td className={td + ' text-right'}>{inr(h.tax / 2)}</td>
+              <td className={td + ' text-right'}>{r2(h.rate / 2)}%</td>
+              <td className={td + ' text-right'}>{inr(h.tax / 2)}</td>
               <td className={td + ' text-right'}>{inr(h.tax)}</td>
             </tr>
           ))}
           <tr className="border-t border-black font-bold">
             <td className={td}>Totals</td>
             <td className={td + ' text-right'}>{inr(t.taxable)}</td>
+            <td className={td} />
             <td className={td + ' text-right'}>{inr(t.cgst)}</td>
+            <td className={td} />
             <td className={td + ' text-right'}>{inr(t.sgst)}</td>
             <td className={td + ' text-right'}>{inr(t.taxSum)}</td>
           </tr>

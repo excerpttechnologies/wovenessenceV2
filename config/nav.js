@@ -699,6 +699,8 @@ export const NAV = [
     icon: LuShoppingCart,
     children: [
       { label: 'Products', icon: LuTag, href: '/admin/ecommerce/product' },
+      /* a test copy of Products, same data (19-10-2026) */
+      { label: 'product-eccom', icon: LuTag, href: '/admin/ecommerce/product-eccom' },
       /* The same transfer engine as Stock Transfers, raised from the
          e-commerce side - not a separate inventory path. */
       { label: 'Direct Stock Transfer', icon: LuShuffle,

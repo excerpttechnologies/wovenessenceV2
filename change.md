@@ -2,8 +2,15 @@
 
 ## 19-10-2026
 
+### NEW
+
+- app/admin/ecommerce/product-eccom/page.jsx
+- app/api/product-eccom/route.js
+- app/admin/ecommerce/product-eccom/add/page.jsx
+
 ### EXISTING
 
+- config/nav.js
 - app/admin/transaction/sell/deliverychallan/page.jsx
 - app/admin/transaction/sell/pos/page.jsx
 - app/admin/transaction/sell/pos-return/page.jsx
