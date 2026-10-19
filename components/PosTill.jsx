@@ -399,7 +399,10 @@ export default function PosTill() {
   /* Staff Management -> Sales Persons, via /api/options?ref=salesperson.
      This was `useState([])` with no setter ever called, so both the header
      picker and the per-line Sales Person column were permanently empty. */
-  const { options: salesPeople } = useOptions('salesperson');
+  /* ...for the Business / Location picked on THIS screen (19-10-2026). It
+     followed the top bar's company, so changing the till's own business
+     left the previous business's sales persons in the list. */
+  const { options: salesPeople } = useOptions('salesperson', '', true, { business, location });
 
   const [salesPerson, setSalesPerson] = useState('');
   const [payMode, setPayMode] = useState('Cash');
@@ -568,6 +571,8 @@ export default function PosTill() {
   function changeBusiness(value) {
     setBusiness(value);
     setLocation('');
+    /* the sales person picked belongs to the previous business */
+    setSalesPerson('');
     setCustomer('walkin');
     setSelectedCustomer(null);
     setCustomerSearch('');

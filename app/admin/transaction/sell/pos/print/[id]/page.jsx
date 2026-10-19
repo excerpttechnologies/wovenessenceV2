@@ -517,10 +517,10 @@ export default function PrintPosPage() {
 
 /* ==========================================================================
    A5 / A4 GST INVOICE - EXACTLY the receipt's details, nothing added
-   (user, 13-10-2026), laid out as a page: letterhead, customer beside the
-   bill particulars, one ruled table of lines, payments beside the tax
-   figures, the HSN tax summary, then the thank-you line, terms and the
-   footer note. Same figures and rounding as the receipt: whole rupees for
+   (user, 13-10-2026), laid out as a page in the receipt's own style
+   (19-10-2026): letterhead, customer beside the bill particulars, the
+   lines, payments beside the tax figures, the HSN tax summary, then the
+   thank-you line, terms and the footer note - dashed rules, no boxes. Same figures and rounding as the receipt: whole rupees for
    MRP / Net Amt / payments, paise for the tax figures. A5 is the same
    layout at a smaller type size.
    ========================================================================== */
@@ -528,8 +528,16 @@ function SheetInvoice({
   paper, doc, seller, items, when, billDate, address, place, phones, termLines,
   paidBy, changeReturn, totals: t, hsnRows,
 }) {
-  const cell = 'border border-black px-1.5 py-0.5';
+  /* Laid out like the 80 mm receipt (client, 19-10-2026 - "too many boxes"):
+     centred letterhead, dashed rules between sections, rows without cell
+     borders. Every detail and figure is the one the boxed sheet printed. */
+  const th = 'px-1.5 py-1 font-bold';
+  const td = 'px-1.5 py-0.5 align-top';
+  const Rule = () => <div className="my-1.5 border-t border-dashed border-black" />;
   const sellerName = seller.name || doc.businessName || '';
+  const Line = ({ label, children }) => (
+    <div className="flex justify-between gap-2"><span>{label}</span><span>{children}</span></div>
+  );
 
   return (
     <main
@@ -542,149 +550,131 @@ function SheetInvoice({
       }}
     >
       {/* ------------------------------------------------ letterhead -- */}
-      <div className="flex items-start gap-4 border-b-2 border-black pb-2">
-        <div className="shrink-0 text-center" style={{ width: paper.w * 0.3 + 'mm' }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={LOGO} alt={sellerName || 'Logo'} className="w-full" />
-          <div className="mt-0.5 tracking-[0.12em]" style={{ fontSize: '0.75em' }}>{TAGLINE}</div>
-        </div>
-        <div className="flex-1 text-right">
-          <div className="font-bold" style={{ fontSize: '1.45em' }}>{sellerName}</div>
-          {address && <div>{address}</div>}
-          {place && <div>{place}</div>}
-          {phones.length > 0 && <div>Ph: {phones.join(' / ')}</div>}
-          {seller.gstin && <div className="font-bold">GSTIN: {seller.gstin}</div>}
-        </div>
+      <div className="text-center">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={LOGO} alt={sellerName || 'Logo'} className="mx-auto" style={{ width: paper.w * 0.32 + 'mm' }} />
+        <div className="tracking-[0.15em]" style={{ fontSize: '0.75em' }}>{TAGLINE}</div>
+        <div className="mt-1 font-bold" style={{ fontSize: '1.35em' }}>{sellerName}</div>
+        {address && <div>{address}</div>}
+        {place && <div>{place}</div>}
+        {phones.length > 0 && <div>Ph: {phones.join(' / ')}</div>}
+        {seller.gstin && <div className="font-bold">GSTIN: {seller.gstin}</div>}
+        <div className="mt-1 font-bold tracking-wide" style={{ fontSize: '1.3em' }}>GST Invoice</div>
       </div>
 
-      <div className="my-1.5 text-center font-bold tracking-wide" style={{ fontSize: '1.3em' }}>GST Invoice</div>
-
       {/* --------------------------------- customer | bill particulars -- */}
-      <div className="grid grid-cols-2 border border-black">
-        <div className="border-r border-black px-2 py-1">
+      <Rule />
+      <div className="grid grid-cols-2 gap-x-6">
+        <div>
           <div>Customer: {doc.customerName || 'Walk-in Customer'}{doc.customerContact ? ' (' + doc.customerContact + ')' : ''}</div>
           {doc.customerAddress && <div>Address: {doc.customerAddress}</div>}
           {doc.customerGstn && <div>GSTIN: {doc.customerGstn}</div>}
+          <div>SP: {doc.salesPersonName || '-'}</div>
+          <div>Counter: {doc.counterName || '-'}</div>
         </div>
-        <div className="grid grid-cols-[auto_1fr] gap-x-2 px-2 py-1">
-          <span>Inv #</span><b>: {doc.invoiceNo || '-'}</b>
-          <span>Date</span><span>: {billDate.toLocaleDateString('en-GB')}</span>
-          <span>Time</span><span>: {when.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
-          <span>Counter</span><span>: {doc.counterName || '-'}</span>
-          <span>SP</span><span>: {doc.salesPersonName || '-'}</span>
+        <div className="text-right">
+          <div>Inv #: <b>{doc.invoiceNo || '-'}</b></div>
+          <div>Date: {billDate.toLocaleDateString('en-GB')}</div>
+          <div>Time: {when.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</div>
         </div>
       </div>
 
       {/* ------------------------------------------------------ items -- */}
-      <table className="mt-2 w-full border-collapse">
+      <table className="mt-1.5 w-full border-collapse">
         <thead>
-          <tr className="bg-[#f2f2f2] font-bold">
-            <th className={cell + ' text-center'} style={{ width: '6%' }}>Sl.</th>
-            <th className={cell + ' text-left'}>Description</th>
-            <th className={cell + ' text-right'} style={{ width: '7%' }}>GST</th>
-            <th className={cell + ' text-center'} style={{ width: '11%' }}>HSN</th>
-            <th className={cell + ' text-right'} style={{ width: '6%' }}>Qty</th>
-            <th className={cell + ' text-left'} style={{ width: '12%' }}>Bar Code</th>
-            <th className={cell + ' text-right'} style={{ width: '10%' }}>MRP</th>
-            <th className={cell + ' text-right'} style={{ width: '8%' }}>Disc%</th>
-            <th className={cell + ' text-right'} style={{ width: '11%' }}>Net Amt</th>
+          <tr className="border-y border-dashed border-black">
+            <th className={th + ' text-left'} style={{ width: '5%' }}>Sl.</th>
+            <th className={th + ' text-left'}>Description</th>
+            <th className={th + ' text-right'} style={{ width: '7%' }}>GST</th>
+            <th className={th + ' text-center'} style={{ width: '11%' }}>HSN</th>
+            <th className={th + ' text-right'} style={{ width: '6%' }}>Qty</th>
+            <th className={th + ' text-left'} style={{ width: '12%' }}>Bar Code</th>
+            <th className={th + ' text-right'} style={{ width: '10%' }}>MRP</th>
+            <th className={th + ' text-right'} style={{ width: '8%' }}>Disc%</th>
+            <th className={th + ' text-right'} style={{ width: '11%' }}>Net Amt</th>
           </tr>
         </thead>
         <tbody>
           {items.map((it, i) => (
             <tr key={i}>
-              <td className={cell + ' text-center align-top'}>{i + 1}</td>
-              <td className={cell + ' align-top font-semibold'}>{it.description || it.itemName || it.name || it.itemCode || '-'}</td>
-              <td className={cell + ' text-right align-top'}>{r2(it.gst)}%</td>
-              <td className={cell + ' text-center align-top'}>{it.hsn || '-'}</td>
-              <td className={cell + ' text-right align-top'}>{qtyText(it.qty)}</td>
-              <td className={cell + ' align-top'}>{it.barcodeNo || it.barcode || '-'}</td>
-              <td className={cell + ' text-right align-top'}>{inr0(it.rsp)}</td>
-              <td className={cell + ' text-right align-top'}>{r2(it.discountPct)}</td>
-              <td className={cell + ' text-right align-top'}>{inr0(lineNet(it))}</td>
+              <td className={td}>{i + 1}</td>
+              <td className={td + ' font-semibold'}>{it.description || it.itemName || it.name || it.itemCode || '-'}</td>
+              <td className={td + ' text-right'}>{r2(it.gst)}%</td>
+              <td className={td + ' text-center'}>{it.hsn || '-'}</td>
+              <td className={td + ' text-right'}>{qtyText(it.qty)}</td>
+              <td className={td}>{it.barcodeNo || it.barcode || '-'}</td>
+              <td className={td + ' text-right'}>{inr0(it.rsp)}</td>
+              <td className={td + ' text-right'}>{r2(it.discountPct)}</td>
+              <td className={td + ' text-right'}>{inr0(lineNet(it))}</td>
             </tr>
           ))}
           {/* as on the receipt: MRP total, the discount AMOUNT under Disc%,
               and the net total, captioned because Disc% holds an amount */}
-          <tr className="font-bold">
-            <td className={cell} colSpan={6}>Totals &nbsp; Pc(s) {qtyText(t.pcs)} &nbsp; Mtr {qtyText(t.mtr)}</td>
-            <td className={cell + ' text-right'}>{inr0(t.mrpSum)}<div className="font-normal" style={{ fontSize: '0.75em' }}>MRP</div></td>
-            <td className={cell + ' text-right'}>{inr0(t.discSum)}<div className="font-normal" style={{ fontSize: '0.75em' }}>Disc Amt</div></td>
-            <td className={cell + ' text-right'}>{inr0(t.netSum)}<div className="font-normal" style={{ fontSize: '0.75em' }}>Net Amt</div></td>
+          <tr className="border-y border-dashed border-black font-bold">
+            <td className={td} colSpan={6}>Totals &nbsp; Pc(s) {qtyText(t.pcs)} &nbsp; Mtr {qtyText(t.mtr)}</td>
+            <td className={td + ' text-right'}>{inr0(t.mrpSum)}<div className="font-normal" style={{ fontSize: '0.75em' }}>MRP</div></td>
+            <td className={td + ' text-right'}>{inr0(t.discSum)}<div className="font-normal" style={{ fontSize: '0.75em' }}>Disc Amt</div></td>
+            <td className={td + ' text-right'}>{inr0(t.netSum)}<div className="font-normal" style={{ fontSize: '0.75em' }}>Net Amt</div></td>
           </tr>
         </tbody>
       </table>
 
       {/* ------------------------------- payment modes | tax figures -- */}
-      <div className="mt-2 grid grid-cols-2 gap-4">
+      <div className="mt-1.5 grid grid-cols-2 gap-x-8">
         <div>
           <div className="font-bold">Payment Mode:</div>
-          {[...paidBy.entries()].map(([m, a]) => (
-            <div key={m} className="flex justify-between gap-2 border-b border-dotted border-black"><span>{m}</span><span>{inr0(a)}</span></div>
-          ))}
-          {changeReturn > 0 && (
-            <div className="flex justify-between gap-2 border-b border-dotted border-black"><span>Refund</span><span>{inr0(changeReturn)}</span></div>
-          )}
-          {Number(doc.sellDue || 0) > 0 && (
-            <div className="flex justify-between gap-2 border-b border-dotted border-black"><span>Due</span><span>{inr0(doc.sellDue)}</span></div>
-          )}
+          {[...paidBy.entries()].map(([m, a]) => <Line key={m} label={m}>{inr0(a)}</Line>)}
+          {changeReturn > 0 && <Line label="Refund">{inr0(changeReturn)}</Line>}
+          {Number(doc.sellDue || 0) > 0 && <Line label="Due">{inr0(doc.sellDue)}</Line>}
         </div>
         <div>
-          <div className="flex justify-between gap-2"><span>Taxable Val</span><span>{inr(t.taxable)}</span></div>
-          <div className="flex justify-between gap-2"><span>CGST</span><span>{inr(t.cgst)}</span></div>
-          <div className="flex justify-between gap-2"><span>SGST</span><span>{inr(t.sgst)}</span></div>
-          {t.shipping > 0 && <div className="flex justify-between gap-2"><span>Shipping</span><span>{inr(t.shipping)}</span></div>}
-          <div className="flex justify-between gap-2"><span>Round Off</span><span>{inr(t.roundOff)}</span></div>
-          <div className="mt-1 flex justify-between gap-2 border-y-2 border-black py-0.5 font-bold" style={{ fontSize: '1.25em' }}>
+          <Line label="Taxable Val">{inr(t.taxable)}</Line>
+          <Line label="CGST">{inr(t.cgst)}</Line>
+          <Line label="SGST">{inr(t.sgst)}</Line>
+          {t.shipping > 0 && <Line label="Shipping">{inr(t.shipping)}</Line>}
+          <Line label="Round Off">{inr(t.roundOff)}</Line>
+          <div className="mt-0.5 flex justify-between gap-2 border-t border-black pt-0.5 font-bold" style={{ fontSize: '1.2em' }}>
             <span>Net Amt</span><span>{inr0(t.netAmount)}</span>
           </div>
         </div>
       </div>
 
       {/* ---------------------------------------------- tax summary -- */}
-      <div className="mt-2 text-center font-bold">TAX SUMMARY</div>
-      <table className="w-full border-collapse">
+      <Rule />
+      <div className="text-center font-bold">TAX SUMMARY</div>
+      <table className="mt-0.5 w-full border-collapse">
         <thead>
-          <tr className="bg-[#f2f2f2] font-bold">
-            <th className={cell + ' text-left'} rowSpan={2}>HSN</th>
-            <th className={cell + ' text-right'} rowSpan={2}>Taxable Value</th>
-            <th className={cell + ' text-center'} colSpan={2}>CGST</th>
-            <th className={cell + ' text-center'} colSpan={2}>SGST</th>
-            <th className={cell + ' text-right'} rowSpan={2}>Total Tax</th>
-          </tr>
-          <tr className="bg-[#f2f2f2] font-bold">
-            <th className={cell + ' text-right'}>Rate</th>
-            <th className={cell + ' text-right'}>Amount</th>
-            <th className={cell + ' text-right'}>Rate</th>
-            <th className={cell + ' text-right'}>Amount</th>
+          <tr className="border-y border-black">
+            <th className={th + ' text-left'}>HSN</th>
+            <th className={th + ' text-right'}>Taxable Value</th>
+            <th className={th + ' text-right'}>CGST</th>
+            <th className={th + ' text-right'}>SGST</th>
+            <th className={th + ' text-right'}>Total Tax</th>
           </tr>
         </thead>
         <tbody>
           {hsnRows.map((h) => (
             <tr key={h.hsn + h.rate}>
-              <td className={cell}>{h.hsn}</td>
-              <td className={cell + ' text-right'}>{inr(h.taxable)}</td>
-              <td className={cell + ' text-right'}>{r2(h.rate / 2)}%</td>
-              <td className={cell + ' text-right'}>{inr(h.tax / 2)}</td>
-              <td className={cell + ' text-right'}>{r2(h.rate / 2)}%</td>
-              <td className={cell + ' text-right'}>{inr(h.tax / 2)}</td>
-              <td className={cell + ' text-right'}>{inr(h.tax)}</td>
+              <td className={td}>{h.hsn}</td>
+              <td className={td + ' text-right'}>{inr(h.taxable)}</td>
+              <td className={td + ' text-right'}>{r2(h.rate / 2)}% &nbsp;{inr(h.tax / 2)}</td>
+              <td className={td + ' text-right'}>{r2(h.rate / 2)}% &nbsp;{inr(h.tax / 2)}</td>
+              <td className={td + ' text-right'}>{inr(h.tax)}</td>
             </tr>
           ))}
-          <tr className="font-bold">
-            <td className={cell}>Totals</td>
-            <td className={cell + ' text-right'}>{inr(t.taxable)}</td>
-            <td className={cell} />
-            <td className={cell + ' text-right'}>{inr(t.cgst)}</td>
-            <td className={cell} />
-            <td className={cell + ' text-right'}>{inr(t.sgst)}</td>
-            <td className={cell + ' text-right'}>{inr(t.taxSum)}</td>
+          <tr className="border-t border-black font-bold">
+            <td className={td}>Totals</td>
+            <td className={td + ' text-right'}>{inr(t.taxable)}</td>
+            <td className={td + ' text-right'}>{inr(t.cgst)}</td>
+            <td className={td + ' text-right'}>{inr(t.sgst)}</td>
+            <td className={td + ' text-right'}>{inr(t.taxSum)}</td>
           </tr>
         </tbody>
       </table>
 
       {/* ------------------------------------------------- footer -- */}
-      <div className="mt-3 text-center font-bold">{THANK_YOU}</div>
+      <Rule />
+      <div className="text-center font-bold">{THANK_YOU}</div>
       <div className="mt-1" style={{ breakInside: 'avoid' }}>
         <div className="font-bold">Terms &amp; Conditions:</div>
         {termLines.map((line, i) => <div key={i}>{line}</div>)}

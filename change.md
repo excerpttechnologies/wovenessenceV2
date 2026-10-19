@@ -51,6 +51,7 @@
 - app/api/sales-person/route.js
 - app/api/cash-register/route.js
 - app/api/voucher/route.js
+- app/admin/transaction/sell/pos/print/[id]/page.jsx
 
 ## 17-10-2026
 
