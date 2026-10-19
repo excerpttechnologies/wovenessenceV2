@@ -1658,17 +1658,17 @@ export async function GET(req) {
     : [];
   const groupName = new Map(groups.map((g) => [String(g._id), s(g.name)]));
 
-  /* SUPPLIER: generated rows hold the id, imported rows hold the code. */
+  /* SUPPLIER: generated rows hold the id, imported rows hold the code.
+     Codes are globally unique, so the code lookup is NOT scoped to the
+     business: the same placeholder vendor (G741) appears on stock rows in
+     more than one business, and filtering here made those rows print blank. */
   const supIds = supKeys.filter((v) => isValidObjectId(v));
   const supCodes = supKeys.filter((v) => !isValidObjectId(v));
   const suppliers = supKeys.length
     ? await Supplier.find({
       $or: [
         ...(supIds.length ? [{ _id: { $in: supIds.map((v) => new Types.ObjectId(v)) } }] : []),
-        ...(supCodes.length ? [{
-          contactId: { $in: supCodes },
-          ...(businessId ? { businessId } : {}),
-        }] : []),
+        ...(supCodes.length ? [{ contactId: { $in: supCodes } }] : []),
       ],
     }).select('contactId businessName prefix firstName middleName lastName gstStatus billingMobile shippingMobile').lean()
     : [];

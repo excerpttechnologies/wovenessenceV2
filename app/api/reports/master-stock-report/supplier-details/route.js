@@ -36,16 +36,12 @@ export async function GET(req) {
   const denied = await screenDenial({ session, screen: SCREENS.MASTER_STOCK_REPORT, label: 'the master stock report', action: PERM.READ, businessId: business });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
+  /* Supplier codes are globally unique, and a placeholder vendor can appear
+     on stock rows in another business. Only the GRC list below is scoped to
+     the business; the supplier itself is looked up globally. */
   const supplierQuery = supplierId && isValidObjectId(supplierId)
-    ? {
-      _id: supplierId,
-      $or: [
-        { businessId: business },
-        { businessId: null },
-        { businessId: { $exists: false } },
-      ],
-    }
-    : { contactId: supplierCode, businessId: business };
+    ? { _id: supplierId }
+    : { contactId: supplierCode };
   const supplier = await Supplier.findOne(supplierQuery)
     .select('contactId businessName prefix firstName middleName lastName gstStatus billingMobile shippingMobile')
     .lean();
