@@ -9,6 +9,10 @@ const CONFIG = {
   basePath: '/admin/',
   slugPath: "logistic",
   endpoint: '/api/logistic',
+  /* numbered pager with Rows-per-page, and every column header sorts on
+     click (components/ListView.jsx) */
+  pager: 'numbered',
+  sortable: true,
   scope: ["business","location"],
   addTitle: "Add Logistic",
   formMode: "modal",

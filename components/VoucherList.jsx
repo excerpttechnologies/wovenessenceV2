@@ -5,6 +5,7 @@ import Toolbar from './Toolbar';
 import VoucherForm from './VoucherForm';
 import ConfirmDialog from './ConfirmDialog';
 import { useScope } from './ScopeContext';
+import NumberedPager, { SortHeader } from './NumberedPager';
 import { fmt, toCsv, toXlsHtml, download, printTable } from '@/lib/format';
 import { STATUS_OPTS } from '@/app/admin/voucher/fields';
 
@@ -31,6 +32,11 @@ export default function VoucherList({ spec }) {
   const [hidden, setHidden] = useState([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
+  /* numbered pager with Rows-per-page, and every column header sorts on
+     click (19-10-2026). perPage stays null until picked, so the endpoint's
+     own default page size is kept. */
+  const [perPage, setPerPage] = useState(null);
+  const [sort, setSort] = useState({ key: null, dir: null });
   const [adding, setAdding] = useState(false);
   const [flash, setFlash] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);
@@ -46,18 +52,23 @@ export default function VoucherList({ spec }) {
       search,
       business: business || '', location: location || '', finYear: finYear || '',
     });
+    if (perPage) qs.set('perPage', String(perPage));
+    if (sort.key && sort.dir) {
+      qs.set('sortBy', sort.key);
+      qs.set('sortDir', sort.dir);
+    }
     Object.entries(applied).forEach(([k, v]) => { if (v) qs.set(k, v); });
 
     try {
       const r = await fetch(ENDPOINT + '?' + qs);
       const d = await r.json();
       setState({
-        rows: d.rows || [], page: d.page || 1, pages: d.pages || 1, total: d.total || 0,
+        rows: d.rows || [], page: d.page || 1, pages: d.pages || 1, total: d.total || 0, perPage: Number(d.perPage) || null,
       });
     } finally {
       setLoading(false);
     }
-  }, [spec.type, page, search, applied, business, location, finYear]);
+  }, [spec.type, page, search, applied, business, location, finYear, perPage, sort]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setPage(1); }, [search, applied, business, location, finYear]);
@@ -201,7 +212,16 @@ export default function VoucherList({ spec }) {
             <table className="dt">
               <thead>
                 <tr>
-                  {visible.map((c) => <th key={c.t} className="!text-center">{c.t}</th>)}
+                  {visible.map((c) => (
+                    <SortHeader
+                      key={c.t}
+                      label={c.t}
+                      sortKey={c.k}
+                      sort={sort}
+                      onSort={(next) => { setSort(next); setPage(1); }}
+                      className="!text-center"
+                    />
+                  ))}
                   <th className="!text-center" style={{ width: 90 }}>Action</th>
                 </tr>
               </thead>
@@ -235,18 +255,15 @@ export default function VoucherList({ spec }) {
             </table>
           </div>
 
-          <div className="flex items-center pt-3 text-[13px] text-cell">
-            <span>Page <b className="text-brand-link">{state.page}</b> of {state.pages}</span>
-            <span className="flex-1" />
-            <span className="flex gap-2">
-              <button className="btn" disabled={state.page <= 1} onClick={() => setPage((p) => p - 1)}>
-                Previous
-              </button>
-              <button className="btn" disabled={state.page >= state.pages} onClick={() => setPage((p) => p + 1)}>
-                Next
-              </button>
-            </span>
-          </div>
+          <NumberedPager
+            page={state.page}
+            pages={state.pages}
+            total={state.total}
+            shown={state.rows.length}
+            perPage={perPage || state.perPage || 10}
+            onPage={setPage}
+            onPerPage={(nn) => { setPerPage(nn); setPage(1); }}
+          />
         </div>
       </div>
 

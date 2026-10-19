@@ -6,6 +6,7 @@ import { requireSession } from '@/lib/session';
 import { resolveRefLabels } from '@/lib/refLabels';
 import { escapeRegex } from '@/lib/validate';
 import { nextDocNumber } from '@/lib/docnumber';
+import { sortedPage } from '@/lib/listSort';
 
 /* /api/stock-transfer-received
 
@@ -48,7 +49,14 @@ export async function GET(req) {
   }
 
   const total = await StockTransferReceived.countDocuments(filter);
-  const rows = await StockTransferReceived.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(StockTransferReceived, filter, sp, {
+    page,
+    perPage,
+    keys: ['strCode', 'strDate', 'createdAt'],
+    refs: ['fromLocationId', 'toLocationId'],
+  })) ?? await StockTransferReceived.find(filter)
     .sort({ createdAt: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)

@@ -4,6 +4,7 @@ import Driver from '@/models/Driver';
 import { requireSession } from '@/lib/session';
 import { validate, escapeRegex } from '@/lib/validate';
 import { FIELDS } from '@/app/admin/transport/driver/fields';
+import { sortedPage } from '@/lib/listSort';
 
 /* /api/driver - list + create. */
 
@@ -30,7 +31,13 @@ export async function GET(req) {
   }
 
   const total = await Driver.countDocuments(filter);
-  const rows = await Driver.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(Driver, filter, sp, {
+    page,
+    perPage,
+    keys: ['name', 'code', 'status'],
+  })) ?? await Driver.find(filter)
     .sort({ createdAt: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)

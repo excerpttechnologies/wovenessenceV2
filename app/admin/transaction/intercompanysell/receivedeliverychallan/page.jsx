@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Icon from '@/components/Icon';
 import { useScope } from '@/components/ScopeContext';
+import { useClientTable } from '@/components/NumberedPager';
 
 /* Inter Company Sell -> Receive Delivery Challan.
 
@@ -217,6 +218,27 @@ export default function ReceiveDeliveryChallanPage() {
     }
   }
 
+  /* Sorting and paging (19-10-2026) over the rows already loaded - one per
+     table, so each keeps its own order and page. The value is what the
+     cell shows. */
+  const shownValue = (row, key) => {
+    if (key === 'business') return label(tab === 'returns' ? other(row).businessId : row.businessId);
+    if (key === 'location') return label(tab === 'returns' ? other(row).locationId : row.locationId);
+    if (key === 'dcNo') return row.dcNo || '';
+    if (key === 'dcDate') return row.dcDate ? new Date(row.dcDate) : '';
+    if (key === 'totalQty') return Number(row.totalQty || 0);
+    if (key === 'netValue') return Number(row.netValue || 0);
+    if (key === 'last') {
+      if (tab === 'returns') {
+        return (row.returns || []).reduce((a, ev) => a + (ev.lines || []).reduce((n, l) => n + (Number(l.qty) || 0), 0), 0);
+      }
+      return row.awaiting || !row.receivedAt ? '' : new Date(row.receivedAt);
+    }
+    return '';
+  };
+  const pendingView = useClientTable(pending, shownValue);
+  const rowsView = useClientTable(rows, shownValue);
+
   /* ONE ROW RENDERER, TWO TABLES.
 
      The waiting challans and the approved ones are separate sections on
@@ -282,21 +304,19 @@ export default function ReceiveDeliveryChallanPage() {
 
   /* The table both sections use. `list` decides what is in it; awaiting
      rows carry their own flag, set where the list is built. */
-  const grid = (list, emptyText) => (
+  const grid = (list, emptyText, view) => (
     <div className="overflow-x-auto">
       <table className="dt">
         <thead>
           <tr>
             <th>#</th>
-            <th>{tab === 'returns' ? 'Business' : 'From Business'}</th>
-            <th>DC No</th>
-            <th>DC Date</th>
-            <th>{tab === 'returns' ? 'Location' : 'From Location'}</th>
-            <th className="whitespace-nowrap text-center">Total Qty</th>
-            <th className="whitespace-nowrap text-center">Total Value</th>
-            <th className="whitespace-nowrap">
-              {tab === 'returns' ? 'Returned' : 'Received On'}
-            </th>
+            {view.th(tab === 'returns' ? 'Business' : 'From Business', 'business')}
+            {view.th('DC No', 'dcNo')}
+            {view.th('DC Date', 'dcDate')}
+            {view.th(tab === 'returns' ? 'Location' : 'From Location', 'location')}
+            {view.th('Total Qty', 'totalQty', 'whitespace-nowrap text-center')}
+            {view.th('Total Value', 'netValue', 'whitespace-nowrap text-center')}
+            {view.th(tab === 'returns' ? 'Returned' : 'Received On', 'last', 'whitespace-nowrap')}
             <th>Action</th>
           </tr>
         </thead>
@@ -313,9 +333,10 @@ export default function ReceiveDeliveryChallanPage() {
             <tr><td colSpan={9} className="dt-empty">{emptyText}</td></tr>
           )}
 
-          {!loading && list.map(renderRow)}
+          {!loading && view.rows.map((row, i) => renderRow(row, view.offset + i))}
         </tbody>
       </table>
+      {view.pager}
     </div>
   );
 
@@ -359,7 +380,7 @@ export default function ReceiveDeliveryChallanPage() {
               </span>
             )}
           </div>
-          {grid(pending, 'Nothing waiting for approval.')}
+          {grid(pending, 'Nothing waiting for approval.', pendingView)}
         </div>
       )}
 
@@ -370,7 +391,7 @@ export default function ReceiveDeliveryChallanPage() {
       </div>
       {grid(rows, tab === 'returns'
         ? 'No returns involving this branch.'
-        : 'Nothing approved into this branch yet.')}
+        : 'Nothing approved into this branch yet.', rowsView)}
 
       {/* Challan detail.
 

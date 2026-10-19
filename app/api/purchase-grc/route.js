@@ -12,6 +12,7 @@ import { nextDocNumber } from '@/lib/docnumber';
 import { itemPriceErrors } from '@/lib/purchasePrice';
 import { FORM } from '@/app/admin/transaction/purchase/grc/form';
 import { screenDenial, screenDenialAnyAction, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { sortedPage } from '@/lib/listSort';
 
 const GRC_SCREEN = { screen: SCREENS.GRC, label: 'GRC' };
 
@@ -38,6 +39,27 @@ const FIELDS = (FORM.cards || []).flatMap((c) => {
 
 const json = (d, s = 200) => Response.json(d, { status: s });
 const PER_PAGE = 10;
+
+/* Column-header sort on the money columns (19-10-2026): the same
+   resolution the list response runs (grcMoney), over the filtered set. */
+const grcMoneySort = (pick) => ({
+  select: 'gst taxable netAmount',
+  prepare: async (docs) => {
+    const need = docs.filter((r) => !headerGstIsAmount(r)).map((r) => String(r._id));
+    const byGrc = new Map();
+    if (need.length) {
+      const labelRows = await BarcodeLabel.find({ grcId: { $in: need } })
+        .select('grcId gst qty qtyNum finalNet purRate').lean();
+      labelRows.forEach((row) => {
+        const key = String(row.grcId);
+        if (!byGrc.has(key)) byGrc.set(key, []);
+        byGrc.get(key).push(row);
+      });
+    }
+    return byGrc;
+  },
+  value: (d, byGrc) => grcMoney(d, byGrc.get(String(d._id)))[pick],
+});
 
 export async function GET(req) {
   const session = await requireSession();
@@ -141,7 +163,21 @@ export async function GET(req) {
   }
 
   const total = await Grc.countDocuments(filter);
-  const rows = await Grc.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(Grc, filter, sp, {
+    page,
+    perPage,
+    keys: ['grcNumber', 'grcDate', 'occasion', 'vendorDocNo', 'freightMode', 'totalQuantity'],
+    refs: ['supplierId', 'logisticId', 'purchaseGroupId', 'agentId'],
+    computed: {
+      /* Taxable / GST / Net Amount exactly as the list below shows them -
+         lib/grcMoney.js, with the barcode rows of an older header */
+      taxable: grcMoneySort('taxable'),
+      gstAmount: grcMoneySort('gst'),
+      netAmount: grcMoneySort('netAmount'),
+    },
+  })) ?? await Grc.find(filter)
     .sort({ createdAt: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)

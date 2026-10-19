@@ -58,6 +58,10 @@ const SHARED = {
   basePath: '/admin/transaction/intercompanysell/',
   slugPath: 'deliverychallan',
   endpoint: '/api/ic-delivery-challan',
+  /* numbered pager with Rows-per-page, and every column header sorts on
+     click (components/ListView.jsx) - in both sections */
+  pager: 'numbered',
+  sortable: true,
   scope: ['business', 'location', 'finYear'],
   addTitle: 'Inter Company Delivery Challan',
   /* view + edit + print, matching the deployed row actions */

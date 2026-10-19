@@ -4,6 +4,7 @@ import TransportRoute from '@/models/TransportRoute';
 import { requireSession } from '@/lib/session';
 import { validate, escapeRegex } from '@/lib/validate';
 import { FIELDS } from '@/app/admin/transport/route/fields';
+import { sortedPage } from '@/lib/listSort';
 
 /* /api/transport-route - list + create. */
 
@@ -30,7 +31,13 @@ export async function GET(req) {
   }
 
   const total = await TransportRoute.countDocuments(filter);
-  const rows = await TransportRoute.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(TransportRoute, filter, sp, {
+    page,
+    perPage,
+    keys: ['name', 'code', 'status'],
+  })) ?? await TransportRoute.find(filter)
     .sort({ createdAt: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)

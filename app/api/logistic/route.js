@@ -5,6 +5,7 @@ import { requireSession } from '@/lib/session';
 import { resolveRefLabels } from '@/lib/refLabels';
 import { validate, escapeRegex } from '@/lib/validate';
 import { FIELDS } from '@/app/admin/logistic/fields';
+import { sortedPage } from '@/lib/listSort';
 
 /* /api/logistic - list + create. */
 
@@ -32,7 +33,13 @@ export async function GET(req) {
   }
 
   const total = await Logistic.countDocuments(filter);
-  const rows = await Logistic.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(Logistic, filter, sp, {
+    page,
+    perPage,
+    keys: ['logisticNo', 'vehicleNo', 'paymentStatus', 'shippingType', 'ewayBillNo', 'logisticDate'],
+  })) ?? await Logistic.find(filter)
     .sort({ createdAt: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)

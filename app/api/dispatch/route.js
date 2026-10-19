@@ -78,6 +78,7 @@ import { resolveRefLabels } from '@/lib/refLabels';
 import { validate, escapeRegex } from '@/lib/validate';
 import { nextSeriesNumber } from '@/lib/docnumber';
 import { FIELDS } from '@/app/admin/transport/dispatch/fields';
+import { sortedPage } from '@/lib/listSort';
 
 /* /api/dispatch - list + create.
 
@@ -134,7 +135,17 @@ export async function GET(req) {
   }
 
   const total = await Dispatch.countDocuments(filter);
-  const rows = await Dispatch.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(Dispatch, filter, sp, {
+    page,
+    perPage,
+    keys: ['docNo', 'date', 'parcelTotal', 'amount'],
+    refs: ['vehicleId', 'driverId', 'routeId'],
+    computed: {
+      lrCount: { select: 'deliveryIds', value: (d) => (Array.isArray(d.deliveryIds) ? d.deliveryIds.length : 0) },
+    },
+  })) ?? await Dispatch.find(filter)
     .sort({ createdAt: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)

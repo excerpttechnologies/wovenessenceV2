@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Icon from '@/components/Icon';
 import { useScope } from '@/components/ScopeContext';
+import { useClientTable } from '@/components/NumberedPager';
 
 /* Inter Company Sell > Auto Purchases Receiveds - the RECEIVER's side of a
    consignment Sales Invoice (user, 14-10-2026).
@@ -117,6 +118,12 @@ export default function AutoPurchaseReceivedsPage() {
       : pending;
   }, [pending, pendingSearch]);
 
+  /* numbered pager over the pending invoices (19-10-2026). They are cards,
+     not table rows, so there is no header to sort by; the Product Group /
+     HSN choices live in `edits`, keyed by invoice, so they survive a page
+     change. */
+  const pendingView = useClientTable(shownPending, () => '');
+
   async function save(row) {
     if (savingId) return;
     setSavingId(row.invoiceId);
@@ -165,7 +172,7 @@ export default function AutoPurchaseReceivedsPage() {
         </div>
 
         <div className="mb-3 max-w-[260px]">
-          <input className="f-input" placeholder="Search" value={pendingSearch} onChange={(e) => setPendingSearch(e.target.value)} />
+          <input className="f-input" placeholder="Search" value={pendingSearch} onChange={(e) => { setPendingSearch(e.target.value); pendingView.firstPage(); }} />
         </div>
 
         {loading && <div className="dt-empty py-6 text-center">Loading...</div>}
@@ -176,7 +183,7 @@ export default function AutoPurchaseReceivedsPage() {
           </div>
         )}
 
-        {!loading && shownPending.map((row) => (
+        {!loading && pendingView.rows.map((row) => (
           <div key={row.invoiceId} className="mb-5 rounded border border-line p-3">
             <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px]">
               <span>Invoice No: <b>{row.invoiceNo || '-'}</b></span>
@@ -208,6 +215,7 @@ export default function AutoPurchaseReceivedsPage() {
             </div>
           </div>
         ))}
+        {!loading && shownPending.length > 0 && pendingView.pager}
       </div>
 
       {/* -------------------------------------------------- RECEIVED -- */}
@@ -421,16 +429,24 @@ function ViewReceived({ row, onClose }) {
 /* the Received list: search, table, simple paging */
 function ReceivedSection({ loading, onRefresh, rows, onView }) {
   const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
   const shown = useMemo(() => {
     const q = search.trim().toLowerCase();
     return q
       ? rows.filter((r) => [r.recNo, r.invoiceNo, r.fromBusinessName, r.fromLocationName].join(' ').toLowerCase().includes(q))
       : rows;
   }, [rows, search]);
-  const pages = Math.max(1, Math.ceil(shown.length / PAGE));
-  const cur = Math.min(page, pages);
-  const slice = shown.slice((cur - 1) * PAGE, cur * PAGE);
+  /* numbered pager, Rows-per-page and sortable headers (19-10-2026) over
+     the rows already loaded; the value is what the cell shows */
+  const view = useClientTable(shown, (r, key) => {
+    if (key === 'Date') {
+      const at = r.receivedAt || r.createdAt;
+      return at ? new Date(at) : '';
+    }
+    if (key === 'Net Value') return Number(r.netValue || 0);
+    const field = { 'Rec No': 'recNo', 'Invoice No': 'invoiceNo', 'From Business': 'fromBusinessName', 'From Location': 'fromLocationName', 'Fin Year': 'finYear' }[key];
+    return field ? r[field] || '' : '';
+  });
+  const slice = view.rows;
   const cols = ['Rec No', 'Invoice No', 'From Business', 'From Location', 'Date', 'Fin Year', 'Net Value', 'Action'];
 
   return (
@@ -445,13 +461,15 @@ function ReceivedSection({ loading, onRefresh, rows, onView }) {
       </div>
 
       <div className="mb-3 max-w-[260px]">
-        <input className="f-input" placeholder="Search" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
+        <input className="f-input" placeholder="Search" value={search} onChange={(e) => { setSearch(e.target.value); view.firstPage(); }} />
       </div>
 
       <div className="overflow-x-auto">
         <table className="dt">
           <thead>
-            <tr>{cols.map((c) => <th key={c} className={c === 'Net Value' ? '!text-right' : undefined}>{c}</th>)}</tr>
+            <tr>{cols.map((c) => (c === 'Action'
+              ? <th key={c}>{c}</th>
+              : view.th(c, c, c === 'Net Value' ? '!text-right' : undefined)))}</tr>
           </thead>
           <tbody>
             {loading && <tr><td colSpan={cols.length} className="dt-empty">Loading...</td></tr>}
@@ -487,13 +505,7 @@ function ReceivedSection({ loading, onRefresh, rows, onView }) {
         </table>
       </div>
 
-      <div className="mt-3 flex items-center justify-between text-[13px]">
-        <span className="text-inkmuted">Page <b>{cur}</b> of <b>{pages}</b></span>
-        <span className="flex gap-2">
-          <button type="button" className="btn" disabled={cur <= 1} onClick={() => setPage(cur - 1)}>Previous</button>
-          <button type="button" className="btn" disabled={cur >= pages} onClick={() => setPage(cur + 1)}>Next</button>
-        </span>
-      </div>
+      {view.pager}
     </div>
   );
 }

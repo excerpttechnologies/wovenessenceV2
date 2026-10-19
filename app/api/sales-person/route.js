@@ -5,6 +5,7 @@ import { requireSession } from '@/lib/session';
 import { resolveRefLabels } from '@/lib/refLabels';
 import { validate, escapeRegex } from '@/lib/validate';
 import { FIELDS } from '@/app/admin/staff-management/staff/salesperson/fields';
+import { sortedPage } from '@/lib/listSort';
 
 /* /api/sales-person - list + create.
 
@@ -35,7 +36,13 @@ export async function GET(req) {
   }
 
   const total = await SalesPerson.countDocuments(filter);
-  const rows = await SalesPerson.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(SalesPerson, filter, sp, {
+    page,
+    perPage,
+    keys: ['name', 'email', 'spCode', 'isDefault'],
+  })) ?? await SalesPerson.find(filter)
     .sort({ createdAt: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)

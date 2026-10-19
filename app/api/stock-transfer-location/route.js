@@ -8,6 +8,7 @@ import { resolveRefLabels } from '@/lib/refLabels';
 import { validate, escapeRegex } from '@/lib/validate';
 import { nextDocNumber } from '@/lib/docnumber';
 import { FIELDS, linesFromPackets, locationTotals } from '@/app/admin/transaction/stocktransfers/transferstocklocation/fields';
+import { sortedPage } from '@/lib/listSort';
 
 /* /api/stock-transfer-location - list + create.
 
@@ -62,7 +63,14 @@ export async function GET(req) {
   }
 
   const total = await StockTransferLocation.countDocuments(filter);
-  const rows = await StockTransferLocation.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(StockTransferLocation, filter, sp, {
+    page,
+    perPage,
+    keys: ['packetNo', 'stlDate', 'totalQty'],
+    refs: ['fromLocationId', 'toLocationId'],
+  })) ?? await StockTransferLocation.find(filter)
     .sort({ createdAt: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)

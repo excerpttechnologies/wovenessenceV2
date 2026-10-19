@@ -2,6 +2,7 @@ import { isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
 import CashRegister, { OPEN } from '@/models/CashRegister';
 import { requireSession } from '@/lib/session';
+import { sortedPage } from '@/lib/listSort';
 
 /* /api/cash-register - list + open a register.
 
@@ -38,7 +39,13 @@ export async function GET(req) {
   if (status) filter.status = status;
 
   const total = await CashRegister.countDocuments(filter);
-  const rows = await CashRegister.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(CashRegister, filter, sp, {
+    page,
+    perPage,
+    keys: ['openedAt', 'closedAt', 'status', 'openingBalance', 'closingBalance', 'expectedBalance', 'differenceBalance'],
+  })) ?? await CashRegister.find(filter)
     .sort({ openedAt: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)

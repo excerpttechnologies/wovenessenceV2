@@ -16,6 +16,7 @@ import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 const SELL_DC = { screen: SCREENS.SELL_DELIVERY_CHALLAN, label: 'delivery challans' };
 
 import { FORM } from '@/app/admin/transaction/sell/deliverychallan/form';
+import { sortedPage } from '@/lib/listSort';
 
 /* header fields AND the totals rows - the totals card holds real stored
    numbers (taxable value, round off, net value, the editable discounts).
@@ -78,7 +79,14 @@ export async function GET(req) {
   }
 
   const total = await DeliveryChallan.countDocuments(filter);
-  const rows = await DeliveryChallan.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(DeliveryChallan, filter, sp, {
+    page,
+    perPage,
+    keys: ['deliveryChallanNo', 'customerMobile', 'customerGstn', 'totalQty', 'createdAt'],
+    refs: ['customerId', 'logisticId'],
+  })) ?? await DeliveryChallan.find(filter)
     .sort({ createdAt: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)

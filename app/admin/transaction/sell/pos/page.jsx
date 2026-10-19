@@ -147,6 +147,10 @@ const CONFIG = {
   basePath: '/admin/',
   slugPath: "transaction/sell/pos",
   endpoint: '/api/sell-pos',
+  /* numbered pager with Rows-per-page, and every column header sorts on
+     click (components/ListView.jsx) */
+  pager: 'numbered',
+  sortable: true,
   scope: ["business","location","finYear"],
   addHref: "/admin/pos/add",
   /* the till opens in its own browser tab, so the list stays open here */

@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Icon from '@/components/Icon';
 import { useScope } from '@/components/ScopeContext';
+import { useClientTable } from '@/components/NumberedPager';
 
 /* Inter Company Sell > Sales Invoice - CONSIGNMENT BILLING, from the
    SENDER's side.
@@ -213,6 +214,33 @@ export default function IcItemSalesInvoicePage() {
   }, [pickedRows]);
   const previewRows = previewGroups.flatMap((g) => g.rows);
 
+  /* Sorting and paging (19-10-2026) over the rows already loaded - Not
+     Billed and Billed each keep their own order and page. The value is what
+     the cell shows. Ticking is unchanged: the box in the header still ticks
+     every item the Company / Location filter shows, on every page. */
+  const visibleView = useClientTable(visible, (r, key) => {
+    if (key === 'receiver') return r.toBusinessName || '';
+    if (key === 'dcNo') return r.dcNo || '';
+    if (key === 'barcode') return r.barcodeNo || '';
+    if (key === 'item') return r.itemName || r.itemCode || '';
+    if (key === 'qty') return Number(r.qty || 0);
+    if (key === 'rate') return Number(r.unitRate || 0);
+    if (key === 'amount') return Number(r.netAmount || 0);
+    if (key === 'soldAt') return r.soldAt ? new Date(r.soldAt) : '';
+    if (key === 'pos') return r.posInvoiceNo || '';
+    return '';
+  });
+  const billedView = useClientTable(billed, (inv, key) => {
+    if (key === 'invoiceNo') return inv.invoiceNo || '';
+    if (key === 'date') return inv.invoiceDate ? new Date(inv.invoiceDate) : '';
+    if (key === 'receiver') return inv.toBusinessName || '';
+    if (key === 'dcNos') return (inv.dcNos || []).join(', ');
+    if (key === 'items') return Number(inv.itemCount || 0);
+    if (key === 'qty') return Number(inv.totalQty || 0);
+    if (key === 'amount') return Number(inv.netValue || 0);
+    return '';
+  });
+
   async function saveBilled() {
     if (!picked.length || saving) return;
     setSaving(true);
@@ -308,15 +336,15 @@ export default function IcItemSalesInvoicePage() {
                   onChange={toggleAll}
                 />
               </th>
-              <th style={{ width: 170 }}>Receiver</th>
-              <th style={{ width: 150 }}>DC No</th>
-              <th style={{ width: 110 }}>Barcode</th>
-              <th>Item</th>
-              <th className="!text-right" style={{ width: 60 }}>Qty</th>
-              <th className="!text-right" style={{ width: 80 }}>Rate</th>
-              <th className="!text-right" style={{ width: 90 }}>Amount</th>
-              <th style={{ width: 170 }}>Sold On</th>
-              <th style={{ width: 110 }}>POS Invoice</th>
+              {visibleView.th('Receiver', 'receiver', undefined, { width: 170 })}
+              {visibleView.th('DC No', 'dcNo', undefined, { width: 150 })}
+              {visibleView.th('Barcode', 'barcode', undefined, { width: 110 })}
+              {visibleView.th('Item', 'item')}
+              {visibleView.th('Qty', 'qty', '!text-right', { width: 60 })}
+              {visibleView.th('Rate', 'rate', '!text-right', { width: 80 })}
+              {visibleView.th('Amount', 'amount', '!text-right', { width: 90 })}
+              {visibleView.th('Sold On', 'soldAt', undefined, { width: 170 })}
+              {visibleView.th('POS Invoice', 'pos', undefined, { width: 110 })}
             </tr>
           </thead>
           <tbody>
@@ -330,7 +358,7 @@ export default function IcItemSalesInvoicePage() {
             {!loading && pending.length > 0 && !visible.length && (
               <tr><td colSpan={10} className="dt-empty">Nothing waiting to be billed for this company / location.</td></tr>
             )}
-            {!loading && visible.map((r) => (
+            {!loading && visibleView.rows.map((r) => (
               <tr
                 key={r.key}
                 className={picked.includes(r.key) ? 'bg-[#f0f7ff]' : 'cursor-pointer'}
@@ -357,6 +385,7 @@ export default function IcItemSalesInvoicePage() {
             ))}
           </tbody>
         </table>
+        {visibleView.pager}
       </div>
 
       {/* ------------------------------------------ SELECTED ITEMS -- the
@@ -463,13 +492,13 @@ export default function IcItemSalesInvoicePage() {
         <table className="dt">
           <thead>
             <tr>
-              <th style={{ width: 130 }}>Invoice No</th>
-              <th style={{ width: 95 }}>Date</th>
-              <th style={{ width: 200 }}>Receiver</th>
-              <th>DC No(s)</th>
-              <th className="!text-right" style={{ width: 60 }}>Items</th>
-              <th className="!text-right" style={{ width: 60 }}>Qty</th>
-              <th className="!text-right" style={{ width: 90 }}>Amount</th>
+              {billedView.th('Invoice No', 'invoiceNo', undefined, { width: 130 })}
+              {billedView.th('Date', 'date', undefined, { width: 95 })}
+              {billedView.th('Receiver', 'receiver', undefined, { width: 200 })}
+              {billedView.th('DC No(s)', 'dcNos')}
+              {billedView.th('Items', 'items', '!text-right', { width: 60 })}
+              {billedView.th('Qty', 'qty', '!text-right', { width: 60 })}
+              {billedView.th('Amount', 'amount', '!text-right', { width: 90 })}
               <th style={{ width: 70 }}>Action</th>
             </tr>
           </thead>
@@ -478,7 +507,7 @@ export default function IcItemSalesInvoicePage() {
             {!loading && !billed.length && (
               <tr><td colSpan={8} className="dt-empty">Nothing billed yet.</td></tr>
             )}
-            {!loading && billed.map((inv) => (
+            {!loading && billedView.rows.map((inv) => (
               <tr key={inv.invoiceId}>
                 <td className="font-semibold">{inv.invoiceNo || '-'}</td>
                 <td>{day(inv.invoiceDate)}</td>
@@ -514,6 +543,7 @@ export default function IcItemSalesInvoicePage() {
             ))}
           </tbody>
         </table>
+        {billedView.pager}
       </div>
 
       {/* --------------------------------- Generate E-Invoice popup -- */}

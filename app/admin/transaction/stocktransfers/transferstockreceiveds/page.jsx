@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import Icon from '@/components/Icon';
 import Toolbar from '@/components/Toolbar';
 import { useScope } from '@/components/ScopeContext';
+import NumberedPager, { SortHeader } from '@/components/NumberedPager';
 import { fmt, toCsv, toXlsHtml, download, printTable } from '@/lib/format';
 
 /* Transfer Stock Received - /admin/transaction/stocktransfers/transferstockreceiveds
@@ -28,7 +29,7 @@ const PENDING_COLUMNS = [
   { k: 'stlDate', t: 'Date', f: 'date' },
   { k: 'totalQty', t: 'Sent Qty', f: 'amount' },
   { k: 'receivedQty', t: 'Received Qty', f: 'amount', value: () => 0 },
-  { k: 'pendingQty', t: 'Pending Qty', f: 'amount', value: (r) => r.totalQty },
+  { k: 'pendingQty', t: 'Pending Qty', f: 'amount', value: (r) => r.totalQty, sortKey: 'totalQty' },
 ];
 
 const RECEIVED_COLUMNS = [
@@ -47,6 +48,11 @@ function PendingPanel({ nonce }) {
   const [hidden, setHidden] = useState([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
+  /* numbered pager with Rows-per-page, and every column header sorts on
+     click (19-10-2026). perPage stays null until picked, so the endpoint's
+     own default page size is kept. */
+  const [perPage, setPerPage] = useState(null);
+  const [sort, setSort] = useState({ key: null, dir: null });
   const [busy, setBusy] = useState(null);
 
   const inboxValue = scope.location;
@@ -63,6 +69,11 @@ function PendingPanel({ nonce }) {
       business: scope.business || '',
       finYear: scope.finYear || '',
     });
+    if (perPage) qs.set('perPage', String(perPage));
+    if (sort.key && sort.dir) {
+      qs.set('sortBy', sort.key);
+      qs.set('sortDir', sort.dir);
+    }
 
     try {
       const r = await fetch('/api/stock-transfer-location?' + qs);
@@ -73,11 +84,12 @@ function PendingPanel({ nonce }) {
         page: d.page || 1,
         pages: d.pages || 1,
         total: d.total || 0,
+        perPage: Number(d.perPage) || null,
       });
     } finally {
       setLoading(false);
     }
-  }, [scope.business, scope.location, scope.finYear, page, search, inboxValue]);
+  }, [scope.business, scope.location, scope.finYear, page, search, inboxValue, perPage, sort]);
 
   useEffect(() => { load(); }, [load, nonce]);
   useEffect(() => { setPage(1); }, [search, scope.business, scope.location, scope.finYear]);
@@ -149,7 +161,15 @@ function PendingPanel({ nonce }) {
           <table className="dt">
             <thead>
               <tr>
-                {visible.map((c, i) => <th key={c.t + i}>{c.t}</th>)}
+                {visible.map((c, i) => (
+                  <SortHeader
+                    key={c.t + i}
+                    label={c.t}
+                    sortKey={c.sortKey || c.k}
+                    sort={sort}
+                    onSort={(next) => { setSort(next); setPage(1); }}
+                  />
+                ))}
                 <th>Action</th>
               </tr>
             </thead>
@@ -181,14 +201,15 @@ function PendingPanel({ nonce }) {
           </table>
         </div>
 
-        <div className="flex items-center pt-3 text-[13px] text-cell">
-          <span>Page <b className="text-brand-link">{state.page}</b> of {state.pages}</span>
-          <span className="flex-1" />
-          <span className="flex gap-2">
-            <button className="btn" disabled={state.page <= 1} onClick={() => setPage((p) => p - 1)}>Previous</button>
-            <button className="btn" disabled={state.page >= state.pages} onClick={() => setPage((p) => p + 1)}>Next</button>
-          </span>
-        </div>
+        <NumberedPager
+          page={state.page}
+          pages={state.pages}
+          total={state.total}
+          shown={state.rows.length}
+          perPage={perPage || state.perPage || 10}
+          onPage={setPage}
+          onPerPage={(nn) => { setPerPage(nn); setPage(1); }}
+        />
       </div>
     </div>
   );
@@ -203,6 +224,11 @@ function ReceivedPanel({ nonce }) {
   const [hidden, setHidden] = useState([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
+  /* numbered pager with Rows-per-page, and every column header sorts on
+     click (19-10-2026). perPage stays null until picked, so the endpoint's
+     own default page size is kept. */
+  const [perPage, setPerPage] = useState(null);
+  const [sort, setSort] = useState({ key: null, dir: null });
   const [busy, setBusy] = useState(null);
   const [challanStatus, setChallanStatus] = useState({}); /* stlId -> challan data */
 
@@ -218,6 +244,11 @@ function ReceivedPanel({ nonce }) {
       location: scope.location || '',
       finYear: scope.finYear || '',
     });
+    if (perPage) qs.set('perPage', String(perPage));
+    if (sort.key && sort.dir) {
+      qs.set('sortBy', sort.key);
+      qs.set('sortDir', sort.dir);
+    }
 
     try {
       const r = await fetch('/api/stock-transfer-received?' + qs);
@@ -228,6 +259,7 @@ function ReceivedPanel({ nonce }) {
         page: d.page || 1,
         pages: d.pages || 1,
         total: d.total || 0,
+        perPage: Number(d.perPage) || null,
       });
 
       /* Check for existing challans on all received transfers */
@@ -241,7 +273,7 @@ function ReceivedPanel({ nonce }) {
     } finally {
       setLoading(false);
     }
-  }, [scope.business, scope.location, scope.finYear, page, search]);
+  }, [scope.business, scope.location, scope.finYear, page, search, perPage, sort]);
 
   useEffect(() => { load(); }, [load, nonce]);
   useEffect(() => { setPage(1); }, [search, scope.business, scope.location, scope.finYear]);
@@ -380,7 +412,15 @@ function ReceivedPanel({ nonce }) {
           <table className="dt">
             <thead>
               <tr>
-                {visible.map((c, i) => <th key={c.t + i}>{c.t}</th>)}
+                {visible.map((c, i) => (
+                  <SortHeader
+                    key={c.t + i}
+                    label={c.t}
+                    sortKey={c.sortKey || c.k}
+                    sort={sort}
+                    onSort={(next) => { setSort(next); setPage(1); }}
+                  />
+                ))}
                 <th>Actions</th>
               </tr>
             </thead>
@@ -423,14 +463,15 @@ function ReceivedPanel({ nonce }) {
           </table>
         </div>
 
-        <div className="flex items-center pt-3 text-[13px] text-cell">
-          <span>Page <b className="text-brand-link">{state.page}</b> of {state.pages}</span>
-          <span className="flex-1" />
-          <span className="flex gap-2">
-            <button className="btn" disabled={state.page <= 1} onClick={() => setPage((p) => p - 1)}>Previous</button>
-            <button className="btn" disabled={state.page >= state.pages} onClick={() => setPage((p) => p + 1)}>Next</button>
-          </span>
-        </div>
+        <NumberedPager
+          page={state.page}
+          pages={state.pages}
+          total={state.total}
+          shown={state.rows.length}
+          perPage={perPage || state.perPage || 10}
+          onPage={setPage}
+          onPerPage={(nn) => { setPerPage(nn); setPage(1); }}
+        />
       </div>
     </div>
   );

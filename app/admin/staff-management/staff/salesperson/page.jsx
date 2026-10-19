@@ -11,6 +11,10 @@ const CONFIG = {
   basePath: '/admin/staff-management/staff/',
   slugPath: "salesperson",
   endpoint: '/api/sales-person',
+  /* numbered pager with Rows-per-page, and every column header sorts on
+     click (components/ListView.jsx) */
+  pager: 'numbered',
+  sortable: true,
   scope: ["business"],
   actionVariant: "dropdown",
   actionMenu: [

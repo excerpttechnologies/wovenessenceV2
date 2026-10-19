@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Icon from './Icon';
 import { useScope } from './ScopeContext';
+import NumberedPager, { SortHeader } from './NumberedPager';
 
 /* ==========================================================================
    Cash Registers - list.
@@ -199,6 +200,11 @@ export default function CashRegisterList() {
   const [state, setState] = useState({ rows: [], page: 1, pages: 1, total: 0, hasOpen: false });
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
+  /* numbered pager with Rows-per-page, and every column header sorts on
+     click (19-10-2026). perPage stays null until picked, so the endpoint's
+     own default page size is kept. */
+  const [perPage, setPerPage] = useState(null);
+  const [sort, setSort] = useState({ key: null, dir: null });
   const [opening, setOpening] = useState(false);
   const [closingRow, setClosingRow] = useState(null);
   const [flash, setFlash] = useState(null);
@@ -210,17 +216,22 @@ export default function CashRegisterList() {
       page: String(page),
       business: business || '', location: location || '', finYear: finYear || '',
     });
+    if (perPage) qs.set('perPage', String(perPage));
+    if (sort.key && sort.dir) {
+      qs.set('sortBy', sort.key);
+      qs.set('sortDir', sort.dir);
+    }
     try {
       const r = await fetch(ENDPOINT + '?' + qs);
       const d = await r.json();
       setState({
         rows: d.rows || [], page: d.page || 1, pages: d.pages || 1,
-        total: d.total || 0, hasOpen: Boolean(d.hasOpen),
+        total: d.total || 0, perPage: Number(d.perPage) || null, hasOpen: Boolean(d.hasOpen),
       });
     } finally {
       setLoading(false);
     }
-  }, [page, business, location, finYear]);
+  }, [page, business, location, finYear, perPage, sort]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setPage(1); }, [business, location, finYear]);
@@ -307,13 +318,13 @@ export default function CashRegisterList() {
             <table className="dt">
               <thead>
                 <tr>
-                  <th>Opened At</th>
-                  <th>Closed At</th>
-                  <th>Status</th>
-                  <th className="text-right">Opening Bal</th>
-                  <th className="text-right">Closing Bal</th>
-                  <th className="text-right">Expected Bal</th>
-                  <th className="text-right">Difference Bal</th>
+                  <SortHeader label="Opened At" sortKey="openedAt" sort={sort} onSort={(next) => { setSort(next); setPage(1); }} />
+                  <SortHeader label="Closed At" sortKey="closedAt" sort={sort} onSort={(next) => { setSort(next); setPage(1); }} />
+                  <SortHeader label="Status" sortKey="status" sort={sort} onSort={(next) => { setSort(next); setPage(1); }} />
+                  <SortHeader label="Opening Bal" sortKey="openingBalance" sort={sort} onSort={(next) => { setSort(next); setPage(1); }} className="text-right" />
+                  <SortHeader label="Closing Bal" sortKey="closingBalance" sort={sort} onSort={(next) => { setSort(next); setPage(1); }} className="text-right" />
+                  <SortHeader label="Expected Bal" sortKey="expectedBalance" sort={sort} onSort={(next) => { setSort(next); setPage(1); }} className="text-right" />
+                  <SortHeader label="Difference Bal" sortKey="differenceBalance" sort={sort} onSort={(next) => { setSort(next); setPage(1); }} className="text-right" />
                   <th style={{ width: 130 }}>Action</th>
                 </tr>
               </thead>
@@ -377,18 +388,15 @@ export default function CashRegisterList() {
             </table>
           </div>
 
-          <div className="flex items-center pt-3 text-[13px] text-cell">
-            <span>Page <b className="text-brand-link">{state.page}</b> of {state.pages}</span>
-            <span className="flex-1" />
-            <span className="flex gap-2">
-              <button className="btn" disabled={state.page <= 1} onClick={() => setPage((p) => p - 1)}>
-                Previous
-              </button>
-              <button className="btn" disabled={state.page >= state.pages} onClick={() => setPage((p) => p + 1)}>
-                Next
-              </button>
-            </span>
-          </div>
+          <NumberedPager
+            page={state.page}
+            pages={state.pages}
+            total={state.total}
+            shown={state.rows.length}
+            perPage={perPage || state.perPage || 10}
+            onPage={setPage}
+            onPerPage={(nn) => { setPerPage(nn); setPage(1); }}
+          />
         </div>
       </div>
     </>

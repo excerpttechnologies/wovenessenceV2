@@ -10,6 +10,10 @@ const CONFIG = {
   basePath: '/admin/transport/',
   slugPath: 'vehicle',
   endpoint: '/api/vehicle',
+  /* numbered pager with Rows-per-page, and every column header sorts on
+     click (components/ListView.jsx) */
+  pager: 'numbered',
+  sortable: true,
   scope: ['business', 'location'],
   addTitle: 'New Vehicle Master',
   addLabel: 'New Vehicle Master',

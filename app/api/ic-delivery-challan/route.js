@@ -13,6 +13,7 @@ import { reserveSequence } from '@/models/Counter';
 import { checkRoute } from '@/lib/icRouting';
 import { shipChallanStock, IcStockError } from '@/lib/icStock';
 import { FIELDS, TOTAL_KEYS, computeTotals } from '@/app/admin/transaction/intercompanysell/deliverychallan/fields';
+import { sortedPage } from '@/lib/listSort';
 
 /* /api/ic-delivery-challan - list + create. */
 
@@ -172,7 +173,14 @@ export async function GET(req) {
   const summaryTotal = received
     ? await IcDeliveryChallan.countDocuments(summaryFilter)
     : total;
-  const rows = await IcDeliveryChallan.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(IcDeliveryChallan, filter, sp, {
+    page,
+    perPage,
+    keys: ['dcNo', 'dcDate', 'totalQty', 'createdAt', 'netValue', 'receivedAt'],
+    refs: ['toBusinessId', 'toLocationId', 'stockPointId'],
+  })) ?? await IcDeliveryChallan.find(filter)
     .sort({ createdAt: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)

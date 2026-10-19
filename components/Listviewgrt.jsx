@@ -3091,6 +3091,7 @@ import AttachmentsDialog from "./AttachmentsDialog";
 import ShareDocDialog from "./ShareDocDialog";
 import GrtPrintDocument from "./GrtPrintDocument";
 import { useScope } from "./ScopeContext";
+import NumberedPager, { SortHeader } from "./NumberedPager";
 import { fmt, toCsv, toXlsHtml, download, printTable } from "@/lib/format";
  
 /* ==========================================================================
@@ -3204,6 +3205,12 @@ export default function ListView({ cfg, slug }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [page, setPage] = useState(1);
+  /* cfg.pager === "numbered" / cfg.sortable (19-10-2026) - the same opt-in
+     pager and header sort as components/ListView.jsx. perPage stays null
+     until the operator picks one, so the endpoint's default is kept. */
+  const numberedPager = cfg.pager === "numbered";
+  const [perPage, setPerPage] = useState(null);
+  const [sort, setSort] = useState({ key: null, dir: null });
   const [modal, setModal] = useState(false);
   const [filters, setFilters] = useState({});
   const [menuFor, setMenuFor] = useState(null);
@@ -3399,6 +3406,11 @@ export default function ListView({ cfg, slug }) {
     Object.entries(filters).forEach(([k, v]) => {
       if (v) qs.set(k, v);
     });
+    if (numberedPager && perPage) qs.set("perPage", String(perPage));
+    if (sort.key && sort.dir) {
+      qs.set("sortBy", sort.key);
+      qs.set("sortDir", sort.dir);
+    }
  
     /* cfg.fixedQuery pins query parameters the SCREEN owns rather than the
        operator - the Incoming Transfers list is the same endpoint as Stock
@@ -3436,6 +3448,7 @@ export default function ListView({ cfg, slug }) {
            filtered set - see the endpoint. Absent on endpoints that do not
            send one, which is why the cards render only when both exist. */
         summary: d.summary || null,
+        perPage: Number(d.perPage) || null,
       });
     } catch (e) {
       if (seq === reqRef.current) setError("Network error - could not reach the server.");
@@ -3456,6 +3469,9 @@ export default function ListView({ cfg, slug }) {
     cfg.fixedQuery,
     scopePending,
     noBusiness,
+    numberedPager,
+    perPage,
+    sort,
   ]);
  
   useEffect(() => {
@@ -3729,7 +3745,17 @@ export default function ListView({ cfg, slug }) {
                   {actionPos === "left" && <th>Action</th>}
                   {cfg.serialNumber && <th>#</th>}
                   {visible.map((c, i) => (
-                    <th key={c.t + i}>{c.t}</th>
+                    c.k && (cfg.sortable === true || (cfg.sortable || []).includes(c.k)) ? (
+                      <SortHeader
+                        key={c.t + i}
+                        label={c.t}
+                        sortKey={c.sortKey || c.k}
+                        sort={sort}
+                        onSort={(next) => { setSort(next); setPage(1); }}
+                      />
+                    ) : (
+                      <th key={c.t + i}>{c.t}</th>
+                    )
                   ))}
                   {actionPos === "right" && <th>Action</th>}
                 </tr>
@@ -3935,6 +3961,17 @@ export default function ListView({ cfg, slug }) {
             </table>
           </div>
  
+          {numberedPager ? (
+            <NumberedPager
+              page={state.page}
+              pages={state.pages}
+              total={state.total}
+              shown={state.rows.length}
+              perPage={perPage || state.perPage || PER_PAGE}
+              onPage={setPage}
+              onPerPage={(n) => { setPerPage(n); setPage(1); }}
+            />
+          ) : (
           <div className="flex items-center pt-3 text-[13px] text-cell">
             <span>
               Page <b className="text-brand-link">{state.page}</b> of{" "}
@@ -3958,6 +3995,7 @@ export default function ListView({ cfg, slug }) {
               </button>
             </span>
           </div>
+          )}
         </div>
       </div>
       {viewRow && cfg.viewModal && (

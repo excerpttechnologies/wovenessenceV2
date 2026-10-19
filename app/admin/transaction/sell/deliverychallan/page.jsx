@@ -8,6 +8,10 @@ const CONFIG = {
   basePath: '/admin/',
   slugPath: "transaction/sell/deliverychallan",
   endpoint: '/api/sell-deliverychallan',
+  /* numbered pager with Rows-per-page, and every column header sorts on
+     click (components/ListView.jsx) */
+  pager: 'numbered',
+  sortable: true,
   scope: ["business","location","finYear"],
   /* the challan was list + edit only - there was no way to print the document
      that travels with the goods */

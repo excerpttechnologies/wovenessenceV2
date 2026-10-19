@@ -4,6 +4,7 @@ import Vehicle from '@/models/Vehicle';
 import { requireSession } from '@/lib/session';
 import { validate, escapeRegex } from '@/lib/validate';
 import { FIELDS } from '@/app/admin/transport/vehicle/fields';
+import { sortedPage } from '@/lib/listSort';
 
 /* /api/vehicle - list + create. */
 
@@ -30,7 +31,13 @@ export async function GET(req) {
   }
 
   const total = await Vehicle.countDocuments(filter);
-  const rows = await Vehicle.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(Vehicle, filter, sp, {
+    page,
+    perPage,
+    keys: ['name', 'code', 'status'],
+  })) ?? await Vehicle.find(filter)
     .sort({ createdAt: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)

@@ -9,6 +9,10 @@ const CONFIG = {
   basePath: '/admin/',
   slugPath: "transaction/purchase/grt",
   endpoint: '/api/purchase-grt',
+  /* numbered pager with Rows-per-page, and every column header sorts on
+     click (components/Listviewgrt.jsx) */
+  pager: 'numbered',
+  sortable: true,
   scope: ["business","location","finYear"],
   actionIcons: ["view", "edit", "upload", "share"],
   viewModal: true,

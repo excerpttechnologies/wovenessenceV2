@@ -7,6 +7,7 @@ import { resolveRefLabels } from '@/lib/refLabels';
 import { validate, escapeRegex } from '@/lib/validate';
 import { nextDocNumber } from '@/lib/docnumber';
 import { FIELDS, computeTotals } from '@/app/admin/transaction/stocktransfers/transferstockpacket/fields';
+import { sortedPage } from '@/lib/listSort';
 
 /* /api/stock-transfer-packet - list + create. */
 
@@ -82,7 +83,14 @@ export async function GET(req) {
   }
 
   const total = await StockTransferPacket.countDocuments(filter);
-  const rows = await StockTransferPacket.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(StockTransferPacket, filter, sp, {
+    page,
+    perPage,
+    keys: ['stpDate', 'packetNo', 'createdAt'],
+    refs: ['fromLocationId', 'toLocationId'],
+  })) ?? await StockTransferPacket.find(filter)
     .sort({ createdAt: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)

@@ -5,6 +5,7 @@ import { requireSession } from '@/lib/session';
 import { escapeRegex } from '@/lib/validate';
 import { nextSeriesNumber } from '@/lib/docnumber';
 import { SPECS, ROLE_SIDE, totalsOf, num, r2 } from '@/app/admin/voucher/fields';
+import { sortedPage } from '@/lib/listSort';
 
 /* /api/voucher?type=Receipt - list + create.
 
@@ -59,7 +60,18 @@ export async function GET(req) {
   }
 
   const total = await Voucher.countDocuments(filter);
-  const rows = await Voucher.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(Voucher, filter, sp, {
+    page,
+    perPage,
+    keys: ['voucherNo', 'voucherDate', 'partyName', 'toName', 'fromName', 'totalAmount', 'remark'],
+    computed: {
+      /* Advance / Settlement as the response below works them out */
+      advance: { select: 'totalAmount adjustedAmount', value: (d) => r2(num(d.totalAmount) - num(d.adjustedAmount)) },
+      settlement: { select: 'totalAmount adjustedAmount', value: (d) => r2(num(d.totalAmount) - num(d.adjustedAmount)) },
+    },
+  })) ?? await Voucher.find(filter)
     .sort({ voucherDate: -1, createdAt: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)

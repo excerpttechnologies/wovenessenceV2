@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Icon from '@/components/Icon';
 import { useScope } from '@/components/ScopeContext';
+import { useClientTable } from '@/components/NumberedPager';
 import {
   ROLES as BUILT_IN_ROLES, ACTIONS, RESOURCES, RESOURCE_GROUPS, DEFAULT_MATRIX,
   isLockedRole, isOwnerRole, grantedCount, groupTally, resourceTitle, TOTAL_GRANTS,
@@ -201,6 +202,18 @@ export default function RolesPermissionsPage() {
     return users.filter((u) => (u.name + ' ' + u.email + ' ' + u.role + ' ' + (u.access || ''))
       .toLowerCase().includes(q));
   }, [users, search]);
+
+  /* Users table: numbered pager, Rows-per-page and sortable headers
+     (19-10-2026) over the accounts already loaded. The value is what the
+     cell shows. */
+  const usersView = useClientTable(shown, (u, key) => {
+    if (key === 'user') return u.name || '';
+    if (key === 'role') return u.role || '';
+    if (key === 'access') return u.access || 'All locations';
+    if (key === 'status') return u.isActive === false ? 'Disabled' : 'Active';
+    if (key === 'added') return u.createdAt ? new Date(u.createdAt) : '';
+    return '';
+  });
 
   const usersPerRole = useMemo(() => {
     const out = {};
@@ -540,11 +553,11 @@ export default function RolesPermissionsPage() {
               <thead>
                 <tr>
                   <th>#</th>
-                  <th>User</th>
-                  <th>Role</th>
-                  <th>Location access</th>
-                  <th>Status</th>
-                  <th className="whitespace-nowrap">Added</th>
+                  {usersView.th('User', 'user')}
+                  {usersView.th('Role', 'role')}
+                  {usersView.th('Location access', 'access')}
+                  {usersView.th('Status', 'status')}
+                  {usersView.th('Added', 'added', 'whitespace-nowrap')}
                 </tr>
               </thead>
               <tbody>
@@ -556,11 +569,11 @@ export default function RolesPermissionsPage() {
                   </td></tr>
                 )}
 
-                {!loadingUsers && shown.map((u, i) => {
+                {!loadingUsers && usersView.rows.map((u, i) => {
                   const tone = allRoles.find((r) => r.k === u.role)?.tone || 'pill-grey';
                   return (
                     <tr key={u._id}>
-                      <td className="text-center">{i + 1}</td>
+                      <td className="text-center">{usersView.offset + i + 1}</td>
                       <td>
                         <div className="flex items-center gap-2.5">
                           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-pillgrey text-[11px] font-semibold text-cell">
@@ -621,6 +634,7 @@ export default function RolesPermissionsPage() {
                 })}
               </tbody>
             </table>
+            {usersView.pager}
           </div>
 
           <div className="mt-2 text-[12px] text-inkmuted">

@@ -9,6 +9,10 @@ const CONFIG = {
   basePath: '/admin/transaction/stocktransfers/',
   slugPath: 'transferstocklocation',
   endpoint: '/api/stock-transfer-location',
+  /* numbered pager with Rows-per-page, and every column header sorts on
+     click (components/ListView.jsx) */
+  pager: 'numbered',
+  sortable: true,
   scope: ['business', 'location', 'finYear'],
   addTitle: 'Add Transfer Stock Location',
   /* view opens the read-only record, which carries its own Print button */

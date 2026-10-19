@@ -8,6 +8,10 @@ const CONFIG = {
   basePath: '/admin/',
   slugPath: "transaction/purchase/grc",
   endpoint: '/api/purchase-grc',
+  /* numbered pager with Rows-per-page, and every column header sorts on
+     click (components/ListView.jsx) */
+  pager: 'numbered',
+  sortable: true,
   scope: ["business","location","finYear"],
   actionPosition: "left",
   actionVariant: "dropdown",

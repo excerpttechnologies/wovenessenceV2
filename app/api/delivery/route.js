@@ -152,6 +152,8 @@ import { validate, escapeRegex } from '@/lib/validate';
 import { nextSeriesNumber, previewSeriesNumber, raiseSeriesFloor } from '@/lib/docnumber';
 import { FIELDS, DERIVED_FIELDS, freightBreakdown } from '@/app/admin/transport/delivery/fields';
 import { screenDenial, screenDenialAnyAction, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { sortedPage } from '@/lib/listSort';
+import { bookingDelayDays } from '@/app/admin/transport/delivery/fields';
 
 /* /api/delivery - Delivery / LR transactions: list + create. */
 
@@ -427,7 +429,17 @@ export async function GET(req) {
   }
 
   const total = await Delivery.countDocuments(filter);
-  const rows = await Delivery.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(Delivery, filter, sp, {
+    page,
+    perPage,
+    keys: ['transactionNo', 'transactionDate', 'lrNumber', 'invPmNumber', 'parcelQty', 'value', 'totalFreight'],
+    refs: ['transporterId', 'supplierId'],
+    computed: {
+      bookingDelay: { select: 'bookingDate transactionDate', value: (d) => bookingDelayDays(d) ?? '' },
+    },
+  })) ?? await Delivery.find(filter)
     .sort({ createdAt: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)

@@ -8,6 +8,10 @@ const CONFIG = {
   basePath: '/admin/',
   slugPath: "transaction/sell/pos-return",
   endpoint: '/api/sell-pos-return',
+  /* numbered pager with Rows-per-page, and every column header sorts on
+     click (components/ListView.jsx) */
+  pager: 'numbered',
+  sortable: true,
   scope: ["business","location","finYear"],
   addHref: '/admin/transaction/sell/pos-return/add',
   actionPosition: "left",

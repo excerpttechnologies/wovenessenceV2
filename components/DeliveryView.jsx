@@ -8,6 +8,7 @@ import ModalForm from './ModalForm';
 import TabbedFormView from './TabbedFormView';
 import { refreshOptions } from './useOptions';
 import { useScope } from './ScopeContext';
+import NumberedPager, { SortHeader } from './NumberedPager';
 import { fmt, toCsv, toXlsHtml, download, printTable } from '@/lib/format';
 import { FIELDS, freightBreakdown, bookingDelayDays, delayTone } from '@/app/admin/transport/delivery/fields';
 import { FIELDS as TRANSPORTER_FIELDS } from '@/app/admin/transport/transporter/fields';
@@ -561,6 +562,11 @@ function DeliveryGrid({
   const [hidden, setHidden] = useState([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
+  /* numbered pager with Rows-per-page, and every column header sorts on
+     click (19-10-2026). perPage stays null until picked, so the endpoint's
+     own default page size is kept. */
+  const [perPage, setPerPage] = useState(null);
+  const [sort, setSort] = useState({ key: null, dir: null });
   /* The delivery whose Upload button was pressed. The ROW is held, not just
      an id, so the dialog captions itself with that consignment's own LR
      number and cannot be open against one record while showing another.
@@ -582,6 +588,11 @@ function DeliveryGrid({
     });
     if (applied.startDate) qs.set('startDate', applied.startDate);
     if (applied.endDate) qs.set('endDate', applied.endDate);
+    if (perPage) qs.set('perPage', String(perPage));
+    if (sort.key && sort.dir) {
+      qs.set('sortBy', sort.key);
+      qs.set('sortDir', sort.dir);
+    }
 
     try {
       const r = await fetch(ENDPOINT + '?' + qs);
@@ -589,11 +600,12 @@ function DeliveryGrid({
       setState({
         rows: d.rows || [], labels: d.labels || {},
         page: d.page || 1, pages: d.pages || 1, total: d.total || 0,
+        perPage: Number(d.perPage) || null,
       });
     } finally {
       setLoading(false);
     }
-  }, [page, search, status, business, location, finYear, applied, refreshKey]);
+  }, [page, search, status, business, location, finYear, applied, refreshKey, perPage, sort]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setPage(1); }, [search, business, location, finYear, applied]);
@@ -670,7 +682,15 @@ function DeliveryGrid({
           <table className="dt">
             <thead>
               <tr>
-                {visible.map((c, i) => <th key={c.t + i}>{c.t}</th>)}
+                {visible.map((c, i) => (
+                  <SortHeader
+                    key={c.t + i}
+                    label={c.t}
+                    sortKey={c.k}
+                    sort={sort}
+                    onSort={(next) => { setSort(next); setPage(1); }}
+                  />
+                ))}
                 <th>Action</th>
               </tr>
             </thead>
@@ -713,14 +733,15 @@ function DeliveryGrid({
           </table>
         </div>
 
-        <div className="flex items-center pt-3 text-[13px] text-cell">
-          <span>Page <b className="text-brand-link">{state.page}</b> of {state.pages}</span>
-          <span className="flex-1" />
-          <span className="flex gap-2">
-            <button className="btn" disabled={state.page <= 1} onClick={() => setPage((p) => p - 1)}>Previous</button>
-            <button className="btn" disabled={state.page >= state.pages} onClick={() => setPage((p) => p + 1)}>Next</button>
-          </span>
-        </div>
+        <NumberedPager
+          page={state.page}
+          pages={state.pages}
+          total={state.total}
+          shown={state.rows.length}
+          perPage={perPage || state.perPage || 10}
+          onPage={setPage}
+          onPerPage={(n) => { setPerPage(n); setPage(1); }}
+        />
       </div>
 
       {/* Upload Document / Photo for ONE consignment. The id is this row's own

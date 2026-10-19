@@ -11,6 +11,7 @@ import {
   withTransaction, loadUnits, despatchTransfer, InventoryError, shape,
 } from '@/lib/inventory';
 import { barcodeSearchPattern, unitAnswersTo } from '@/lib/barcodeValue';
+import { sortedPage } from '@/lib/listSort';
 
 /* /api/stock-transfer - list + despatch.
 
@@ -71,7 +72,14 @@ export const GET = handler(async (req) => {
   }
 
   const total = await StockTransfer.countDocuments(filter);
-  const rows = await StockTransfer.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(StockTransfer, filter, sp, {
+    page,
+    perPage,
+    keys: ['transferNo', 'transferDate', 'fromLocationName', 'toLocationName', 'status', 'sentQty', 'sentCount', 'receivedQty', 'returnedQty', 'pendingQty', 'billableQty', 'billingNo', 'netValue', 'waybill'],
+    select: '-lines',
+  })) ?? await StockTransfer.find(filter)
     .select('-lines')                     // the list never needs every barcode
     .sort({ transferDate: -1, createdAt: -1 })
     .skip((page - 1) * perPage)

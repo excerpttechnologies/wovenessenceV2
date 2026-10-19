@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Icon from '@/components/Icon';
 import { useScope } from '@/components/ScopeContext';
+import { useClientTable } from '@/components/NumberedPager';
 
 /* Inter Company Sell > Consignment - the RETURNS of inter company challans,
    on a page of their own (user, 01-10-2026; this list used to be the
@@ -90,6 +91,30 @@ export default function IcConsignmentPage() {
       .filter((r) => r.status === 'pending')
       .map((req) => ({ row, req })));
 
+  /* Sorting and paging (19-10-2026) over the rows already loaded - one per
+     table. The value is what the cell shows. */
+  const reqQty = (req) => (req.lines || []).reduce((a, l) => a + (Number(l.qty) || 0), 0);
+  const pendingView = useClientTable(pendingRequests, ({ row, req }, key) => {
+    if (key === 'business') return label(other(row).businessId);
+    if (key === 'dcNo') return row.dcNo || '';
+    if (key === 'at') return req.at ? new Date(req.at) : '';
+    if (key === 'by') return req.by || '';
+    if (key === 'items') return (req.lines || []).map((l) => l.barcodeNo + ' x ' + l.qty).join(', ');
+    if (key === 'qty') return reqQty(req);
+    return '';
+  });
+  const rowsView = useClientTable(rows, (row, key) => {
+    if (key === 'business') return label(other(row).businessId);
+    if (key === 'dcNo') return row.dcNo || '';
+    if (key === 'barcode') return returnedBarcodes(row).join(', ');
+    if (key === 'dcDate') return row.dcDate ? new Date(row.dcDate) : '';
+    if (key === 'location') return label(other(row).locationId);
+    if (key === 'totalQty') return Number(row.totalQty || 0);
+    if (key === 'netValue') return Number(row.netValue || 0);
+    if (key === 'returned') return returnedOf(row);
+    return '';
+  });
+
   async function act(row, req, action) {
     const key = row._id + '|' + req.rid;
     setBusy(key);
@@ -147,12 +172,12 @@ export default function IcConsignmentPage() {
           <thead>
             <tr>
               <th style={{ width: 36 }}>Sl No.</th>
-              <th>Business</th>
-              <th style={{ width: 150 }}>DC No</th>
-              <th style={{ width: 110 }}>Requested On</th>
-              <th style={{ width: 140 }}>Requested By</th>
-              <th>Items</th>
-              <th className="!text-right" style={{ width: 70 }}>Qty</th>
+              {pendingView.th('Business', 'business')}
+              {pendingView.th('DC No', 'dcNo', undefined, { width: 150 })}
+              {pendingView.th('Requested On', 'at', undefined, { width: 110 })}
+              {pendingView.th('Requested By', 'by', undefined, { width: 140 })}
+              {pendingView.th('Items', 'items')}
+              {pendingView.th('Qty', 'qty', '!text-right', { width: 70 })}
               <th style={{ width: 170 }}>Action</th>
             </tr>
           </thead>
@@ -161,9 +186,9 @@ export default function IcConsignmentPage() {
             {!loading && !pendingRequests.length && (
               <tr><td colSpan={8} className="dt-empty">No return requests waiting.</td></tr>
             )}
-            {!loading && pendingRequests.map(({ row, req }, i) => (
+            {!loading && pendingView.rows.map(({ row, req }, i) => (
               <tr key={row._id + '|' + req.rid} className="bg-[#fff8e6]">
-                <td className="text-center">{i + 1}</td>
+                <td className="text-center">{pendingView.offset + i + 1}</td>
                 <td>
                   {label(other(row).businessId)}
                   <div className={'text-[11px] ' + (weSent(row) ? 'text-danger' : 'text-inkmuted')}>
@@ -209,6 +234,7 @@ export default function IcConsignmentPage() {
             ))}
           </tbody>
         </table>
+        {pendingView.pager}
       </div>
 
       <div className="mb-2 flex items-center border-b border-line pb-2">
@@ -219,14 +245,14 @@ export default function IcConsignmentPage() {
           <thead>
             <tr>
               <th style={{ width: 36 }}>Sl No.</th>
-              <th>Business</th>
-              <th style={{ width: 150 }}>DC No</th>
-              <th style={{ width: 130 }}>Barcode</th>
-              <th style={{ width: 100 }}>DC Date</th>
-              <th>Location</th>
-              <th className="!text-right" style={{ width: 90 }}>Total Qty</th>
-              <th className="!text-right" style={{ width: 100 }}>Total Value</th>
-              <th className="!text-right" style={{ width: 90 }}>Returned</th>
+              {rowsView.th('Business', 'business')}
+              {rowsView.th('DC No', 'dcNo', undefined, { width: 150 })}
+              {rowsView.th('Barcode', 'barcode', undefined, { width: 130 })}
+              {rowsView.th('DC Date', 'dcDate', undefined, { width: 100 })}
+              {rowsView.th('Location', 'location')}
+              {rowsView.th('Total Qty', 'totalQty', '!text-right', { width: 90 })}
+              {rowsView.th('Total Value', 'netValue', '!text-right', { width: 100 })}
+              {rowsView.th('Returned', 'returned', '!text-right', { width: 90 })}
               <th style={{ width: 70 }}>Action</th>
             </tr>
           </thead>
@@ -238,9 +264,9 @@ export default function IcConsignmentPage() {
             {!loading && scope.business && !rows.length && (
               <tr><td colSpan={10} className="dt-empty">No returns involving this branch.</td></tr>
             )}
-            {!loading && rows.map((row, i) => (
+            {!loading && rowsView.rows.map((row, i) => (
               <tr key={row._id}>
-                <td className="text-center">{i + 1}</td>
+                <td className="text-center">{rowsView.offset + i + 1}</td>
                 <td>
                   {label(other(row).businessId)}
                   <div className={'text-[11px] ' + (weSent(row) ? 'text-danger' : 'text-inkmuted')}>
@@ -289,6 +315,7 @@ export default function IcConsignmentPage() {
             ))}
           </tbody>
         </table>
+        {rowsView.pager}
       </div>
 
       {/* the challan's lines and its return history - read only */}

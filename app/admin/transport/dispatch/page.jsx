@@ -47,6 +47,10 @@ const CONFIG = {
   basePath: '/admin/transport/',
   slugPath: 'dispatch',
   endpoint: '/api/dispatch',
+  /* numbered pager with Rows-per-page, and every column header sorts on
+     click (components/ListView.jsx) */
+  pager: 'numbered',
+  sortable: true,
   scope: ['business', 'location'],
   addTitle: 'New Dispatch',
   addLabel: 'New Dispatch',
@@ -59,7 +63,7 @@ const CONFIG = {
     { k: 'vehicleId', t: 'Vehicle', f: 'ref' },
     { k: 'driverId', t: 'Driver', f: 'ref' },
     { k: 'routeId', t: 'Route', f: 'ref' },
-    { k: 'deliveryIds', t: 'LRs', f: 'count' },
+    { k: 'deliveryIds', t: 'LRs', f: 'count', sortKey: 'lrCount' },
     { k: 'parcelTotal', t: 'Parcels' },
     { k: 'amount', t: 'Amount', f: 'amount' },
     {

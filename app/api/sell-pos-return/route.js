@@ -30,6 +30,7 @@ import {
 } from '@/lib/inventory';
 import { barcodeKey, sameBarcode } from '@/lib/barcodeValue';
 import { BarcodeLabel } from '@/lib/barcodeLabel';
+import { sortedPage } from '@/lib/listSort';
 
 /* /api/sell-pos-return - list + create. */
 
@@ -72,7 +73,14 @@ export async function GET(req) {
   }
 
   const total = await PosReturn.countDocuments(filter);
-  const rows = await PosReturn.find(filter)
+  /* column-header sort (lib/listSort.js); without ?sortBy= the query
+     below runs exactly as before */
+  const rows = (await sortedPage(PosReturn, filter, sp, {
+    page,
+    perPage,
+    keys: ['date', 'invoiceNo', 'parentInvoice', 'paymentStatus', 'returnedCount', 'totalAmount', 'refundAmount', 'reason', 'processedBy'],
+    refs: ['customerId', 'locationId'],
+  })) ?? await PosReturn.find(filter)
     .sort({ createdAt: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)

@@ -1,5 +1,57 @@
 # Changes
 
+## 19-10-2026
+
+### EXISTING
+
+- app/admin/transaction/sell/deliverychallan/page.jsx
+- app/admin/transaction/sell/pos/page.jsx
+- app/admin/transaction/sell/pos-return/page.jsx
+- app/api/sell-deliverychallan/route.js
+- app/api/sell-pos/route.js
+- app/api/sell-pos-return/route.js
+- components/NumberedPager.jsx
+- app/admin/transaction/intercompanysell/deliverychallan/page.jsx
+- app/admin/transaction/intercompanysell/receivedeliverychallan/page.jsx
+- app/admin/transaction/intercompanysell/sales-invoice/page.jsx
+- app/admin/transaction/intercompanysell/auto-purchase-receiveds/page.jsx
+- app/admin/transaction/intercompanysell/consignment/page.jsx
+- app/api/ic-delivery-challan/route.js
+- components/PosTill.jsx
+- app/admin/logistic/page.jsx
+- app/admin/transport/vehicle/page.jsx
+- app/admin/transport/driver/page.jsx
+- app/admin/transport/route/page.jsx
+- app/admin/transport/dispatch/page.jsx
+- app/admin/transaction/purchase/grc/page.jsx
+- app/admin/transaction/purchase/grt/page.jsx
+- components/DeliveryView.jsx
+- components/Listviewgrt.jsx
+- app/api/logistic/route.js
+- app/api/vehicle/route.js
+- app/api/driver/route.js
+- app/api/transport-route/route.js
+- app/api/dispatch/route.js
+- app/api/purchase-grc/route.js
+- app/api/purchase-grt/route.js
+- app/api/delivery/route.js
+- app/admin/transaction/stocktransfers/transfer/page.jsx
+- app/admin/transaction/stocktransfers/incoming/page.jsx
+- app/admin/transaction/stocktransfers/transferstocklocation/page.jsx
+- app/admin/transaction/stocktransfers/transferstockreceiveds/page.jsx
+- components/StockTransferPacketList.jsx
+- app/api/stock-transfer/route.js
+- app/api/stock-transfer-location/route.js
+- app/api/stock-transfer-packet/route.js
+- app/api/stock-transfer-received/route.js
+- app/admin/staff-management/staff/salesperson/page.jsx
+- app/admin/staff-management/roles-permissions/page.jsx
+- components/CashRegisterList.jsx
+- components/VoucherList.jsx
+- app/api/sales-person/route.js
+- app/api/cash-register/route.js
+- app/api/voucher/route.js
+
 ## 17-10-2026
 
 ### NEW
@@ -104,6 +156,17 @@
 - app/api/supplier/route.js
 - app/api/agent/route.js
 - app/api/customer/route.js
+
+## 16-10-2026
+
+### NEW
+
+- scripts/seedBarcodesFromNewData.mjs
+- scripts/copyNewDataToDb.mjs
+- scripts/copyMissingToDb.mjs
+- scripts/fixItemGroupsFromNewData.mjs
+- scripts/removeNonExcelBarcodes.mjs
+- scripts/reports/ (seed dry-run / apply CSVs and the item-groups backup JSON written by the scripts above)
 
 ## 09-10-2026
 

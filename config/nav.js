@@ -505,7 +505,7 @@ export const NAV = [
     label: 'Inter Company Sell',
     icon: LuHouse,
     children: [
-      { label: 'Delivery Challan', icon: LuFileCheck,
+      { label: 'Consignment', icon: LuFileCheck,
         href: '/admin/transaction/intercompanysell/deliverychallan' },
       { label: 'Receive Delivery Challan', icon: LuPackageCheck,
         href: '/admin/transaction/intercompanysell/receivedeliverychallan' },
