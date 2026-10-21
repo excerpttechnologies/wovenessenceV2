@@ -943,6 +943,22 @@ export default function TabbedFormView({ cfg, id, slug, onSaved }) {
           }}
         />
       )}
+      {/* Close (21-10-2026): back to the list without saving - only when this
+          form is a page of its own. Embedded in a dialog (onSaved given), the
+          dialog has its own close and leaving the page would be wrong. */}
+      {!onSaved && (
+        <div className="mb-2 flex justify-end">
+          <button
+            type="button"
+            className="btn border-danger bg-danger text-white hover:border-[#9f1d17] hover:bg-[#9f1d17]"
+            title="Close"
+            aria-label="Close"
+            onClick={() => router.push(listUrl)}
+          >
+            <Icon name="x" size={16} />
+          </button>
+        </div>
+      )}
       <div className="card">
       {/* tab bar - column count follows tabs.length, so a page with 3 tabs
           (Supplier, Agent) doesn't leave an empty 4th cell. Driven by the

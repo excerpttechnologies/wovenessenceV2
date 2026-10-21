@@ -212,6 +212,16 @@ export default function StockTransferDetail({ id }) {
           <button type="button" className="btn btn-ghost" onClick={load}>
             <Icon name="refresh" size={14} /> Refresh
           </button>
+          {/* Close (21-10-2026): back to the Stock Transfer list */}
+          <button
+            type="button"
+            className="btn ml-2 border-danger bg-danger text-white hover:border-[#9f1d17] hover:bg-[#9f1d17]"
+            title="Close"
+            aria-label="Close"
+            onClick={() => router.push('/admin/transaction/stocktransfers/transfer')}
+          >
+            <Icon name="x" size={16} />
+          </button>
         </div>
 
         <div className="card-body">

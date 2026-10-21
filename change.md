@@ -1,5 +1,23 @@
 # Changes
 
+## 21-10-2026
+
+### EXISTING
+
+- components/FormView.jsx
+- components/TransactionFormView.jsx
+- app/admin/transaction/purchase/grc/[id]/page.jsx
+- app/admin/transaction/purchase/barcode-print/[id]/page.jsx
+- components/ChallanDocument.jsx
+- components/SellChallanView.jsx
+- components/PosReturnForm.jsx
+- components/IcChallanForm.jsx
+- components/TabbedFormView.jsx
+- components/StockTransferForm.jsx
+- components/StockTransferDetail.jsx
+- components/StockTransferPacketForm.jsx
+- components/TransferChallanView.jsx
+
 ## 19-10-2026
 
 ### NEW

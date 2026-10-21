@@ -596,6 +596,18 @@ export default function FormView({ cfg, id, slug }) {
         <span className="card-title">
           {cfg.addTitle || (isEdit ? 'Edit ' : 'Add ') + cfg.title}
         </span>
+        <span className="flex-1" />
+        {/* Close (21-10-2026): back to the list without saving - the same
+            list a successful Submit returns to */}
+        <button
+          type="button"
+          className="btn border-danger bg-danger text-white hover:border-[#9f1d17] hover:bg-[#9f1d17]"
+          title="Close"
+          aria-label="Close"
+          onClick={() => router.push(listUrl)}
+        >
+          <Icon name="x" size={16} />
+        </button>
       </div>
 
       <div className="card-body">

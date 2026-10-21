@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import ChallanDocument from './ChallanDocument';
 import { qtyText } from '@/lib/challan';
 
@@ -16,6 +17,7 @@ import { qtyText } from '@/lib/challan';
    view that only a document with returns can have. */
 
 export default function TransferChallanView({ id }) {
+  const router = useRouter();
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   /* A challan normally lists what was despatched. Once part of it has come
@@ -83,6 +85,8 @@ export default function TransferChallanView({ id }) {
       ]}
       scopeValue={scope}
       onScopeChange={setScope}
+      /* Close (21-10-2026): back to the transfer this challan belongs to */
+      onClose={() => router.push('/admin/transaction/stocktransfers/transfer/' + id)}
     />
   );
 }

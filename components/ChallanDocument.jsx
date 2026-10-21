@@ -42,6 +42,9 @@ export default function ChallanDocument({
      the transfer challan uses them for Returned and Billable */
   extraSummary = [],
   signatures = ['Prepared By', 'Driver / Transporter', 'Received By'],
+  /* optional Close button beside Print (21-10-2026) - shown only when the
+     screen passes one, so the other challans are unchanged */
+  onClose = null,
   /* optional filter shown next to the format toggle */
   scopeOptions = null,
   scopeValue = '',
@@ -97,6 +100,17 @@ export default function ChallanDocument({
           <button type="button" className="btn btn-primary" onClick={() => window.print()}>
             <Icon name="printer" size={14} /> Print
           </button>
+          {onClose && (
+            <button
+              type="button"
+              className="btn border-danger bg-danger text-white hover:border-[#9f1d17] hover:bg-[#9f1d17]"
+              title="Close"
+              aria-label="Close"
+              onClick={onClose}
+            >
+              <Icon name="x" size={16} />
+            </button>
+          )}
         </div>
       </div>
 

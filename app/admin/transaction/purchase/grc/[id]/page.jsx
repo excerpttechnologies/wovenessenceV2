@@ -34,6 +34,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Field from '@/components/Field';
+import Icon from '@/components/Icon';
 import { FORM } from '../form';
 import { useScope } from '@/components/ScopeContext';
 import PurchaseInvoicePrintView from '@/components/PurchaseInvoicePrintView';
@@ -225,6 +226,16 @@ export default function EditTransactionPurchaseGrcPage() {
           <div className="flex gap-2">
             <button type="button" onClick={openPrint} className="btn">Print GRC</button>
             <button type="button" onClick={openBarcode} className="btn btn-primary">Barcode Generation</button>
+            {/* Close (21-10-2026): back to the GRC list without saving */}
+            <button
+              type="button"
+              className="btn border-danger bg-danger text-white hover:border-[#9f1d17] hover:bg-[#9f1d17]"
+              title="Close"
+              aria-label="Close"
+              onClick={() => router.push('/admin/transaction/purchase/grc')}
+            >
+              <Icon name="x" size={16} />
+            </button>
           </div>
         </div>
         <div className="card-body">

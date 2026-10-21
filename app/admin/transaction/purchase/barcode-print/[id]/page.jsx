@@ -84,7 +84,8 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
+import Icon from '@/components/Icon';
 import BatchLabelCountDialog from '@/components/BatchLabelCountDialog';
 import GrcBarcodeLabelSheet from '@/components/GrcBarcodeLabel';
 import useBarcodeLabelFormat from '@/components/useBarcodeLabelFormat';
@@ -117,6 +118,7 @@ import {
 ===================================================================================== */
 export default function GrcBarcodePrintPage() {
   const { id } = useParams();
+  const router = useRouter();
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
 
@@ -435,6 +437,17 @@ export default function GrcBarcodePrintPage() {
             className="rounded bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:opacity-60"
           >
             {printing ? 'Preparing...' : 'Print Labels'}
+          </button>
+          {/* Close (21-10-2026): back to the GRC list - screen only, the
+              whole toolbar is no-print */}
+          <button
+            type="button"
+            className="btn border-danger bg-danger text-white hover:border-[#9f1d17] hover:bg-[#9f1d17]"
+            title="Close"
+            aria-label="Close"
+            onClick={() => router.push('/admin/transaction/purchase/grc')}
+          >
+            <Icon name="x" size={16} />
           </button>
         </div>
       </div>

@@ -2302,6 +2302,22 @@ export default function TransactionFormView({ cfg, id, slug }) {
 
   return (
     <>
+      {/* Close (21-10-2026): back to the list without saving - the same list
+          a successful save returns to. Its own row above the first card,
+          because the first card differs per screen (GRC Add opens on the LR
+          card, GRT on its fields). */}
+      <div className="mb-2 flex justify-end">
+        <button
+          type="button"
+          className="btn border-danger bg-danger text-white hover:border-[#9f1d17] hover:bg-[#9f1d17]"
+          title="Close"
+          aria-label="Close"
+          onClick={() => router.push(listUrl)}
+        >
+          <Icon name="x" size={16} />
+        </button>
+      </div>
+
       {/* Flash message lives here — outside the card map — so it always
           renders regardless of which card type is first. Previously it was
           only shown inside the first `fields` card, which meant it was

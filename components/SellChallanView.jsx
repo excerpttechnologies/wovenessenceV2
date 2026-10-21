@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import ChallanDocument from './ChallanDocument';
 
 /* Printed Delivery Challan for a SELL delivery challan.
@@ -16,6 +17,7 @@ import ChallanDocument from './ChallanDocument';
    here has to reshape them. */
 
 export default function SellChallanView({ id }) {
+  const router = useRouter();
   const [doc, setDoc] = useState(null);
   const [labels, setLabels] = useState({});
   const [error, setError] = useState('');
@@ -65,6 +67,8 @@ export default function SellChallanView({ id }) {
         { label: 'Driver / Transporter' },
         { label: 'Received By', value: customerName },
       ]}
+      /* Close (21-10-2026): back to the Delivery Challan list */
+      onClose={() => router.push('/admin/transaction/sell/deliverychallan')}
     />
   );
 }

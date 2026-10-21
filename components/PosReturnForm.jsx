@@ -250,6 +250,16 @@ export default function PosReturnForm() {
         <span className="card-title"><Icon name="undo" size={15} /> Customer Return / Refund</span>
         <span className="flex-1" />
         {loading && <span className="text-[12px] text-inkmuted">Looking up...</span>}
+        {/* Close (21-10-2026): back to the POS Return list without saving */}
+        <button
+          type="button"
+          className="btn ml-2 border-danger bg-danger text-white hover:border-[#9f1d17] hover:bg-[#9f1d17]"
+          title="Close"
+          aria-label="Close"
+          onClick={() => router.push('/admin/transaction/sell/pos-return')}
+        >
+          <Icon name="x" size={16} />
+        </button>
       </div>
 
       <div className="card-body">

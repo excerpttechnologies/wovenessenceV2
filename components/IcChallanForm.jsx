@@ -936,6 +936,17 @@ export default function IcChallanForm({ cfg, id }) {
     <div className="card">
       <div className="card-head">
         <span className="card-title">{cfg.addTitle}</span>
+        <span className="flex-1" />
+        {/* Close (21-10-2026): back to the screen's list without saving */}
+        <button
+          type="button"
+          className="btn border-danger bg-danger text-white hover:border-[#9f1d17] hover:bg-[#9f1d17]"
+          title="Close"
+          aria-label="Close"
+          onClick={() => router.push(cfg.basePath + cfg.slugPath)}
+        >
+          <Icon name="x" size={16} />
+        </button>
       </div>
 
       <div className="card-body">
