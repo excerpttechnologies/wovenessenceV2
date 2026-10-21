@@ -2,6 +2,11 @@
 
 ## 21-10-2026
 
+### NEW
+
+- SELL_MODULE_DOCUMENTATION.pdf
+- INTERCOMPANY_SELL_MODULE_DOCUMENTATION.pdf
+
 ### EXISTING
 
 - components/FormView.jsx
