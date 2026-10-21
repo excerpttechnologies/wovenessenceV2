@@ -1,0 +1,227 @@
+﻿contact suppliers: 809
+supplier suppliers: 801
+
+ALL suppliers named (Unassigned) or blank:
+  contact {"_id":"6a9986a73ce59c48713fedda","contactId":"G741","businessName":"(Unassigned)","businessId":"6a853cdefb266c4358beb548","createdAt":"2026-09-03T14:39:35.480Z","updatedAt":"2026-09-03T14:39:35.480Z","firstName":"","lastName":"","remarks":""}
+  supplier {"_id":"6a9986a73ce59c48713fedda","contactId":"G741","businessName":"(Unassigned)","businessId":"6a853cdefb266c4358beb548","createdAt":"2026-09-03T14:39:35.480Z","updatedAt":"2026-09-03T14:39:35.480Z","firstName":"","lastName":"","remarks":""}
+
+G741 full record(s):
+  contact {
+  "coll": "contact",
+  "_id": "6a9986a73ce59c48713fedda",
+  "businessName": "(Unassigned)",
+  "updatedAt": "2026-09-03T14:39:35.480Z",
+  "businessType": "",
+  "gstNo": "",
+  "contactType2": "",
+  "prefix": "Mr.",
+  "sameAsBilling": false,
+  "firstName": "",
+  "middleName": "",
+  "lastName": "",
+  "billingAddressLine1": "",
+  "billingAddressLine2": "",
+  "billingCity": "",
+  "billingState": "",
+  "billingCountry": "",
+  "billingZipCode": "",
+  "billingMobile": "0000000000",
+  "billingAlternateContactNumber": "",
+  "billingLandline": "",
+  "billingEmail": "",
+  "billingEmail2": "",
+  "markupPriceCalculation": "",
+  "discountType": "",
+  "discount": "",
+  "markUpOnCostRsp": "",
+  "rspRoundOff": "",
+  "markUpOnCostWsp": "",
+  "wspRoundOff": "",
+  "markUpOnCostDp": "",
+  "dpRoundOff": "",
+  "logisticsTerms": "",
+  "paymentWithinDays": "",
+  "paymentDateType": "",
+  "supplierType": "",
+  "openingBalance": "",
+  "gstType": "",
+  "pan": "",
+  "bankAccountName": "",
+  "bankName": "",
+  "accountNo": "",
+  "ifsc": "",
+  "allowProduction": "",
+  "remarks": "",
+  "businessId": "6a853cdefb266c4358beb548",
+  "contactKind": "Supplier",
+  "contactId": "G741",
+  "createdAt": "2026-09-03T14:39:35.480Z",
+  "__v": 0
+}
+  supplier {
+  "coll": "supplier",
+  "_id": "6a9986a73ce59c48713fedda",
+  "businessName": "(Unassigned)",
+  "updatedAt": "2026-09-03T14:39:35.480Z",
+  "businessType": "",
+  "gstNo": "",
+  "contactType2": "",
+  "prefix": "Mr.",
+  "sameAsBilling": false,
+  "firstName": "",
+  "middleName": "",
+  "lastName": "",
+  "billingAddressLine1": "",
+  "billingAddressLine2": "",
+  "billingCity": "",
+  "billingState": "",
+  "billingCountry": "",
+  "billingZipCode": "",
+  "billingMobile": "0000000000",
+  "billingAlternateContactNumber": "",
+  "billingLandline": "",
+  "billingEmail": "",
+  "billingEmail2": "",
+  "markupPriceCalculation": "",
+  "discountType": "",
+  "discount": "",
+  "markUpOnCostRsp": "",
+  "rspRoundOff": "",
+  "markUpOnCostWsp": "",
+  "wspRoundOff": "",
+  "markUpOnCostDp": "",
+  "dpRoundOff": "",
+  "logisticsTerms": "",
+  "paymentWithinDays": "",
+  "paymentDateType": "",
+  "supplierType": "",
+  "openingBalance": "",
+  "gstType": "",
+  "pan": "",
+  "bankAccountName": "",
+  "bankName": "",
+  "accountNo": "",
+  "ifsc": "",
+  "allowProduction": "",
+  "remarks": "",
+  "businessId": "6a853cdefb266c4358beb548",
+  "contactKind": "Supplier",
+  "contactId": "G741",
+  "createdAt": "2026-09-03T14:39:35.480Z",
+  "__v": 0
+}
+
+GRC refs to G741 _id: 0
+GRC sample: []
+purchaseinvoice refs: 0
+delivery refs: 0
+barcode rows pointing at _id: 3
+barcode rows supplierId code G741: 0
+barcode samples: [
+  {
+    "_id": "6ad1c46abc38ecea63755bcd",
+    "supplierId": "6a9986a73ce59c48713fedda",
+    "itemCode": "SRB",
+    "supplierDescription": "",
+    "printDescription": "Apx 0.96 Mtr Cut, Soft Silky Komal Fabric",
+    "source": "NEWDATA_EXCEL",
+    "businessId": "6a853cdefb266c4358beb548",
+    "locationId": "6a858d389d37d436b1fc02b0",
+    "finYear": "2026-2027",
+    "barcodeNo": "60016",
+    "itemName": "SRB",
+    "status": "IN_STOCK",
+    "currentLocationId": "6a858d389d37d436b1fc02b0",
+    "grcNo": ""
+  },
+  {
+    "_id": "6ad1c4a34090f17c438e0f1c",
+    "supplierId": "6a9986a73ce59c48713fedda",
+    "itemCode": "SH-BIT",
+    "supplierDescription": "",
+    "printDescription": "2.25 MTR CUT, PC BIO FINISH",
+    "source": "NEWDATA_EXCEL",
+    "businessId": "6a853cdefb266c4358beb548",
+    "locationId": "6a858ded9d37d436b1fc02dc",
+    "finYear": "2026-2027",
+    "barcodeNo": "53626",
+    "itemName": "SH-BIT",
+    "status": "IN_STOCK",
+    "currentLocationId": "6a858ded9d37d436b1fc02dc",
+    "grcNo": ""
+  },
+  {
+    "_id": "6ad1c4a44090f17c438e0f46",
+    "supplierId": "6a9986a73ce59c48713fedda",
+    "itemCode": "SRB",
+    "supplierDescription": "",
+    "printDescription": "APX 0.96 MTR CUT,HANDLOOM  COTTON FABRIC",
+    "source": "NEWDATA_EXCEL",
+    "businessId": "6a853cdefb266c4358beb548",
+    "locationId": "6a858ded9d37d436b1fc02dc",
+    "finYear": "2026-2027",
+    "barcodeNo": "60026",
+    "itemName": "SRB",
+    "status": "IN_STOCK",
+    "currentLocationId": "6a858ded9d37d436b1fc02dc",
+    "grcNo": ""
+  }
+]
+
+All codes in barcode.supplierId that are non-ObjectId (in stock):
+  {"key":"S4","biz":"6a853ba0fb266c4358beb530"} 98
+  {"key":"","biz":"6a853cdefb266c4358beb548"} 39
+  {"key":"G1260","biz":"6a853cdefb266c4358beb548"} 32
+  {"key":"","biz":"6a853ba0fb266c4358beb530"} 7
+  {"key":"G437","biz":"6a8c2b88c67379ce90586ece"} 1
+  {"key":"G742","biz":"6a853cdefb266c4358beb548"} 1
+  {"key":"G1311","biz":"6a853cdefb266c4358beb548"} 1
+  {"key":"G437","biz":"6a853cdefb266c4358beb548"} 1
+
+In-stock keys resolving in supplier collection but NOT contact:
+not in either collection:
+  {"key":"6a8ee214de7bd6bc7418e870","biz":"6a853ba0fb266c4358beb530"} 1
+  {"key":"6a8ee214de7bd6bc7418e92d","biz":"6a853cdefb266c4358beb548"} 5
+  {"key":"6a8d672955fd0699d2daf395","biz":"6a853cdefb266c4358beb548"} 34
+  {"key":"6a8ee213de7bd6bc7418e6a3","biz":"6a853cdefb266c4358beb548"} 171
+  {"key":"6a8ee213de7bd6bc7418e68f","biz":"6a853cdefb266c4358beb548"} 190
+  {"key":"6a8ee214de7bd6bc7418e8fe","biz":"6a853bf6fb266c4358beb538"} 1
+  {"key":"6a8ee214de7bd6bc7418e8fe","biz":"6a853cdefb266c4358beb548"} 11
+  {"key":"6a8ee214de7bd6bc7418e8fe","biz":"6a853ba0fb266c4358beb530"} 1
+  {"key":"6a90303d6e43f6bd212b0d18","biz":"6a853cdefb266c4358beb548"} 20
+  {"key":"6a911cc9083438e2bfae98d5","biz":"6a853cdefb266c4358beb548"} 27
+  {"key":"6a8ee214de7bd6bc7418e870","biz":"6a853cdefb266c4358beb548"} 37
+
+Supplier master records whose names look like placeholders:
+  contact new ObjectId('6a9986a73ce59c48713fedda') "G741" "(Unassigned)"
+  supplier new ObjectId('6a9986a73ce59c48713fedda') "G741" "(Unassigned)"
+
+Suppliers with Excel codes whose name differs from Excel (sample G741/G589):
+  G741 [
+  {
+    coll: 'contact',
+    _id: '6a9986a73ce59c48713fedda',
+    name: '(Unassigned)',
+    biz: '6a853cdefb266c4358beb548'
+  },
+  {
+    coll: 'supplier',
+    _id: '6a9986a73ce59c48713fedda',
+    name: '(Unassigned)',
+    biz: '6a853cdefb266c4358beb548'
+  }
+]
+  G589 [
+  {
+    coll: 'contact',
+    _id: '6a9986ac3ce59c48713fee59',
+    name: 'CRN FABRICS - SC FOR HSR, Bangalore',
+    biz: '6a853cdefb266c4358beb548'
+  },
+  {
+    coll: 'supplier',
+    _id: '6a9986ac3ce59c48713fee59',
+    name: 'CRN FABRICS - SC FOR HSR, Bangalore',
+    biz: '6a853cdefb266c4358beb548'
+  }
+]

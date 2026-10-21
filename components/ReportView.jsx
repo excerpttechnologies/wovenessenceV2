@@ -3592,25 +3592,39 @@ function AddFilterMenu({ filters, visible, onAdd }) {
    preview in the same, predictable spot regardless of which row or how far
    the table is scrolled. */
 const PREVIEW = 320;
-function HoverImage({ src, alt }) {
+function HoverImage({ src, alt, fallbackSrc }) {
   const [hover, setHover] = useState(false);
+  const [usingFallback, setUsingFallback] = useState(false);
+  const [failed, setFailed] = useState(false);
 
-  if (!src) return <span className="text-cell">—</span>;
+  useEffect(() => {
+    setHover(false);
+    setUsingFallback(false);
+    setFailed(false);
+  }, [src, fallbackSrc]);
+
+  const imageSrc = usingFallback ? fallbackSrc : (src || fallbackSrc);
+  const onError = () => {
+    if (!usingFallback && src && fallbackSrc && fallbackSrc !== src) setUsingFallback(true);
+    else setFailed(true);
+  };
+
+  if (!imageSrc || failed) return <span className="text-cell">—</span>;
 
   return (
     <>
       <img
-        src={src}
+        src={imageSrc}
         alt={alt || ''}
         className="h-10 w-10 cursor-zoom-in rounded border border-line object-cover"
-        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+        onError={onError}
         onMouseEnter={() => setHover(true)}
         onMouseLeave={() => setHover(false)}
       />
       {hover && (
         <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <img
-            src={src}
+            src={imageSrc}
             alt={alt || ''}
             style={{ width: PREVIEW, height: PREVIEW }}
             className="rounded-lg border border-line bg-white object-cover shadow-xl"
@@ -4023,7 +4037,7 @@ function Section({ section, data, tone, onSupplierSelect, onItemSelect }) {
                   {columns.map((c) => (
                     <td key={c.t} className={isNumeric(c) ? 'text-right' : ''}>
                       {c.f === 'image'
-                        ? <HoverImage src={row[c.k]} />
+                        ? <HoverImage src={row[c.k]} alt={row.barcodeNo || row.itemCode} fallbackSrc={c.fallback ? row[c.fallback] : ''} />
                         : c.modal === 'supplier'
                           ? (cellOf(row, c) && row.supplierId
                             ? <button

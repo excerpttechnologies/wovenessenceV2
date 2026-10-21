@@ -1,0 +1,16 @@
+import mongoose from 'mongoose';
+await mongoose.connect(process.env.MONGODB_URI);
+const db = mongoose.connection.db;
+const since = new Date(Date.now() - 6 * 3600 * 1000);
+const sup = await db.collection('contact').find({ $or: [{ createdAt: { $gte: since } }, { updatedAt: { $gte: since } }] }, { projection: { contactKind: 1, contactId: 1, businessName: 1, createdAt: 1, updatedAt: 1, __v: 1, typeId: 1 } }).sort({ updatedAt: 1 }).toArray();
+console.log('contact docs created/updated in the last 6h:', sup.length);
+for (const s of sup) console.log(' ', s.contactKind, s.contactId, JSON.stringify(s.businessName), 'created', s.createdAt?.toISOString(), 'updated', s.updatedAt?.toISOString(), '__v' in s ? '(has __v: mongoose)' : '(no __v: raw driver)');
+const grcs = await db.collection('grc').find({ createdAt: { $gte: since } }, { projection: { grcNumber: 1, createdAt: 1, supplierId: 1 } }).sort({ createdAt: 1 }).toArray();
+console.log('\ngrc created in last 6h:', grcs.length, grcs.length ? grcs[0].createdAt.toISOString() + ' .. ' + grcs[grcs.length - 1].createdAt.toISOString() : '');
+const bl = await db.collection('barcodeLabel').countDocuments({ createdAt: { $gte: since } });
+console.log('barcodeLabel created in last 6h:', bl);
+const lastBl = await db.collection('barcodeLabel').find({}).sort({ createdAt: -1 }).limit(1).project({ createdAt: 1, grcId: 1 }).toArray();
+console.log('latest barcodeLabel createdAt:', lastBl[0]?.createdAt?.toISOString(), '| now:', new Date().toISOString());
+const s2 = await db.collection('supplier').countDocuments(); const c2 = await db.collection('contact').countDocuments({ contactKind: 'Supplier' });
+console.log('\nright now: contact suppliers', c2, '| supplier collection', s2);
+await mongoose.disconnect();

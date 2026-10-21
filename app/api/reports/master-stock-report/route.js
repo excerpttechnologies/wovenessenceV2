@@ -636,6 +636,7 @@ import Uom from '@/models/Uom';
 import { Supplier } from '@/lib/contacts';
 import { json, num, r2, scopeOf, pageOf } from '@/lib/reports';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { imageUrl } from '@/lib/inventory';
 
 /* ==========================================================================
    /api/reports/master-stock-report  -  read-only.
@@ -1596,7 +1597,7 @@ export async function GET(req) {
         ...(itemIds.length ? [{ _id: { $in: itemIds.map((v) => new Types.ObjectId(v)) } }] : []),
         ...(codes.length ? [{ itemCode: { $in: codes } }, { name: { $in: codes } }] : []),
       ],
-    }).select('name itemCode subGroupId').lean()
+    }).select('name itemCode subGroupId image').lean()
     : [];
   const itemById = new Map(items.map((i) => [String(i._id), i]));
   const itemByCode = new Map();
@@ -1708,7 +1709,9 @@ export async function GET(req) {
       wsp: num(r.wspPrice),
       ecom: num(r.dpPrice),
       uom: s(r.uom) || EMPTY,
-      imageUrl: s(r.imageUrl),
+      imageUrl: imageUrl(r.imageUrl || r.filePath || '', r.barcodeNo || r.barcodeGenerated, r.oldBarcode)
+        || imageUrl(item?.image || ''),
+      itemImageUrl: imageUrl(item?.image || ''),
     };
   };
   const mapped = rows.map(mapRow);

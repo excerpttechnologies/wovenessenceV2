@@ -1,0 +1,16 @@
+import fs from 'fs';
+import { MongoClient } from 'mongodb';
+const uri = fs.readFileSync('.env', 'utf8').match(/^MONGODB_URI=(.+)$/m)[1].trim();
+const c = new MongoClient(uri);
+await c.connect();
+const db = c.db('grooretailerp1');
+const cut = new Date(Date.now() - 90 * 60 * 1000);
+const recent = await db.collection('contact').find({ updatedAt: { $gt: cut } }).project({ contactId: 1, businessName: 1, contactKind: 1, updatedAt: 1 }).limit(50).toArray();
+console.log('contact updated in last 90min:', recent.length);
+for (const r of recent.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt)).slice(0, 30)) console.log(JSON.stringify({ code: r.contactId, name: r.businessName, kind: r.contactKind, at: r.updatedAt }));
+const recentG = await db.collection('contact').find({ contactId: /^G\d+$/i, updatedAt: { $gt: cut } }).countDocuments();
+console.log('supplier-kind recently updated:', recentG);
+const nameWithG = await db.collection('contact').find({ businessName: /^G\d+/i }).project({ contactId: 1, businessName: 1 }).limit(20).toArray();
+console.log('contacts whose name starts with a G-code:', nameWithG.length);
+for (const r of nameWithG.slice(0, 20)) console.log(JSON.stringify({ code: r.contactId, name: r.businessName }));
+await c.close();

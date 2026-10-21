@@ -1,0 +1,14 @@
+import XLSX from 'xlsx';
+const wb = XLSX.readFile('hsr_opening_19_10_dated.xlsx', { raw: false });
+console.log('sheets', JSON.stringify(wb.SheetNames));
+const ws = wb.Sheets[wb.SheetNames[0]];
+const rows = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false });
+const headers = Object.keys(rows[0] || {});
+console.log('headers', JSON.stringify(headers));
+console.log('row1', JSON.stringify(rows[0], null, 2));
+const g741 = rows.filter((r) => String(r['Supplier Code'] || '').trim() === 'G741' || /unassigned/i.test(String(r['Supplier Name'] || '')));
+console.log('g741 count', g741.length);
+console.log('g741 rows', JSON.stringify(g741, null, 2));
+const zeros = rows.filter((r) => String(r['Supplier Code'] || '').trim() === '0' && String(r['Supplier Name'] || '').trim() === '0');
+console.log('zero count', zeros.length);
+console.log('zero rows', JSON.stringify(zeros.slice(0, 10), null, 2));

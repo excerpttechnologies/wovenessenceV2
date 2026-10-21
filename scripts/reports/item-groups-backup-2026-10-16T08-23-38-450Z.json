@@ -1,0 +1,146 @@
+[
+  {
+    "_id": "6a9187da8f389a91529a1920",
+    "name": "SRB",
+    "oldSubGroupId": "6a9187d9c1c6f8349932bd92",
+    "newSubGroupId": "6ad1df0308183d992d2606dd"
+  },
+  {
+    "_id": "6a9187d98f389a91529a1910",
+    "name": "10-PLNBTM",
+    "oldSubGroupId": "6a9187d7c1c6f8349932bd3d",
+    "newSubGroupId": "6a9187ddc1c6f8349932be2a"
+  },
+  {
+    "_id": "6a9187da8f389a91529a191f",
+    "name": "SH-BIT",
+    "oldSubGroupId": "6a9187d9c1c6f8349932bd8b",
+    "newSubGroupId": "6ad1df0408183d992d2606de"
+  },
+  {
+    "_id": "6a9187d88f389a91529a1902",
+    "name": "10-PF-ORG",
+    "oldSubGroupId": "6a9187d7c1c6f8349932bd3d",
+    "newSubGroupId": "6a9187ddc1c6f8349932be2a"
+  },
+  {
+    "_id": "6a9187df8f389a91529a1962",
+    "name": "FX-CRB",
+    "oldSubGroupId": "6a9187d9c1c6f8349932bd87",
+    "newSubGroupId": "6ad1df0308183d992d2606dd"
+  },
+  {
+    "_id": "6a9187d98f389a91529a1913",
+    "name": "10-PRAWSILK",
+    "oldSubGroupId": "6a9187d7c1c6f8349932bd3d",
+    "newSubGroupId": "6a9187ddc1c6f8349932be2a"
+  },
+  {
+    "_id": "6a9187d98f389a91529a1909",
+    "name": "10-2BY2",
+    "oldSubGroupId": "6a9187d7c1c6f8349932bd3d",
+    "newSubGroupId": "6a9187ddc1c6f8349932be2a"
+  },
+  {
+    "_id": "6a9187d98f389a91529a1914",
+    "name": "10-PURESILK",
+    "oldSubGroupId": "6a9187d7c1c6f8349932bd3d",
+    "newSubGroupId": "6a9187ddc1c6f8349932be2a"
+  },
+  {
+    "_id": "6a9187d98f389a91529a190d",
+    "name": "10-LINING",
+    "oldSubGroupId": "6a9187d7c1c6f8349932bd3d",
+    "newSubGroupId": "6a9187ddc1c6f8349932be2a"
+  },
+  {
+    "_id": "6a9187d98f389a91529a190e",
+    "name": "10-PFAB",
+    "oldSubGroupId": "6a9187d7c1c6f8349932bd3d",
+    "newSubGroupId": "6a9187ddc1c6f8349932be2a"
+  },
+  {
+    "_id": "6a9187d88f389a91529a1904",
+    "name": "10-PF-TSUE",
+    "oldSubGroupId": "6a9187d7c1c6f8349932bd3d",
+    "newSubGroupId": "6a9187ddc1c6f8349932be2a"
+  },
+  {
+    "_id": "6a9187d98f389a91529a1908",
+    "name": "10-2*2BLK",
+    "oldSubGroupId": "6a9187d7c1c6f8349932bd3d",
+    "newSubGroupId": "6a9187ddc1c6f8349932be2a"
+  },
+  {
+    "_id": "6a9187d98f389a91529a1916",
+    "name": "10-VELVET",
+    "oldSubGroupId": "6a9187d7c1c6f8349932bd3d",
+    "newSubGroupId": "6a9187ddc1c6f8349932be2a"
+  },
+  {
+    "_id": "6a9187d98f389a91529a1915",
+    "name": "10-SATIN",
+    "oldSubGroupId": "6a9187d7c1c6f8349932bd3d",
+    "newSubGroupId": "6a9187ddc1c6f8349932be2a"
+  },
+  {
+    "_id": "6a9187da8f389a91529a1921",
+    "name": "SRB-O",
+    "oldSubGroupId": "6a9187d9c1c6f8349932bd92",
+    "newSubGroupId": "6ad1df0408183d992d2606de"
+  },
+  {
+    "_id": "6a9187d98f389a91529a190f",
+    "name": "10-PFAB-O",
+    "oldSubGroupId": "6a9187d7c1c6f8349932bd3d",
+    "newSubGroupId": "6a9187ddc1c6f8349932be2a"
+  },
+  {
+    "_id": "6a9187d98f389a91529a1907",
+    "name": "10-PF-CTNSLK",
+    "oldSubGroupId": "6a9187d7c1c6f8349932bd3d",
+    "newSubGroupId": "6a9187ddc1c6f8349932be2a"
+  },
+  {
+    "_id": "6a9187dc8f389a91529a193b",
+    "name": "RM-O",
+    "oldSubGroupId": "6a9187dbc1c6f8349932bdfa",
+    "newSubGroupId": "6a9187dbc1c6f8349932bdf3"
+  },
+  {
+    "_id": "6a9187df8f389a91529a1961",
+    "name": "PCRB",
+    "oldSubGroupId": "6a9187d9c1c6f8349932bd87",
+    "newSubGroupId": "6ad1df0308183d992d2606dd"
+  },
+  {
+    "_id": "6a9187e18f389a91529a197e",
+    "name": "4-HBP",
+    "oldSubGroupId": "6a9187d9c1c6f8349932bd98",
+    "newSubGroupId": "6ad1df0708183d992d2606df"
+  },
+  {
+    "_id": "6a9187db8f389a91529a192e",
+    "name": "MAGTA SHALYA",
+    "oldSubGroupId": "6a9187dac1c6f8349932bdd1",
+    "newSubGroupId": "6a9187dbc1c6f8349932bddf"
+  },
+  {
+    "_id": "6a9187da8f389a91529a191e",
+    "name": "CRB",
+    "oldSubGroupId": "6a9187d9c1c6f8349932bd87",
+    "newSubGroupId": "6ad1df0308183d992d2606dd"
+  },
+  {
+    "_id": "6a9187df8f389a91529a1964",
+    "name": "3PC -O",
+    "oldSubGroupId": "6a9187d9c1c6f8349932bda0",
+    "newSubGroupId": "6a9187ddc1c6f8349932be26"
+  },
+  {
+    "_id": "6a9187d88f389a91529a18fe",
+    "name": "15-SVNS",
+    "oldSubGroupId": "6a9187d7c1c6f8349932bd45",
+    "newSubGroupId": "6a9187d7c1c6f8349932bd4c"
+  }
+]

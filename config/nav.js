@@ -554,6 +554,8 @@ export const NAV = [
          any permission already saved against it still applies. */
       { label: 'Barcode Report', icon: LuBarcode,
         href: '/admin/reports/barcode-report' },
+      { label: 'Excel / Data Import', icon: LuFileCog,
+        href: '/admin/report/data-import' },
     ],
   },
 

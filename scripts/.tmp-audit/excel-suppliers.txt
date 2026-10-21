@@ -1,0 +1,230 @@
+﻿rows: 20548
+
+distinct supplier code/name pairs: 166
+ 15554 (Unassigned)|(Unassigned)
+   259 G1328|SHYAM Creations, VARANASI
+   255 G1181|PUSHPAM Handloom Sarees, VARANASI
+   215 G882|KRITIKA Sarees, BANGALORE
+   207 G969|VASURUPA Sarees Pvt Ltd, VARANASI
+   203 G1282|B KIRAN KUMAR, DHARMAVARAM
+   201 G1197|MADRAS Textiles, COIMBATORE
+   172 G1267|SWARNROOP Fashion, JAIPUR
+   162 G1260|M K SILK Creations LLP, BANGALORE
+   146 G608|HAJI MAJIDULLAH Fashion Pvt Ltd, VARANASI
+   133 G968|RUPDARSHI Sarees Pvt Ltd, VARANASI
+   130 G553|FAB Story, JAIPUR
+   125 G1300|RLASKA TexMeCo LLP, DELHI
+   108 G1070|Temple Fabrics
+   105 G1314|Shree VASTHRA Creation, SALEM
+    98 G831|The FASHION Point, PULIAMPATTI
+    96 G613|MEHANDI Silk Fab, BANGALORE
+    95 G1317|REVASTRA (formerly KANUSRII Texfab), KOLKATA
+    85 G540|SHREE NIKETAN Sarees (P) Ltd, VARANASI
+    85 G1010|K N Tex, ERODE
+    81 G1313|KANHAIYA Sarees, VARANASI
+    80 G597|UNIVERSAL Fabric Pvt Ltd, VARANASI
+    73 G1280|P S Fabrics, SALEM
+    64 G1308|Sri RAGHAVENDRA Silk Fabrics, BANGALORE
+    61 G931|JDS Design Studio (P) Ltd, VARANASI
+    55 G640|H NOORUL HASAN ABDUL MATIN & Co. Pvt Ltd
+    53 G1325|NAZMA Silk House, VARANASI
+    53 G585|KUNJ Sarees, VARANASI
+    52 G1183|KRISHNA Sundry Cottage Industries Pvt. Ltd., VARANASI
+    50 G589|CRN FABRICS - SC FOR HSR, Bangalore
+    49 G1214|GM Saress Pvt Ltd, KOLKATA
+    48 G1303|M B Sarees Pvt Ltd, VARANASI
+    47 G916|AS Sarees, SALEM
+    45 G29|RAHUL Silks & Sarees, BANGALORE
+    42 G1233|SHREENATH Tex Fab, SURAT
+    38 G517|DEVI Fabrics, SURAT
+    38 G1151|SAMAY By Jaideep, BANGALORE
+    38 G1323|PARVATI Silks, VARANASI
+    37 G893|Sri KRUPA Silks, BANGALORE
+    35 G583|M K SILK Creations, BANGALORE
+    35 G789|NOORUL HUDA Fabrics Pvt Ltd
+    33 G1252|EKTA Exclusive, SURAT
+    32 G1320|AMEERA Tex World, SURAT
+    31 G514|ROOP SADHANA Saree Emporium, VARANASI
+    31 G669|ROOPAYANI Sarees Pvt Ltd, VARANASI
+    30 G633|LABH Fashions, BANGALORE
+    30 G1270|SHREEJI Enterprises, MUMBAI
+    29 G1124|SAREE GHAR, DELHI
+    29 0|0
+    27 G648|M ASHOK Creations, BANGALORE
+    26 G747|KEONA Textiles, SURAT
+    25 G1251|DESIGN Studio, SURAT
+    22 G711|M J Fabrics, MUMBAI
+    22 G862|BINDU PRIYA Silks, MADANPALLE
+    21 G1078|AMOHA TRENDZ, SURAT
+    20 G437|CHIRALA Handlooms Pvt Ltd, CHENNAI
+    20 G1132|S S T Handloom, BHAGALPUR
+    19 G1306|AHUJA Textiles, DELHI
+    19 G590|YASHRI NILESH GHANSHYAM Silks Pvt Ltd, VARANASI
+    19 G858|DINESH Silk Emporium, BANGALORE
+    19 G1319|RAJASTHAN Textiles, KOLKATA
+    18 G601|PORWAL Bros, BANGALORE
+    17 G628|WOMEN ICON, SURAT
+    17 G592|LOYAL Fab, VARANASI
+    16 G974|GARDEN Silk Mills Ltd, BANGALORE
+    16 G1311|ASHIMA Designer, SURAT
+    15 G676|SRI VANI Silk Creations, HYDERABAD
+    15 G1087|EVERGREEN Creation, SURAT
+    15 G1297|ARHAM Arts, SURAT
+    14 G742|S S Textiles, MUMBAI
+    14 G833|SHA LALCHAND MADANRAJ & Co., BANGALORE
+    13 G521|TULSI Fabrics (India) Pvt Ltd, SURAT
+    13 G1264|MAHINDRA Creations, BANGALORE
+    13 G1192|SAMA KISHORE BABU,  VENKATAGIRI
+    13 G1309|SANMATI Designer, SURAT
+    12 G1073|TANZEB Silk & Sarees, VARANASI
+    11 G1139|ROOPSIDDHI Enterprise, AHMEDABAD
+    11 G764|K P Fabrics, MUMBAI
+    11 G1254|CHIRAG Tex Fab, SURAT
+    10 G638|CROSS WOVEN, VARANASI
+    10 G1204|SHANKESHWAR Lifestyles, BANGALORE
+    10 G1067|VINAYAGA Textiles, SALEM
+    10 G1305|PARAS Silk Emporium, BANGALORE
+    10 G1315|Shree BALAJI Sarees Pvt Ltd, KOLKATA
+     9 G513|MILLENNIUM Textiles, SURAT
+     9 G505|PARAMESHWARI Textiles, BANGALORE
+     9 G1316|HIMEER Textiles, MUMBAI
+     8 G660|VTEX Wvg. & Mfg. Mills Ltd, MUMBAI
+     8 G1304|ZARA Collection, VARANASI
+     7 G567|M S BANDHANI, JAIPUR
+     7 G672|CHITRANGANA, JAIPUR
+     7 G610|M J Bros, VARANASI
+     6 G758|SUVARNA Matching Center, BANGALORE
+     6 G641|BANG Textiles, SURAT
+     6 G717|NIHAARA
+     6 G615|SHREE RANI SATI Silk Creation, VARNASI
+     6 G1186|KUSHI Fashion, SURAT
+     6 G1312|TRISNEHA Handlooms Pvt Ltd, KOLKATA
+     5 G586|OM FABRICS
+     5 G1326|RANGOLI Prints, VARANASI
+     5 G749|MANANDI Distributors, BANGALORE
+     5 G1175|ASHOKA Handloom Arts, COIMBATORE
+     4 G788|SRE KUMERAN TEX
+     4 G650|Haji ISMAIL Haji YUNUS, VARANASI
+     4 G1092|N HARILAL, MUMBAI
+     4 G1093|SRI LAKSHMI VENKATESHWARA Silk Kendra, BANGALORE
+     4 G762|RISHABH Fabtex, BALOTRA
+     4 G1223|ARPIT Silk India, AHMEDABAD
+     4 G1042|MAN MANDIR SIL AND SAREES, BANGALORE
+     4 G982|A I Fabmark, BHAGALPUR
+     3 G627|GOKUL Texprints Pvt Ltd, SURAT
+     3 G1262|KISHORI Cottons, JAIPUR
+     3 G1055|S GOVINDA, SURAT
+     3 G868|ART9, SURAT
+     3 G741|(Unassigned)
+     2 G593|NAVRATAN BANDHANIES
+     2 G594|A N CREATION, JAIPUR
+     2 G786|AKYA Studio, SURAT
+     2 G609|H N ABDUL MATIN & CO FABRICS PVT LTD, VARANASI
+     2 G673|H S Fabrics, VARANASI
+     2 G689|ASHOKA FABRICS
+     2 G1116|ZED Weaving Culture, VARANASI
+     2 G1117|BHAGWAN Handloom House, VARANASI
+     2 G528|H R K Powerlooms, BANGALORE
+     2 G1237|KOYAL Designer, SURAT
+     2 G1194|VITTAL Commerce LLP, SALEM
+     2 G524|KARNATAKA Saree Centre, MYSORE
+     2 G1243|MOHINI Sons, SURAT
+     2 G780|KISHORI Sarees Pvt Ltd, JAIPUR
+     1 G542|DEVLOK, JAIPUR
+     1 G793|TEMPLE SILK CREATION
+     1 G670|DIVYA FASHION
+     1 G659|SONU FAB, SURAT
+     1 G807|KRISHNA FAB & FASHION
+     1 G674|ISHWAR DAS SANJAY KR & CO
+     1 G808|NATURAL CRAFT, JAIPUR
+     1 G559|V V S Handlooms, HYDERABAD
+     1 G685|DIVYAM EMBROIDERIES
+     1 G651|SAI CREATION, SURAT
+     1 G460|SHAFI SONS
+     1 G814|SILK WORLD
+     1 G722|A C FABRICS
+     1 G696|IMPRESSIONS
+     1 G699|YAMUNA CREATIONS
+     1 G700|FFAB CREATTIONS PVT LTD
+     1 G630|GAYATHRI Handlooms House, HYDERABAD
+     1 G681|HONEY FASHIONS
+     1 G723|GUPTA IMPEX, JAIPUR
+     1 G725|DIGAMBER FABRICS, JAIPUR
+     1 G563|SYSTEM SUPPLIER
+     1 G654|SARRA FAB INTERNATIONAL P LTD, SURAT
+     1 G1111|PHOOL BOOTI Pvt Ltd
+     1 G574|B R KAPOOR And Sons Pvt Ltd, DELHI
+     1 G1063|NAMAN Fabrics, MUMBAI
+     1 G666|SUMERU HANDLOOMS, HYDERABAD
+     1 G658|MAHAVEER CREATIONS, BANGALORE
+     1 G506|REKHA Silk Mills Pvt Ltd, SURAT
+     1 G1156|DIVYAM Ckreation, SURAT
+     1 G1170|B LAXMI Fashions, BANGALORE
+     1 G1256|VTEX Wvg & Mfg Mills Pvt Ltd, MUMBAI
+     1 G996|H.M.SILKS
+     1 G1002|S.Jagannatham & Sons
+     1 G1318|HEART & SOUL Ethnique Wear LLP, SURAT
+     1 G876|VAISHALI Fashions, SURAT
+     1 G883|ARSONS Sarees Pvt Ltd, VARANASI
+     1 G1273|DELUXE Sarees, BANGALORE
+
+rows with G741 / G589:
+{"sl":"2184","group":"FABRICS","itemCode":"115075","itemCode1":"115075","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"6.15","itemName":"4-FABRICS","printDescription":"5407 FANCY FABRICS","hsn":"540742"}
+{"sl":"2825","group":"FABRICS","itemCode":"121076","itemCode1":"121076","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"1","itemName":"4-FA-O","printDescription":"5407 FANCY FABRICS","hsn":"540742"}
+{"sl":"2830","group":"FABRICS","itemCode":"121793","itemCode1":"121793","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"1.5","itemName":"4-FABRICS","printDescription":"5208 COTTON","hsn":"520812"}
+{"sl":"2838","group":"FABRICS","itemCode":"122698","itemCode1":"122698","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"9.4","itemName":"4-FABRICS","printDescription":"5407 FANCY FABRICS","hsn":"540742"}
+{"sl":"2846","group":"FABRICS","itemCode":"122741","itemCode1":"122741","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"3.2","itemName":"4-FABRICS","printDescription":"5407 FANCY FABRICS","hsn":"540742"}
+{"sl":"2851","group":"FABRICS","itemCode":"123208","itemCode1":"123208","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"13.2","itemName":"4-FABRICS","printDescription":"5407 FANCY FABRICS","hsn":"540742"}
+{"sl":"6369","group":"INSKIRT","itemCode":"50015","itemCode1":"50015","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"4","itemName":"INSKIRT","printDescription":"DYED COTTON 7 PART","hsn":"540752"}
+{"sl":"6370","group":"INSKIRT","itemCode":"50016","itemCode1":"50016","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"9","itemName":"INSKIRT","printDescription":"DYED SATIN 7 PART","hsn":"540710"}
+{"sl":"6371","group":"INSKIRT","itemCode":"54313","itemCode1":"54313","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"179","itemName":"IN-O","printDescription":"Plain Bizzy Lizzi 7 Part.","hsn":"540742"}
+{"sl":"6372","group":"INSKIRT","itemCode":"54319","itemCode1":"54319","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"10","itemName":"INSKIRT","printDescription":"DYED SATIN 7 PART","hsn":"540752"}
+{"sl":"6373","group":"INSKIRT","itemCode":"54320","itemCode1":"54320","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"1","itemName":"INSKIRT","printDescription":"SHAPE WEAR L SIZE","hsn":"540752"}
+{"sl":"6374","group":"INSKIRT","itemCode":"54341","itemCode1":"54341","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"58","itemName":"INSKIRT","printDescription":"7 PART, SOFT FEEL COTTON INSKIRT","hsn":"540710"}
+{"sl":"6638","group":"PLAIN FABRICS","itemCode":"107899","itemCode1":"107899","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"9.3","itemName":"10-PLAIN FABRICS","printDescription":"TISSUE SILK GOLD PLUS","hsn":"500720"}
+{"sl":"6683","group":"PLAIN FABRICS","itemCode":"112754","itemCode1":"112754","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"1.7","itemName":"10-PLAIN FABRICS","printDescription":"SHARMILEE","hsn":"520812"}
+{"sl":"6844","group":"PLAIN FABRICS","itemCode":"115783","itemCode1":"115783","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"1","itemName":"10-PLAIN FABRICS","printDescription":"TISSUE SILK GOLD PLUS","hsn":"500720"}
+{"sl":"6971","group":"PLAIN FABRICS","itemCode":"116470","itemCode1":"116470","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"1.9","itemName":"10-PLAIN FABRICS","printDescription":"SOFT CREPE","hsn":"540742"}
+{"sl":"6972","group":"PLAIN FABRICS","itemCode":"116472","itemCode1":"116472","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"0.85","itemName":"10-PLAIN FABRICS","printDescription":"SOFT CREPE","hsn":"540742"}
+{"sl":"6989","group":"PLAIN FABRICS","itemCode":"117349","itemCode1":"117349","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"0","itemName":"10-PLAIN FABRICS","printDescription":"H/L HEAVY DUPION","hsn":"500720"}
+{"sl":"6994","group":"PLAIN FABRICS","itemCode":"117382","itemCode1":"117382","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"1.2","itemName":"10-PLAIN FABRICS","printDescription":"99189 AD2","hsn":"500720"}
+{"sl":"6995","group":"PLAIN FABRICS","itemCode":"117383","itemCode1":"117383","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"6.95","itemName":"10-PLAIN FABRICS","printDescription":"99600 A1","hsn":"500720"}
+{"sl":"7237","group":"PLAIN FABRICS","itemCode":"173493","itemCode1":"173493","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"0","itemName":"10-PLAIN FABRICS","printDescription":"PLAIN VELVET","hsn":"540752"}
+{"sl":"7755","group":"PLAIN FABRICS","itemCode":"239510","itemCode1":"239510","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"5.75","itemName":"10-PURESILK","printDescription":"PL THICK PLAIN PURE SILK","hsn":"500720"}
+{"sl":"12238","group":"READYMADE","itemCode":"50652","itemCode1":"50652","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"7","itemName":"READYMADE","printDescription":"READY BLOUSE - 1","hsn":"540752"}
+{"sl":"12241","group":"READYMADE","itemCode":"50657","itemCode1":"50657","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"8","itemName":"READYMADE","printDescription":"READY BLOUSE","hsn":"540752"}
+{"sl":"20493","group":"SINGLE READY BIT","itemCode":"50129","itemCode1":"50129","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"3","itemName":"SINGLE READY BIT","printDescription":"BANGALORE LOTUS","hsn":"540742"}
+{"sl":"20500","group":"SINGLE READY BIT","itemCode":"50399","itemCode1":"50399","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"1","itemName":"SINGLE READY BIT","printDescription":"PURE SATIN SPECIAL BROCADE APPRX 1MTR EACH","hsn":"540742"}
+{"sl":"20504","group":"SINGLE READY BIT","itemCode":"53601","itemCode1":"53601","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"10","itemName":"SINGLE READY BIT","printDescription":"Approx .98cm Cotton Checks","hsn":"520812"}
+{"sl":"20505","group":"SINGLE READY BIT","itemCode":"53604","itemCode1":"53604","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"9","itemName":"SINGLE READY BIT","printDescription":"apx 1 MTR CUT, 2BYB2 QUEENY BIT","hsn":"520841"}
+{"sl":"20507","group":"SINGLE READY BIT","itemCode":"53614","itemCode1":"53614","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"8","itemName":"SINGLE READY BIT","printDescription":"Apx 1 mtr fancy fabric","hsn":"52104210"}
+{"sl":"20509","group":"SINGLE READY BIT","itemCode":"53622","itemCode1":"53622","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"17","itemName":"SINGLE READY BIT","printDescription":"1.6 MTR CUT, ARVIND COTTON","hsn":"520812"}
+{"sl":"20510","group":"SINGLE READY BIT","itemCode":"53623","itemCode1":"53623","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"21","itemName":"SINGLE READY BIT","printDescription":"1.6 MTRCUT, VIMAL COTTON FABRIC","hsn":"551511"}
+{"sl":"20511","group":"SINGLE READY BIT","itemCode":"53624","itemCode1":"53624","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"14","itemName":"SINGLE READY BIT","printDescription":"1.6 MTR CUT, NATURAL SOFT COTTON","hsn":"540742"}
+{"sl":"20512","group":"SINGLE READY BIT","itemCode":"53625","itemCode1":"53625","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"11","itemName":"SINGLE READY BIT","printDescription":"2.25 MTR CUT, ROSY PRINT","hsn":"520812"}
+{"sl":"20513","group":"SINGLE READY BIT","itemCode":"53626","itemCode1":"53626","supplierCode":"G741","supplierName":"(Unassigned)","grc":"","qty":"16","itemName":"SINGLE READY BIT","printDescription":"2.25 MTR CUT, PC BIO FINISH","hsn":"540742"}
+{"sl":"20514","group":"SINGLE READY BIT","itemCode":"53629","itemCode1":"53629","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"1","itemName":"SINGLE READY BIT","printDescription":"44 Inch, Aprox 1mtr fancy jkd bit","hsn":"540742"}
+{"sl":"20516","group":"SINGLE READY BIT","itemCode":"54303","itemCode1":"54303","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"2","itemName":"SINGLE READY BIT","printDescription":"APX 98CMS, FANCY BLOUSE","hsn":"540742"}
+{"sl":"20519","group":"SINGLE READY BIT","itemCode":"54315","itemCode1":"54315","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"1","itemName":"SINGLE READY BIT","printDescription":"Apx 1mTR bIT, SPL 2*2 BLOUSE","hsn":"520812"}
+{"sl":"20521","group":"SINGLE READY BIT","itemCode":"54322","itemCode1":"54322","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"1","itemName":"SINGLE READY BIT","printDescription":"APX 1MTR CUT, FANCY FABRIC","hsn":"540710"}
+{"sl":"20523","group":"SINGLE READY BIT","itemCode":"54326","itemCode1":"54326","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"2","itemName":"SINGLE READY BIT","printDescription":"APX .98CMS, CUT, FANCY FABRIC","hsn":"520811"}
+{"sl":"20524","group":"SINGLE READY BIT","itemCode":"54328","itemCode1":"54328","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"3","itemName":"SINGLE READY BIT","printDescription":"APX 0.98CMS CUT, FANCY FABRIC","hsn":"540752"}
+{"sl":"20525","group":"SINGLE READY BIT","itemCode":"54330","itemCode1":"54330","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"26","itemName":"SINGLE READY BIT","printDescription":"APX 0.96 CM CUT, FANCY BLOUSE","hsn":"540752"}
+{"sl":"20527","group":"SINGLE READY BIT","itemCode":"54338","itemCode1":"54338","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"3","itemName":"SRB","printDescription":"APX 0.96CM CUT, FANCY BLOUSE BIT","hsn":"55151130"}
+{"sl":"20530","group":"SINGLE READY BIT","itemCode":"54345","itemCode1":"54345","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"55","itemName":"SRB","printDescription":"APX 1 MTR CUT, FX, CTN SILK FABRIC","hsn":"540752"}
+{"sl":"20533","group":"SINGLE READY BIT","itemCode":"60001","itemCode1":"60001","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"1","itemName":"SRB","printDescription":"APX 0.96 MTR CUT, FX SILKY BUTTA WEAVE","hsn":"540752"}
+{"sl":"20534","group":"SINGLE READY BIT","itemCode":"60003","itemCode1":"60003","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"1","itemName":"SINGLE READY BIT","printDescription":"APX 0.96 MTR CUT, TEMPLE BDR FABRIC","hsn":"540741"}
+{"sl":"20535","group":"SINGLE READY BIT","itemCode":"60010","itemCode1":"60010","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"1","itemName":"SRB","printDescription":"APX 0.98 MTR CUT, FANCY BUTTA BIT","hsn":"540752"}
+{"sl":"20536","group":"SINGLE READY BIT","itemCode":"60011","itemCode1":"60011","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"1","itemName":"SINGLE READY BIT","printDescription":"Apx 1 Mtr Cut, Soft Printed Cotton Bit","hsn":"520811"}
+{"sl":"20537","group":"SINGLE READY BIT","itemCode":"60016","itemCode1":"60016","supplierCode":"G741","supplierName":"(Unassigned)","grc":"","qty":"21","itemName":"SINGLE READY BIT","printDescription":"Apx 0.96 Mtr Cut, Soft Silky Komal Fabric","hsn":"54071011"}
+{"sl":"20538","group":"SINGLE READY BIT","itemCode":"60018","itemCode1":"60018","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"6","itemName":"SINGLE READY BIT","printDescription":"Apx 0.96 Mtr Cut, Sml Bdr Ksturi","hsn":"540710"}
+{"sl":"20540","group":"SINGLE READY BIT","itemCode":"60022","itemCode1":"60022","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"5","itemName":"SINGLE READY BIT","printDescription":"APX 0.96 MTR CUT, FX TISSUE WITH BDR","hsn":"540710"}
+{"sl":"20541","group":"SINGLE READY BIT","itemCode":"60026","itemCode1":"60026","supplierCode":"G741","supplierName":"(Unassigned)","grc":"","qty":"12","itemName":"SINGLE READY BIT","printDescription":"APX 0.96 MTR CUT,HANDLOOM  COTTON FABRIC","hsn":"540710"}
+{"sl":"20545","group":"SINGLE READY BIT","itemCode":"60060","itemCode1":"60060","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"1","itemName":"SINGLE READY BIT","printDescription":"APR 0.98 MTR CUT, BIG CHETTNADU  BORDER BIT","hsn":"520811"}
+{"sl":"20546","group":"SINGLE READY BIT","itemCode":"60062","itemCode1":"60062","supplierCode":"G589","supplierName":"CRN FABRICS - SC FOR HSR, Bangalore","grc":"","qty":"1","itemName":"SINGLE READY BIT","printDescription":"apx 0.97 mtr cut, soft checks blouse bit","hsn":"520811"}
+
+unassigned rows: 15557
+distinct supplier codes: 166
+distinct item codes: 20481
+distinct sl no: 20548
+duplicate item codes total extra: 67

@@ -1,0 +1,15 @@
+import XLSX from 'xlsx';
+const wb = XLSX.readFile('hsr_opening_19_10_dated.xlsx', { raw: false });
+const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '', raw: false });
+console.log('rows', rows.length);
+console.log('headers', JSON.stringify(Object.keys(rows[0] || {}), null, 1));
+console.log('sample', JSON.stringify(rows[0], null, 1));
+const wanted = ['OM1098', 'OM1109', 'OM1100'];
+const hits = rows.filter((r) => Object.values(r).some((v) => wanted.some((w) => String(v).includes(w))));
+console.log('hits:', hits.length);
+if (hits.length) console.log(JSON.stringify(hits.slice(0, 3), null, 1));
+const barcodes = new Set();
+for (const r of rows) for (const [k, v] of Object.entries(r)) if (/barcode/i.test(k)) barcodes.add(String(v).trim());
+const sampleB = [...barcodes].slice(0, 10);
+console.log('barcode-ish values sample', JSON.stringify(sampleB));
+console.log('contains OM1098?', [...barcodes].some((b) => b.includes('OM1098')));
