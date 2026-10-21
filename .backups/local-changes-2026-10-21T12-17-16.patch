@@ -1,0 +1,232 @@
+diff --git a/app/api/reports/barcode-detail/route.js b/app/api/reports/barcode-detail/route.js
+index 853a404..d9028c7 100644
+--- a/app/api/reports/barcode-detail/route.js
++++ b/app/api/reports/barcode-detail/route.js
+@@ -782,7 +782,8 @@ export async function GET(req) {
+       currentLocation: currentLoc?.name || '',
+       originLocation: originLoc?.name || '',
+       grcNo: str(unit.grcNo),
+-      grcDate: unit.createdAt || null,
++      grcDate: unit.stockDate || unit.createdAt || null,
++      stockAge: (unit.stockAge !== undefined && unit.stockAge !== null) ? unit.stockAge : null,
+       serialNo: unit.serialNo ?? unit.billSlNo ?? '',
+       batchNo: str(unit.batchNo),
+       transferNo: str(unit.transferNo),
+diff --git a/app/api/reports/master-stock-report/route.js b/app/api/reports/master-stock-report/route.js
+index 950da43..1034b1b 100644
+--- a/app/api/reports/master-stock-report/route.js
++++ b/app/api/reports/master-stock-report/route.js
+@@ -629,7 +629,6 @@ import dbConnect from '@/lib/db';
+ import { requireSession } from '@/lib/session';
+ import { escapeRegex } from '@/lib/validate';
+ import { BarcodeLabel, BARCODE_STATUS } from '@/lib/barcodeLabel';
+-import StockMovement from '@/models/StockMovement';
+ import Item from '@/models/Item';
+ import ProductGroup from '@/models/ProductGroup';
+ import CompanyLocation from '@/models/CompanyLocation';
+@@ -652,10 +651,9 @@ import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+    transaction by lib/inventory.js). SOLD and VOID units are not stock, so a
+    closing-stock report must not carry them.
+ 
+-   NO N+1: one count, one page read, then FIVE batched lookups for the whole
+-   page regardless of its size - items, groups, suppliers, locations and the
+-   receipt dates. The same shape app/api/reports/barcode-report/route.js uses
+-   for its GRC lookup.
++   NO N+1: one count, one page read, then FOUR batched lookups for the whole
++   page regardless of its size - items, groups, suppliers and locations. The
++   same shape app/api/reports/barcode-report/route.js uses for its GRC lookup.
+    ========================================================================== */
+ 
+ /* the report's own column order, used by the route and the export alike */
+@@ -1470,9 +1468,9 @@ export async function GET(req) {
+   const startDate = s(sp.get('startDate'));
+   const endDate = s(sp.get('endDate'));
+   if (startDate || endDate) {
+-    filter.createdAt = {};
+-    if (startDate) filter.createdAt.$gte = new Date(startDate);
+-    if (endDate) filter.createdAt.$lte = new Date(endDate + 'T23:59:59.999Z');
++    filter.stockDate = {};
++    if (startDate) filter.stockDate.$gte = new Date(startDate);
++    if (endDate) filter.stockDate.$lte = new Date(endDate + 'T23:59:59.999Z');
+   }
+ 
+   /* GROUP NAME is the ITEM's group - mapRow below reads it from the Item
+@@ -1545,18 +1543,9 @@ export async function GET(req) {
+   if (ands.length) filter.$and = ands;
+   if (exprs.length) filter.$expr = exprs.length === 1 ? exprs[0] : { $and: exprs };
+ 
+-  /* AGE (days) is not a field - it is derived, in mapRow below, from the date
+-     this unit entered stock: the earliest inward StockMovement for the
+-     barcode, and the row's own createdAt only when the unit predates the
+-     ledger. So it cannot be a plain clause on barcodeLabel, and filtering it
+-     after the page is read would page and total the wrong set.
+-     Instead the bounds are turned into a DATE WINDOW over that same derived
+-     date, and the ids inside it are resolved first - against the rows every
+-     other filter has already narrowed this to, so the lookup runs over the
+-     result and not over the whole warehouse. Because age floors to whole
+-     days:
+-       age >= N  ->  entered on or before  now - N days
+-       age <= M  ->  entered strictly after now - (M+1) days  */
++  /* AGE (days) is stored on the barcode as stockAge - the value the opening
++     workbook supplied. Filter that field directly, so the rows counted are
++     exactly the rows whose printed Age satisfies the filter. */
+   const ageMinRaw = s(sp.get('ageMin'));
+   const ageMaxRaw = s(sp.get('ageMax'));
+   const ageMin = Number(ageMinRaw);
+@@ -1564,40 +1553,15 @@ export async function GET(req) {
+   const hasAgeMin = ageMinRaw !== '' && Number.isFinite(ageMin);
+   const hasAgeMax = ageMaxRaw !== '' && Number.isFinite(ageMax);
+   if (hasAgeMin || hasAgeMax) {
+-    const DAY_MS = 24 * 60 * 60 * 1000;
+-    const now = Date.now();
+-    const ageWindow = {};
+-    if (hasAgeMin) ageWindow.$lte = new Date(now - ageMin * DAY_MS);
+-    if (hasAgeMax) ageWindow.$gt = new Date(now - (ageMax + 1) * DAY_MS);
+-
+-    const inAge = await BarcodeLabel.aggregate([
+-      { $match: filter },
+-      {
+-        $lookup: {
+-          from: 'stockmovement',
+-          let: { bid: '$_id' },
+-          pipeline: [
+-            { $match: { $expr: { $and: [{ $eq: ['$barcodeId', '$$bid'] }, { $gt: ['$qty', 0] }] } } },
+-            { $sort: { at: 1 } },
+-            { $limit: 1 },
+-            { $project: { at: 1 } },
+-          ],
+-          as: 'inward',
+-        },
+-      },
+-      /* the same fallback mapRow uses, so the rows this keeps are exactly
+-         the rows whose printed Age satisfies the filter */
+-      { $addFields: { enteredAt: { $ifNull: [{ $arrayElemAt: ['$inward.at', 0] }, '$createdAt'] } } },
+-      { $match: { enteredAt: ageWindow } },
+-      { $project: { _id: 1 } },
+-    ]);
+-    filter._id = { $in: inAge.map((r) => r._id) };
++    filter.stockAge = {};
++    if (hasAgeMin) filter.stockAge.$gte = ageMin;
++    if (hasAgeMax) filter.stockAge.$lte = ageMax;
+   }
+ 
+   /* ---- SERVER-SIDE pagination: count, then read only this page ---------- */
+   const total = await BarcodeLabel.countDocuments(filter);
+   const rows = await BarcodeLabel.find(filter)
+-    .sort({ createdAt: -1, _id: -1 })
++    .sort({ stockDate: -1, _id: -1 })
+     .skip((page - 1) * perPage)
+     .limit(perPage)
+     .lean();
+@@ -1690,28 +1654,19 @@ export async function GET(req) {
+     : [];
+   const locName = new Map(locs.map((l) => [String(l._id), s(l.name)]));
+ 
+-  /* DATE: when this unit entered stock. The ledger's own inward row is the
+-     authoritative answer (models/StockMovement.js is append-only and is what
+-     every stock report reads), so the earliest inward movement for the
+-     barcode is used, and the row's own createdAt only when the unit predates
+-     the ledger. */
+-  const moves = ids.length
+-    ? await StockMovement.find({ barcodeId: { $in: ids }, qty: { $gt: 0 } })
+-      .select('barcodeId at').sort({ at: 1 }).lean()
+-    : [];
+-  const inwardAt = new Map();
+-  moves.forEach((m) => {
+-    const k = String(m.barcodeId);
+-    if (!inwardAt.has(k) && m.at) inwardAt.set(k, m.at);
+-  });
+-
+   /* ---- the mapper: ONE place that turns a barcode row into a report row -- */
+   const asOf = Date.now();
+   const DAY = 24 * 60 * 60 * 1000;
+   const mapRow = (r) => {
+     const item = itemOf(r);
+     const sup = supOf(r);
+-    const date = inwardAt.get(String(r._id)) || r.createdAt || null;
++    /* DATE and AGE are the opening workbook's own fields. Do not substitute
++       StockMovement or createdAt here: those describe when the row was
++       imported, not the stock date printed on the label. If an older row has
++       a stockDate but no stockAge, derive the age from that stockDate. */
++    const date = r.stockDate || null;
++    const calculatedAge = date ? Math.max(0, Math.floor((asOf - new Date(date).getTime()) / DAY)) : null;
++    const age = (r.stockAge !== undefined && r.stockAge !== null) ? r.stockAge : calculatedAge;
+     /* Close Qty: the unit's own current quantity. qtyNum is the number the
+        whole application sums (lib/icStock.js, the IC challan picker), and it
+        already carries the UOM rule - PC+unique 1, PC+batch the received
+@@ -1736,7 +1691,7 @@ export async function GET(req) {
+       date: date || null,
+       docNo: s(r.grcNo),
+       stockPoint: s(r.stockPoint),
+-      age: date ? Math.max(0, Math.floor((asOf - new Date(date).getTime()) / DAY)) : null,
++      age,
+       /* the unit's OWN number, never the composed barcodeGenerated */
+       barcodeNumber: s(r.barcodeNo) || EMPTY,
+       closeQty,
+diff --git a/components/BarcodeDetailView.jsx b/components/BarcodeDetailView.jsx
+index c4685e2..4bf7132 100644
+--- a/components/BarcodeDetailView.jsx
++++ b/components/BarcodeDetailView.jsx
+@@ -561,6 +561,14 @@ function calculateAgeInDays(dateValue) {
+   }
+ }
+ 
++function displayAge(stockAge, dateValue) {
++  if (stockAge !== null && stockAge !== undefined && stockAge !== '') {
++    const days = Number(stockAge);
++    if (Number.isFinite(days)) return days === 1 ? '1 DAY' : `${days} DAYS`;
++  }
++  return calculateAgeInDays(dateValue);
++}
++
+ /* One labelled value. The label sits above its value so a long branch name
+    does not push the column out of shape. */
+ function Cell({ label, value, wide = false, editing = false, type = 'text', onChange, bold = false, dropdown = false, dropdownValue, dropdownOptions = [] }) {
+@@ -1093,7 +1101,7 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
+                 <Cell label="Origin Location" value={text(d.originLocation)} />
+                 <Cell label="GRC Number" value={text(d.grcNo)} bold />
+                 <Cell label="GRC Date" value={when(d.grcDate)} bold />
+-                <Cell label="Age" value={calculateAgeInDays(d.grcDate)} bold />
++                <Cell label="Age" value={displayAge(d.stockAge, d.grcDate)} bold />
+                 <Cell label="Serial Number" value={text(d.serialNo)} />
+                 <Cell label="Batch Number" value={text(d.batchNo)} />
+                 <Cell label="Transfer Number" value={text(d.transferNo)} />
+diff --git a/lib/barcodeLabel.js b/lib/barcodeLabel.js
+index cfad871..51c1068 100644
+--- a/lib/barcodeLabel.js
++++ b/lib/barcodeLabel.js
+@@ -400,6 +400,19 @@ const barcodeLabelSchema = new mongoose.Schema(
+          MTR + batch  -> the whole received metreage */
+     qtyNum: { type: Number, default: 1 },
+ 
++    /* Opening stock audit fields from HSR Excel import */
++    openingQty: { type: Number, default: 0 },      // Raw "Open Qty" from Excel
++    hsrPurPrice: { type: Number, default: 0 },     // HSR purchase price from Excel
++
++    /* The stock date and age the opening-stock workbook carries. Declared here
++       so a schema-aware write keeps them (an undeclared path is dropped) and
++       the Master Stock Report reads the workbook's Date/Age instead of falling
++       back to createdAt. Null - not 0 - when unknown: the report treats a
++       missing stockAge as "calculate it from stockDate", and age 0 is a real
++       age. */
++    stockDate: { type: Date, default: null },
++    stockAge: { type: Number, default: null },
++
+     /* Set on a batch row so the label can print "5 MTR" and a report can tell
+        a 5-metre batch barcode from five 1-metre unique ones. */
+     batchNo: { type: String, default: '' },
+diff --git a/package.json b/package.json
+index 17c6389..86b71fb 100644
+--- a/package.json
++++ b/package.json
+@@ -89,7 +89,9 @@
+     "migrate:barcode-bill-slno": "node --env-file=.env --import ./scripts/aliasRegister.mjs scripts/repairBarcodeBillSlNo.mjs",
+     "migrate:barcode-bill-slno:apply": "node --env-file=.env --import ./scripts/aliasRegister.mjs scripts/repairBarcodeBillSlNo.mjs --apply",
+     "ic:receive-pending": "node --env-file=.env --import ./scripts/aliasRegister.mjs scripts/receivePendingIcChallans.mjs",
+-    "ic:receive-pending:apply": "node --env-file=.env --import ./scripts/aliasRegister.mjs scripts/receivePendingIcChallans.mjs --apply"
++    "ic:receive-pending:apply": "node --env-file=.env --import ./scripts/aliasRegister.mjs scripts/receivePendingIcChallans.mjs --apply",
++    "hsr:sync": "node --env-file=.env --import ./scripts/aliasRegister.mjs scripts/seedHsrOpening.mjs --sync",
++    "hsr:sync:apply": "node --env-file=.env --import ./scripts/aliasRegister.mjs scripts/seedHsrOpening.mjs --sync --apply"
+   },
+   "dependencies": {
+     "dotenv": "^18.0.7",

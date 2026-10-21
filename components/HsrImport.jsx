@@ -37,15 +37,18 @@ function Modal({ title, onClose, children, size = 'md', headerAction }) {
 }
 
 export default function HsrImportComponent({ api }) {
-  const { business, location: scopeLocation, finYear } = useScope();
+  const { business: scopeBusiness, location: scopeLocation, finYear: scopeFinYear } = useScope();
   const { options: locations } = useOptions('companylocations');
   const { options: stockPoints } = useOptions('stockpoints');
+  const { options: businesses } = useOptions('business');
   
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState('upload'); // upload, select-operation, preview, complete
   const [selectedFile, setSelectedFile] = useState(null);
+  const [business, setBusiness] = useState(scopeBusiness || '');
   const [targetLocation, setTargetLocation] = useState(scopeLocation || '');
   const [sourceLocation, setSourceLocation] = useState('');
+  const [finYear, setFinYear] = useState(scopeFinYear || '');
   const [selectedOperation, setSelectedOperation] = useState(IMPORT_OPERATIONS.ADD_STOCK);
   const [analysis, setAnalysis] = useState(null);
   const [masterResolution, setMasterResolution] = useState(null);
@@ -66,8 +69,10 @@ export default function HsrImportComponent({ api }) {
     setReconciliation(null);
     setError('');
     setResult(null);
+    setBusiness(scopeBusiness || '');
     setTargetLocation(scopeLocation || '');
     setSourceLocation('');
+    setFinYear(scopeFinYear || '');
     setSelectedOperation(IMPORT_OPERATIONS.ADD_STOCK);
     setDryRun(true);
   }
@@ -188,7 +193,21 @@ export default function HsrImportComponent({ api }) {
                   resolve master data, and show you a detailed preview before any changes are made to the database.
                 </p>
 
-                <label htmlFor="hsr-target-location" className="mb-1 block text-[13px text-ink">
+                <label htmlFor="hsr-business" className="mb-1 block text-[13px] text-ink">
+                  Business <span className="text-[12px] text-inkmuted"> (optional)</span>
+                </label>
+                <select
+                  id="hsr-business"
+                  value={business}
+                  disabled={busy}
+                  onChange={(e) => { setBusiness(e.target.value); setError(''); }}
+                  className="f-input mb-3 w-full"
+                >
+                  <option value="">Select Business (optional)</option>
+                  {businesses.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+
+                <label htmlFor="hsr-target-location" className="mb-1 block text-[13px] text-ink">
                   Target Warehouse <span className="f-req">*</span>
                 </label>
                 <select
@@ -230,7 +249,7 @@ export default function HsrImportComponent({ api }) {
                 />
 
                 <label htmlFor="hsr-file" className="mb-1 block text-[13px] text-ink">
-                  Excel File <span className="f-req">*</span>
+                  Excel or CSV File <span className="f-req">*</span>
                 </label>
                 <input
                   id="hsr-file"

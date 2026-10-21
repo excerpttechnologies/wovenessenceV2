@@ -1,0 +1,77 @@
+﻿DB: grooretailerp1
+collections: adminusers, agent, aiSuggestions, attributeaddon, attributedefinitions, auditLogs, auditlogs, b2binvoice, banners, barcodeLabel, barcodeitem, barcodelabels, barcodelabelsetting, barcodeprintbatch, barcodesetting, branches, business, businesscontact, carts, cashregister, catalogs, categories, category, cities, city, citygroup, collections, companylocation, contact, contacttype, counter, couponredemptions, coupons, creditnote, customer, customers, debitnote, delivery, deliverychallan, dispatch, docsetup, driver, ecommerceCategories, ecommerceCollections, ecommerceOrders, ecommerceProduct, ecommerceProducts, ecommerceproducts, ecomproduct, ecomsetting, erpSyncErrors, erpSyncRuns, goodsReceived, goodstype, grc, groups, groupsessions, grt, hsn, icautopurchasereceived, icautopurchasereturn, icdeliverychallan, iciteminvoice, icpurchasereceived, icreversedeliverychallan, icsalesinvoice, icsalesreturn, invoicelayoutsetting, item, items, ledger, ledgergroup, ledgergroupmapping, ledgersetting, locationsetting, loginsecurity, logistic, loyaltyledger, loyaltypoint, loyaltytransaction, orders, paymentmethod, pincode, poscounter, poshold, posinvoice, posreturn, possetting, procurementtype, productImage, productfilter, productgroup, purchasecharge, purchasegroup, purchaseinvoice, purchaseratecode, purchasesetting, purchaseterm, role, rolepermission, salescharge, salesinvoice, salesperson, salesreturn, salesterm, schemamigration, shopperEvents, sitesettings, splitbarcodesetting, stockReservations, stockadjustment, stockmovement, stockpoint, stocktransfer, stocktransferlocation, stocktransferpacket, stocktransferreceived, storefrontBanners, storefrontGroups, storefrontSettings, subgroups, supplier, synclogs, tax, transferlock, transporter, transportroute, uom, user, v2Carts, v2Counters, v2Wishlists, vehicle, visits, voucher, vouchersetting, wishlists
+barcodeLabel count= 5853
+contact count= 57647
+supplier count= 801
+business count= 4
+companylocation count= 12
+
+BUSINESSES
+  6a853ba0fb266c4358beb530 TEMPLE FABRICS, SILKS & SAREES 
+  6a853bf6fb266c4358beb538 SUVARNA FABRICS 
+  6a853cdefb266c4358beb548 TEMPLE FABRICS [MAIN]
+  6a8c2b88c67379ce90586ece OMSHREE FABS (TEMPLE FABRICS , SILKS AND SAREES) 
+
+LOCATIONS
+  6a847474f06d7bd321a7d386 Temple Fabrics Warehouse biz= 6a847473f06d7bd321a7d385
+  6a847474f06d7bd321a7d387 TEMPLE FABRIC JNR biz= 6a847473f06d7bd321a7d385
+  6a8476f2009114a7959cb84b Testda biz= 6a847584009114a7959cb7c5
+  6a853f4bfb266c4358beb589 Temple Fabrics C2 biz= 6a847473f06d7bd321a7d385
+  6a8548c740f8ec449f69ce63 TEMPLE FABRICS C2 biz= 6a853cdefb266c4358beb548
+  6a858d389d37d436b1fc02b0 TEMPLE FABRIC JNR biz= 6a853cdefb266c4358beb548
+  6a858ded9d37d436b1fc02dc TEMPLE FABRICS WAREHOUSE biz= 6a853cdefb266c4358beb548
+  6a874b62b5810c74e6a9b9c4 TEMPLE FABRICS, SILKS & SAREES biz= 6a853ba0fb266c4358beb530
+  6a89280fb4d93ac0dd425bab C LOCATION biz= 6a8927d4b4d93ac0dd425b33
+  6a8c28fbc67379ce90586e44 SUVARNA FABRICS biz= 6a853bf6fb266c4358beb538
+  6a8c2da8c67379ce90586f2c OMSHREE FABS (TEMPLE FABRICS  RRN) biz= 6a8c2b88c67379ce90586ece
+  6abdf517b77de6438166c91b TEMPLE FABRICS biz= 6a853cdefb266c4358beb548
+
+contact by contactKind/business:
+  {"kind":"Customer","biz":"6a853cdefb266c4358beb548"} 56829
+  {"kind":"Supplier","biz":"6a853cdefb266c4358beb548"} 807
+  {"kind":"Agent","biz":"6a853cdefb266c4358beb548"} 9
+  {"kind":"Supplier","biz":"6a853bf6fb266c4358beb538"} 1
+  {"kind":"Supplier","biz":"6aabd7c858bc2f2790eba600"} 1
+
+supplier by contactKind/business:
+  {"kind":"Supplier","biz":"6a853cdefb266c4358beb548"} 801
+
+SUPPLIER MASTER RECORDS for G741 / G589
+ contact: 4
+    {"_id":"6a9986993ce59c48713fec69","contactId":"G1100","businessName":"CRN FABRICS - SC FOR HSR","firstName":"","lastName":"","businessId":"6a853cdefb266c4358beb548","contactKind":"Supplier"}
+    {"_id":"6a9986a03ce59c48713fed30","contactId":"G936","businessName":"MANISH INTERNATIONAL - CRN FABRICS, SURAT","firstName":"","lastName":"","businessId":"6a853cdefb266c4358beb548","contactKind":"Supplier"}
+    {"_id":"6a9986a73ce59c48713fedda","contactId":"G741","businessName":"(Unassigned)","firstName":"","lastName":"","businessId":"6a853cdefb266c4358beb548","contactKind":"Supplier"}
+    {"_id":"6a9986ac3ce59c48713fee59","contactId":"G589","businessName":"CRN FABRICS - SC FOR HSR, Bangalore","firstName":"","lastName":"","businessId":"6a853cdefb266c4358beb548","contactKind":"Supplier"}
+ supplier: 4
+    {"_id":"6a9986993ce59c48713fec69","contactId":"G1100","businessName":"CRN FABRICS - SC FOR HSR","firstName":"","lastName":"","businessId":"6a853cdefb266c4358beb548","contactKind":"Supplier"}
+    {"_id":"6a9986a03ce59c48713fed30","contactId":"G936","businessName":"MANISH INTERNATIONAL - CRN FABRICS, SURAT","firstName":"","lastName":"","businessId":"6a853cdefb266c4358beb548","contactKind":"Supplier"}
+    {"_id":"6a9986a73ce59c48713fedda","contactId":"G741","businessName":"(Unassigned)","firstName":"","lastName":"","businessId":"6a853cdefb266c4358beb548","contactKind":"Supplier"}
+    {"_id":"6a9986ac3ce59c48713fee59","contactId":"G589","businessName":"CRN FABRICS - SC FOR HSR, Bangalore","firstName":"","lastName":"","businessId":"6a853cdefb266c4358beb548","contactKind":"Supplier"}
+
+BARCODE ROWS for G741 / G589 supplierId
+ G741: total=0
+ G589: total=0
+
+DISTINCT IN-STOCK SUPPLIER KEYS
+distinct (supplierId,businessId): 139 in-stock rows: 3924
+distinct non-empty keys: 133
+ObjectId-looking keys: 128 code-looking keys: 5
+
+UNRESOLVED / BUSINESS-MISMATCH IN-STOCK KEYS: 15
+  {"key":"6a8ee213de7bd6bc7418e68f","biz":"6a853cdefb266c4358beb548","n":190,"reason":"no contact match"}
+  {"key":"6a8ee213de7bd6bc7418e6a3","biz":"6a853cdefb266c4358beb548","n":171,"reason":"no contact match"}
+  {"key":"S4","biz":"6a853ba0fb266c4358beb530","n":98,"reason":"no contact match"}
+  {"_id":{"key":"","biz":"6a853cdefb266c4358beb548"},"n":39,"reason":"blank key"}
+  {"key":"6a8ee214de7bd6bc7418e870","biz":"6a853cdefb266c4358beb548","n":37,"reason":"no contact match"}
+  {"key":"6a8d672955fd0699d2daf395","biz":"6a853cdefb266c4358beb548","n":34,"reason":"no contact match"}
+  {"key":"6a911cc9083438e2bfae98d5","biz":"6a853cdefb266c4358beb548","n":27,"reason":"no contact match"}
+  {"key":"6a90303d6e43f6bd212b0d18","biz":"6a853cdefb266c4358beb548","n":20,"reason":"no contact match"}
+  {"key":"6a8ee214de7bd6bc7418e8fe","biz":"6a853cdefb266c4358beb548","n":11,"reason":"no contact match"}
+  {"_id":{"key":"","biz":"6a853ba0fb266c4358beb530"},"n":7,"reason":"blank key"}
+  {"key":"6a8ee214de7bd6bc7418e92d","biz":"6a853cdefb266c4358beb548","n":5,"reason":"no contact match"}
+  {"key":"6a8ee214de7bd6bc7418e8fe","biz":"6a853ba0fb266c4358beb530","n":1,"reason":"no contact match"}
+  {"key":"6a8ee214de7bd6bc7418e8fe","biz":"6a853bf6fb266c4358beb538","n":1,"reason":"no contact match"}
+  {"key":"G437","biz":"6a8c2b88c67379ce90586ece","n":1,"reason":"business mismatch","supplierId":"6a99869a3ce59c48713fec89","supplierBiz":"6a853cdefb266c4358beb548","name":"CHIRALA Handlooms Pvt Ltd, CHENNAI"}
+  {"key":"6a8ee214de7bd6bc7418e870","biz":"6a853ba0fb266c4358beb530","n":1,"reason":"no contact match"}
+by reason: { 'no contact match': 12, 'blank key': 2, 'business mismatch': 1 }
+rows affected by reason: { 'no contact match': 596, 'blank key': 46, 'business mismatch': 1 }

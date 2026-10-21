@@ -364,7 +364,6 @@ import CompanyLocation from '@/models/CompanyLocation';
 import { Supplier } from '@/lib/contacts';
 import { requireSession } from '@/lib/session';
 import { barcodeFilter, unitFor, imageUrl, withTransaction, MOVEMENT_TYPES } from '@/lib/inventory';
-import { barcodeImageSrc } from '@/lib/barcodeImageService';
 import { handler } from '@/lib/apiError';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac';
 import { screenDenial, screenDenialAny, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
@@ -728,7 +727,11 @@ export async function GET(req) {
   /* THE BARCODE IMAGE - this barcode's own (barcodeLabel.imageUrl), as saved
      here or by the mobile app; nothing borrowed from the Item master. The
      item's picture, when it has one, is its own field beside it. */
-  const barcodeImageUrl = barcodeImageSrc(unit.imageUrl);
+  const barcodeImageUrl = imageUrl(
+    unit.imageUrl || unit.filePath || '',
+    unit.barcodeNo || unit.barcodeGenerated,
+    unit.oldBarcode
+  );
   const itemImageUrl = imageUrl(str(item?.image));
 
   return json({

@@ -1327,9 +1327,14 @@ function BarcodeImagePanel({ detail, business, onSaved }) {
           <>
             <BarcodeImageThumb
               src={detail.barcodeImageUrl}
+              fallbackSrc={detail.itemImageUrl}
               alt={`Barcode image of ${detail.barcodeNo}`}
               height={170}
-              onClick={detail.barcodeImageUrl ? () => { setModalImageSrc(detail.barcodeImageUrl); setModalImageAlt(`Barcode image of ${detail.barcodeNo}`); setImageModalOpen(true); } : null}
+              onClick={detail.barcodeImageUrl || detail.itemImageUrl ? () => {
+                setModalImageSrc(detail.barcodeImageUrl || detail.itemImageUrl);
+                setModalImageAlt(`Barcode image of ${detail.barcodeNo}`);
+                setImageModalOpen(true);
+              } : null}
             />
             {saved ? (
               <>

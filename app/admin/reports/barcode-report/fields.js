@@ -169,6 +169,7 @@ export const REPORT = {
     title: 'Barcodes',
     totalsRow: true,
     columns: [
+      { k: 'imageUrl', t: 'Image', f: 'image', fallback: 'itemImageUrl' },
       /* the barcode NUMBER; opens that barcode's Details (the same page,
          ?barcodeNo=) */
       { k: 'barcodeNo', t: 'Barcode', link: (row) => '/admin/reports/barcode-report?barcodeNo=' + encodeURIComponent(row.barcodeNo) },

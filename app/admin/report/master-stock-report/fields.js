@@ -788,7 +788,7 @@ export const REPORT = {
       /* not part of the reference workbook - added after E COM/UOM so the
          printed barcode thumbnail (barcodeLabel.imageUrl) shows alongside
          the rest of the label's own data */
-      { k: 'imageUrl', t: 'Image', f: 'image' },
+      { k: 'imageUrl', t: 'Image', f: 'image', fallback: 'itemImageUrl' },
     ],
   }],
 };

@@ -1,0 +1,10 @@
+import fs from 'fs';
+import { MongoClient } from 'mongodb';
+const uri = fs.readFileSync('.env', 'utf8').match(/^MONGODB_URI=(.+)$/m)[1].trim();
+const c = new MongoClient(uri);
+await c.connect();
+const db = c.db('grooretailerp1');
+const docs = await db.collection('stockmovement').find({ barcodeNo: { $in: ['OM1098', 'OM1099', 'OM1100', 'OM1109'] } }).toArray();
+console.log('docs', docs.length);
+for (const d of docs) console.log(JSON.stringify(d, null, 1));
+await c.close();

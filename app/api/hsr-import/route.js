@@ -37,10 +37,11 @@ export const POST = handler(async (req) => {
   const sourceLocationId = body?.sourceLocation ? String(body.sourceLocation).trim() : null;
   const operation = body?.operation || IMPORT_OPERATIONS.ADD_STOCK;
 
-  if (!isValidObjectId(businessId)) {
+  // Business ID is optional for this import
+  if (businessId && !isValidObjectId(businessId)) {
     return json({ error: 'Invalid business ID' }, 422);
   }
-  if (!isValidObjectId(locationId)) {
+  if (!locationId || !isValidObjectId(locationId)) {
     return json({ error: 'Invalid target location ID' }, 422);
   }
 

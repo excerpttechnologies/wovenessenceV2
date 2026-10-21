@@ -287,6 +287,7 @@ import ProductGroup from '@/models/ProductGroup';
 import { Supplier } from '@/lib/contacts';
 import { json, num, r2, scopeOf, pageOf } from '@/lib/reports';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { imageUrl } from '@/lib/inventory';
 
 /* /api/reports/barcode-report - read-only.
 
@@ -414,10 +415,11 @@ export async function GET(req) {
   /* Group / Sub Group are the ITEM's masters - a barcode keeps none of its
      own - and Supplier is the supplier master's name */
   const ids = (values) => [...new Set(values.filter((id) => id && isValidObjectId(String(id))).map(String))];
-  const items = await Item.find({ _id: { $in: ids(rows.map((r) => r.itemId)) } }).select('subGroupId').lean();
+  const items = await Item.find({ _id: { $in: ids(rows.map((r) => r.itemId)) } }).select('subGroupId image').lean();
   const subs = await ProductGroup.find({ _id: { $in: ids(items.map((i) => i.subGroupId)) } }).select('name parentId').lean();
   const parents = await ProductGroup.find({ _id: { $in: ids(subs.map((s) => s.parentId)) } }).select('name').lean();
   const suppliers = await Supplier.find({ _id: { $in: ids(rows.map((r) => r.supplierId)) } }).select('businessName contactId').lean();
+  const itemById = new Map(items.map((i) => [String(i._id), i]));
   const subOfItem = new Map(items.map((i) => [String(i._id), String(i.subGroupId || '')]));
   const subById = new Map(subs.map((s) => [String(s._id), s]));
   const groupName = new Map(parents.map((p) => [String(p._id), p.name || '']));
@@ -451,34 +453,40 @@ export async function GET(req) {
     : [];
   const grcNoById = new Map(grcs.map((g) => [String(g._id), g.grcNumber || '']));
 
-  const mapped = rows.map((r) => ({
-    _id: String(r._id),
-    /* THE BARCODE: the unit's own number ("8A1881") - the composed reference
-       stands in only for a row that has no number at all */
-    barcodeNo: r.barcodeNo || canonicalBarcodeValue(r.barcodeGenerated) || '',
-    /* the composed reference, kept apart ("G1093*05079*5*5", the spelling
-       the label prints) - not shown as the barcode */
-    barcodeGenerated: canonicalBarcodeValue(r.barcodeGenerated) || '',
-    itemCode: r.itemCode || '',
-    description: r.printDescription || r.supplierDescription || '',
-    subGroup: subGroupOf(r.itemId),
-    group: groupOf(r.itemId),
-    designNo: r.designNo || '',
-    supplier: supplierName.get(String(r.supplierId)) || '',
-    qty: num(r.qty),
-    uom: r.uom || '',
-    hsn: r.hsn || '',
-    purRate: num(r.purRate),
-    finalNet: num(r.finalNet),
-    gst: num(r.gst),
-    retailPrice: num(r.retailPrice),
-    offerPrice: num(r.offerPrice),
-    wspPrice: num(r.wspPrice),
-    dpPrice: num(r.dpPrice),
-    /* a unit imported from the other ERP's report has no GRC here - it keeps
-       the GRC number it was received on over there */
-    grcNo: grcNoById.get(String(r.grcId)) || r.grcNo || '',
-  }));
+  const mapped = rows.map((r) => {
+    const item = itemById.get(String(r.itemId));
+    const barcodeNumber = r.barcodeNo || canonicalBarcodeValue(r.barcodeGenerated) || '';
+    return {
+      _id: String(r._id),
+      /* THE BARCODE: the unit's own number ("8A1881") - the composed reference
+         stands in only for a row that has no number at all */
+      barcodeNo: barcodeNumber,
+      /* the composed reference, kept apart ("G1093*05079*5*5", the spelling
+         the label prints) - not shown as the barcode */
+      barcodeGenerated: canonicalBarcodeValue(r.barcodeGenerated) || '',
+      itemCode: r.itemCode || '',
+      description: r.printDescription || r.supplierDescription || '',
+      subGroup: subGroupOf(r.itemId),
+      group: groupOf(r.itemId),
+      designNo: r.designNo || '',
+      supplier: supplierName.get(String(r.supplierId)) || '',
+      imageUrl: imageUrl(r.imageUrl || r.filePath || '', barcodeNumber, r.oldBarcode),
+      itemImageUrl: imageUrl(item?.image || ''),
+      qty: num(r.qty),
+      uom: r.uom || '',
+      hsn: r.hsn || '',
+      purRate: num(r.purRate),
+      finalNet: num(r.finalNet),
+      gst: num(r.gst),
+      retailPrice: num(r.retailPrice),
+      offerPrice: num(r.offerPrice),
+      wspPrice: num(r.wspPrice),
+      dpPrice: num(r.dpPrice),
+      /* a unit imported from the other ERP's report has no GRC here - it keeps
+         the GRC number it was received on over there */
+      grcNo: grcNoById.get(String(r.grcId)) || r.grcNo || '',
+    };
+  });
 
   /* what the Barcode search was taken as, said beside the count - true
      whatever else (item code, location, year) narrowed the rows */

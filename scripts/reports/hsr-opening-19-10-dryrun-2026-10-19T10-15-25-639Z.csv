@@ -1,0 +1,11 @@
+row,barcode,location,qty,age,action,masters,note
+"2","142015","TEMPLE FABRICS WAREHOUSE (TEMPLE FABRICS)","1","366","will-seed","existing",""
+"3","142925","TEMPLE FABRICS WAREHOUSE (TEMPLE FABRICS)","1","366","will-seed","existing",""
+"4","142958","TEMPLE FABRICS WAREHOUSE (TEMPLE FABRICS)","1","366","will-seed","existing",""
+"5","143280","TEMPLE FABRICS WAREHOUSE (TEMPLE FABRICS)","1","366","will-seed","existing",""
+"6","143295","TEMPLE FABRICS WAREHOUSE (TEMPLE FABRICS)","1","366","will-seed","existing",""
+"7","143738","TEMPLE FABRICS WAREHOUSE (TEMPLE FABRICS)","1","366","will-seed","hsn",""
+"8","143754","TEMPLE FABRICS WAREHOUSE (TEMPLE FABRICS)","1","366","will-seed","existing",""
+"9","144639","TEMPLE FABRICS WAREHOUSE (TEMPLE FABRICS)","1","366","will-seed","existing",""
+"10","146856","TEMPLE FABRICS WAREHOUSE (TEMPLE FABRICS)","1","366","will-seed","existing",""
+"11","146876","TEMPLE FABRICS WAREHOUSE","0","366","skipped-qty0","","Qty=0"

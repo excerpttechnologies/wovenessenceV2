@@ -1,0 +1,11 @@
+row,barcode,location,qty,age,action,masters,note
+"2","142015","Main Store","1","366","error","","Loc ""Main Store"" not found"
+"3","142925","Main Store","1","366","error","","Loc ""Main Store"" not found"
+"4","142958","Main Store","1","366","error","","Loc ""Main Store"" not found"
+"5","143280","Main Store","1","366","error","","Loc ""Main Store"" not found"
+"6","143295","Main Store","1","366","error","","Loc ""Main Store"" not found"
+"7","143738","Main Store","1","366","error","","Loc ""Main Store"" not found"
+"8","143754","Main Store","1","366","error","","Loc ""Main Store"" not found"
+"9","144639","Main Store","1","366","error","","Loc ""Main Store"" not found"
+"10","146856","Main Store","1","366","error","","Loc ""Main Store"" not found"
+"11","146876","Main Store","0","366","skipped-qty0","","Qty=0"
