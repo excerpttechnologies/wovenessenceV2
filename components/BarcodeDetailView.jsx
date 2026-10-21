@@ -561,6 +561,14 @@ function calculateAgeInDays(dateValue) {
   }
 }
 
+function displayAge(stockAge, dateValue) {
+  if (stockAge !== null && stockAge !== undefined && stockAge !== '') {
+    const days = Number(stockAge);
+    if (Number.isFinite(days)) return days === 1 ? '1 DAY' : `${days} DAYS`;
+  }
+  return calculateAgeInDays(dateValue);
+}
+
 /* One labelled value. The label sits above its value so a long branch name
    does not push the column out of shape. */
 function Cell({ label, value, wide = false, editing = false, type = 'text', onChange, bold = false, dropdown = false, dropdownValue, dropdownOptions = [] }) {
@@ -1093,7 +1101,7 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
                 <Cell label="Origin Location" value={text(d.originLocation)} />
                 <Cell label="GRC Number" value={text(d.grcNo)} bold />
                 <Cell label="GRC Date" value={when(d.grcDate)} bold />
-                <Cell label="Age" value={calculateAgeInDays(d.grcDate)} bold />
+                <Cell label="Age" value={displayAge(d.stockAge, d.grcDate)} bold />
                 <Cell label="Serial Number" value={text(d.serialNo)} />
                 <Cell label="Batch Number" value={text(d.batchNo)} />
                 <Cell label="Transfer Number" value={text(d.transferNo)} />

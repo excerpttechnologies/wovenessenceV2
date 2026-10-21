@@ -89,7 +89,9 @@
     "migrate:barcode-bill-slno": "node --env-file=.env --import ./scripts/aliasRegister.mjs scripts/repairBarcodeBillSlNo.mjs",
     "migrate:barcode-bill-slno:apply": "node --env-file=.env --import ./scripts/aliasRegister.mjs scripts/repairBarcodeBillSlNo.mjs --apply",
     "ic:receive-pending": "node --env-file=.env --import ./scripts/aliasRegister.mjs scripts/receivePendingIcChallans.mjs",
-    "ic:receive-pending:apply": "node --env-file=.env --import ./scripts/aliasRegister.mjs scripts/receivePendingIcChallans.mjs --apply"
+    "ic:receive-pending:apply": "node --env-file=.env --import ./scripts/aliasRegister.mjs scripts/receivePendingIcChallans.mjs --apply",
+    "hsr:sync": "node --env-file=.env --import ./scripts/aliasRegister.mjs scripts/seedHsrOpening.mjs --sync",
+    "hsr:sync:apply": "node --env-file=.env --import ./scripts/aliasRegister.mjs scripts/seedHsrOpening.mjs --sync --apply"
   },
   "dependencies": {
     "dotenv": "^18.0.7",
