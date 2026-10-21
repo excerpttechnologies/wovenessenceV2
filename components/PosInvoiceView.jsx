@@ -29,7 +29,9 @@ const money = (value) => String(Math.trunc(Number(value || 0)));
    one (5, not 5.00) */
 const gstPct = (value) => String(Math.round(Number(value || 0) * 100) / 100);
 
-export default function PosInvoiceView({ id, onBack, backLabel = 'Back' }) {
+/* `endpoint` (21-10-2026): where the bill is read from - the live POS bills by
+   default; Archive -> POS Bills points it at /api/pos-archive/ */
+export default function PosInvoiceView({ id, onBack, backLabel = 'Back', endpoint = '/api/sell-pos/' }) {
   const [doc, setDoc] = useState(null);
   /* the enlarged product photo - same behaviour as the POS till: hovering
      the thumbnail opens it, leaving the cell closes it; clicking opens one
@@ -40,10 +42,10 @@ export default function PosInvoiceView({ id, onBack, backLabel = 'Back' }) {
 
   useEffect(() => {
     setDoc(null);
-    fetch('/api/sell-pos/' + id, { cache: 'no-store' })
+    fetch(endpoint + id, { cache: 'no-store' })
       .then((r) => r.json())
       .then((d) => setDoc(d.doc || null));
-  }, [id]);
+  }, [id, endpoint]);
 
   if (!doc) return <div className="p-6">Loading POS invoice...</div>;
   const payments = (doc.payments || []).filter((payment) => Number(payment.amount || 0) > 0);
@@ -92,7 +94,8 @@ export default function PosInvoiceView({ id, onBack, backLabel = 'Back' }) {
               <button type="button" title="Share on WhatsApp" aria-label="Share on WhatsApp" className="flex h-9 w-9 items-center justify-center rounded bg-[#25D366] text-white hover:bg-[#1da851]" onClick={() => setShareNote(shareWhatsApp(shareMessage))}><Icon name="whatsapp" size={18} /></button>
               <button type="button" title="Share on Instagram" aria-label="Share on Instagram" className="flex h-9 w-9 items-center justify-center rounded bg-[#E1306C] text-white hover:bg-[#c1275c]" onClick={async () => setShareNote(await shareInstagram(shareSubject, shareMessage))}><Icon name="instagram" size={18} /></button>
               <button type="button" title="Share by Email" aria-label="Share by Email" className="flex h-9 w-9 items-center justify-center rounded bg-brand text-white hover:opacity-90" onClick={() => setShareNote(shareEmail(shareSubject, shareLines.join('\n')))}><Icon name="mail" size={18} /></button>
-              <button type="button" title="Print invoice" aria-label="Print invoice" className="flex h-9 w-9 items-center justify-center rounded bg-[#4b5563] text-white hover:bg-[#374151]" onClick={() => window.open('/admin/transaction/sell/pos/print/' + id, '_blank')}><Icon name="printer" size={18} /></button>
+              {/* an archived (deleted) bill is view-only - its print page reads live bills */}
+              {doc.status !== 'ARCHIVED' && <button type="button" title="Print invoice" aria-label="Print invoice" className="flex h-9 w-9 items-center justify-center rounded bg-[#4b5563] text-white hover:bg-[#374151]" onClick={() => window.open('/admin/transaction/sell/pos/print/' + id, '_blank')}><Icon name="printer" size={18} /></button>}
             </div>
             {shareNote && (shareNote.error || shareNote.notice) && (
               <div className={'max-w-[320px] text-right text-[11px] ' + (shareNote.error ? 'text-danger' : 'text-inkmuted')}>

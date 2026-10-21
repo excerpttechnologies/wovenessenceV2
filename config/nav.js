@@ -64,6 +64,7 @@ import {
   LuSend,
   LuPackageCheck,
   LuPackageMinus,
+  LuArchive,
 } from 'react-icons/lu';
  
 export const NAV = [
@@ -554,6 +555,8 @@ export const NAV = [
          any permission already saved against it still applies. */
       { label: 'Barcode Report', icon: LuBarcode,
         href: '/admin/reports/barcode-report' },
+          { label: 'Excel / Data Import', icon: LuFileCog,
+    href: '/admin/report/data-import' },
     ],
   },
 
@@ -708,6 +711,16 @@ export const NAV = [
       /* Orders and Coupons are on the deployed sidebar but have no screen
          here yet. Left out rather than shipped as dead links - the same call
          Staff Management's three entries got. */
+    ],
+  },
+
+  /* Archive (21-10-2026): bills deleted from Sell -> POS land here, view
+     only. Visible to every logged-in user. */
+  {
+    label: 'Archive',
+    icon: LuArchive,
+    children: [
+      { label: 'POS Bills', icon: LuArchive, href: '/admin/archive/pos' },
     ],
   },
 

@@ -89,6 +89,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Icon from '@/components/Icon';
 import BarcodeSvg from '@/components/BarcodeSvg';
 import { uomTypeOf } from '@/lib/barcodeUnits';
+import { shareWhatsApp, shareEmail, shareInstagram } from '@/lib/shareRoutes';
 /* the logo is read straight from bill-template/ at the project root - an
    import, so Next bundles it; nothing is copied into public/ */
 import logoFile from '@/bill-template/posinvoice-temp.png';
@@ -187,6 +188,8 @@ export default function PrintPosPage() {
      there once mounted */
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
+  /* what the last share button did, for one line of feedback */
+  const [shareNote, setShareNote] = useState(null);   // { error } | { notice }
   useEffect(() => {
     try {
       const saved = window.localStorage.getItem(FORMAT_KEY);
@@ -235,6 +238,30 @@ export default function PrintPosPage() {
   const sgst = r2(taxSum - cgst);
   const shipping = Number(doc.shipping || 0);
   const netAmount = Number(doc.totalAmount || 0);
+
+  /* THE SHARE MESSAGE - built exactly as on the View POS screen
+     (components/PosInvoiceView.jsx). Whole rupees, as on the till. */
+  const shareRupees = (v) => 'Rs ' + Math.trunc(Number(v || 0));
+  const shareChange = Math.max(0, Number(doc.paid || 0) - Number(doc.totalAmount || 0));
+  const shareLines = [
+    'Invoice No: ' + (doc.invoiceNo || '-'),
+    'Date: ' + (doc.date ? new Date(doc.date).toLocaleDateString('en-GB') : '-'),
+    'Customer: ' + (doc.customerName || 'Walk-in Customer'),
+    '',
+    'Items:',
+    ...items.map((item, i) => (i + 1) + '. '
+      + (item.description || item.itemName || item.name || item.itemCode || 'Item')
+      + ' x ' + (item.qty || 0) + ' = ' + shareRupees(item.netAmount ?? item.lineTotal)),
+    '',
+    'Total: ' + shareRupees(doc.totalAmount),
+    'Paid: ' + shareRupees(doc.paid),
+    ...(shareChange > 0 ? ['Cash Return: ' + shareRupees(shareChange)] : []),
+    ...(Number(doc.sellDue || 0) > 0 ? ['Balance Due: ' + shareRupees(doc.sellDue)] : []),
+    '',
+    'Thank you for shopping with ' + (doc.locationName || doc.businessName || 'us') + '.',
+  ];
+  const shareSubject = 'Invoice ' + (doc.invoiceNo || '') + ' - ' + (doc.businessName || '');
+  const shareMessage = [shareSubject, '', ...shareLines].join('\n');
   /* the whole-rupee correction between the lines and what was charged */
   const roundOff = r2(netAmount - shipping - netSum);
   const pcs = r2(items.filter((it) => kindOf(it) === 'PC').reduce((a, it) => a + Number(it.qty || 0), 0));
@@ -292,9 +319,26 @@ export default function PrintPosPage() {
           ))}
         </div>
         <div className="flex gap-2">
+          {/* SHARE (user, 21-10-2026) - the same three buttons and the same
+              message as the View POS screen (components/PosInvoiceView.jsx);
+              screen-only, the printed bill is unchanged */}
+          <button type="button" title="Share on WhatsApp" aria-label="Share on WhatsApp" className="flex h-9 w-9 items-center justify-center rounded bg-[#25D366] text-white hover:bg-[#1da851]" onClick={() => setShareNote(shareWhatsApp(shareMessage))}><Icon name="whatsapp" size={18} /></button>
+          <button type="button" title="Share on Instagram" aria-label="Share on Instagram" className="flex h-9 w-9 items-center justify-center rounded bg-[#E1306C] text-white hover:bg-[#c1275c]" onClick={async () => setShareNote(await shareInstagram(shareSubject, shareMessage))}><Icon name="instagram" size={18} /></button>
+          <button type="button" title="Share by Email" aria-label="Share by Email" className="flex h-9 w-9 items-center justify-center rounded bg-brand text-white hover:opacity-90" onClick={() => setShareNote(shareEmail(shareSubject, shareLines.join('\n')))}><Icon name="mail" size={18} /></button>
           <button type="button" className="btn" onClick={() => { setPageSize(format); window.print(); }}><Icon name="printer" size={14} /> Print Invoice</button>
-          <button type="button" className="btn border-danger bg-danger text-white hover:border-[#9f1d17] hover:bg-[#9f1d17]" title="Close" aria-label="Close" onClick={() => router.push('/admin/transaction/sell/pos')}><Icon name="x" size={16} /></button>
+          <button type="button" className="btn border-danger bg-danger text-white hover:border-[#9f1d17] hover:bg-[#9f1d17]" title="Close" aria-label="Close" onClick={() => {
+            /* Close goes back to the POS billing screen for this bill's
+               business / location / year (user, 21-10-2026) */
+            const idOf = (v) => String((v && v._id) || v || '');
+            const q = new URLSearchParams({ business: idOf(doc.businessId), location: idOf(doc.locationId), finYear: doc.finYear || '' });
+            router.push('/admin/pos/add?' + q.toString());
+          }}><Icon name="x" size={16} /></button>
         </div>
+        {shareNote && (shareNote.error || shareNote.notice) && (
+          <div className={'w-full text-right text-[11px] ' + (shareNote.error ? 'text-danger' : 'text-inkmuted')}>
+            {shareNote.error || shareNote.notice}
+          </div>
+        )}
       </div>
 
       {/* PRINTING (user, 15-10-2026 - it printed blank). globals.css hides

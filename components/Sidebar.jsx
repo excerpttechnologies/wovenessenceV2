@@ -487,6 +487,9 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
       {/* --------------------------------------------------------- nav --- */}
       <nav className="sb-nav flex-1 overflow-y-auto" onScroll={hideFlyout}>
         {NAV_MAIN.map((item, i) => {
+          /* an entry marked superAdminOnly (Archive) is hidden for every
+             other role; returning null keeps the indexes `open` relies on */
+          if (item.superAdminOnly && user?.role !== 'Super Admin') return null;
           const hasKids = Array.isArray(item.children);
           const isOpen = open === i;
           const isFly = flyout?.i === i;

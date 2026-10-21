@@ -244,9 +244,10 @@ export async function GET(req) {
      Collected counts the money tendered, so without these the card read
      more than the bills came to */
   const returned = round2(sums && sums.returned);
+  /* Return and Net taken off the card (user, 21-10-2026); in their place one
+     Total row = Cash + UPI + Bank, the three rows above it */
   paidByList.push(
-    { label: 'Return', amount: -returned },
-    { label: 'Net', amount: round2((sums && sums.paid) - returned) }
+    { label: 'Total', amount: round2(paidByList.reduce((sum, row) => sum + (Number(row.amount) || 0), 0)) }
   );
 
   /* QTY SOLD SPLIT INTO PIECES AND METRES, over the same filtered set - 15

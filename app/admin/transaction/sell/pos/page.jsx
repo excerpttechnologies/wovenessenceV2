@@ -253,15 +253,30 @@ export default function TransactionSellPosListPage() {
      refresh without losing the filters */
   const [reloadKey, setReloadKey] = useState(0);
 
+  /* DELETE (21-10-2026): any logged-in user. The bill is moved to Archive ->
+     POS Bills (app/api/sell-pos/[id]/archive); stock and payments are not
+     touched. Shown last, in red, after Print Invoice. */
+  const archiveBill = async (row) => {
+    if (!window.confirm('Delete bill ' + (row.invoiceNo || '') + '? It will move to Archive -> POS Bills.')) return;
+    const r = await fetch('/api/sell-pos/' + row._id + '/archive', { method: 'POST' });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { window.alert(d.error || 'Could not delete this bill.'); return; }
+    setReloadKey((k) => k + 1);
+  };
+
   /* Memoised so the list keeps one cfg object - a new one on every render
      would look like a changed screen to ListView. setPopup is stable. */
   const cfg = useMemo(() => ({
     ...CONFIG,
-    actionMenu: CONFIG.actionMenu.map((m) => {
-      if (m.label === 'View') return { ...m, onClick: (row) => setPopup({ id: row._id, kind: 'view' }) };
-      if (m.label === 'View Payments') return { ...m, onClick: (row) => setPopup({ id: row._id, kind: 'payments' }) };
-      return m;
-    }),
+    actionMenu: [
+      ...CONFIG.actionMenu.map((m) => {
+        if (m.label === 'View') return { ...m, onClick: (row) => setPopup({ id: row._id, kind: 'view' }) };
+        if (m.label === 'View Payments') return { ...m, onClick: (row) => setPopup({ id: row._id, kind: 'payments' }) };
+        return m;
+      }),
+      { label: 'Delete', icon: 'trash', tone: 'bg-danger text-white', onClick: archiveBill },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }), []);
 
   const close = () => setPopup(null);

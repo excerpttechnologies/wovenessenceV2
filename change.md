@@ -6,10 +6,21 @@
 
 - SELL_MODULE_DOCUMENTATION.pdf
 - INTERCOMPANY_SELL_MODULE_DOCUMENTATION.pdf
+- seedImagePaths.mjs
+- app/api/sell-pos/[id]/archive/route.js
+- app/api/pos-archive/route.js
+- app/api/pos-archive/[id]/route.js
+- app/admin/archive/pos/page.jsx
+- app/api/sell-pos/last/route.js
 
 ### EXISTING
 
 - components/FormView.jsx
+- lib/docnumber.js
+- app/admin/transaction/sell/pos/page.jsx
+- components/PosInvoiceView.jsx
+- config/nav.js
+- components/Sidebar.jsx
 - components/TransactionFormView.jsx
 - app/admin/transaction/purchase/grc/[id]/page.jsx
 - app/admin/transaction/purchase/barcode-print/[id]/page.jsx
@@ -22,6 +33,10 @@
 - components/StockTransferDetail.jsx
 - components/StockTransferPacketForm.jsx
 - components/TransferChallanView.jsx
+- app/api/sell-pos/route.js
+- app/admin/transaction/sell/pos/print/[id]/page.jsx
+- components/PosTill.jsx
+- components/ProductImage.jsx
 
 ## 19-10-2026
 

@@ -18,14 +18,16 @@ import Icon from './Icon';
    `onOpen` makes the thumbnail a button; without it the image is inert, so
    a decorative thumbnail is not a dead control. */
 
-export default function ProductImage({ src, alt = '', size = 40, onOpen, className = '' }) {
+/* `width` (optional, 21-10-2026) widens the box past `size` for the till's
+   top-right photo; without it the box stays the square it always was */
+export default function ProductImage({ src, alt = '', size = 40, width, onOpen, className = '' }) {
   const [failed, setFailed] = useState(false);
 
   /* a new src gets a fresh chance - without this, one failure would
      permanently blank the slot as the operator scrolls through items */
   useEffect(() => { setFailed(false); }, [src]);
 
-  const box = { width: size, height: size, minWidth: size };
+  const box = { width: width || size, height: size, minWidth: width || size };
   const initials = String(alt || '')
     .split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '?';
 
