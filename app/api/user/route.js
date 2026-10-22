@@ -1,4 +1,4 @@
-import { isValidObjectId } from 'mongoose';
+import { isValidObjectId, Types } from 'mongoose';
 import dbConnect from '@/lib/db';
 import User, { ROLES } from '@/models/User';
 import Role from '@/models/Role';
@@ -105,6 +105,13 @@ export const POST = handler(async (req) => {
     allow: toList(data.allow),
     deny: toList(data.deny),
   });
+
+  /* a Cashier's own cash counter (22-10-2026) - only for that role. Written
+     straight to the collection: a dev server still holding the user model
+     from before this field existed would otherwise drop it without a word. */
+  if (data.role === ROLES.CASHIER && isValidObjectId(data.counterId)) {
+    await User.collection.updateOne({ _id: created._id }, { $set: { counterId: new Types.ObjectId(String(data.counterId)) } });
+  }
 
   return json({ ok: true, id: String(created._id) }, 201);
 });

@@ -38,7 +38,7 @@ import {
 
 const TABS = [['users', 'Users'], ['roles', 'Roles'], ['permissions', 'Permissions']];
 
-const EMPTY_INVITE = { name: '', email: '', password: '', role: 'Cashier' };
+const EMPTY_INVITE = { name: '', email: '', password: '', role: 'Cashier', counterId: '' };
 
 /* { href: ['create','read'] }  ->  { href: { create: true, read: true } } */
 function fromApi(saved) {
@@ -85,6 +85,24 @@ export default function RolesPermissionsPage() {
 
   const [inviting, setInviting] = useState(false);
   const [invite, setInvite] = useState(EMPTY_INVITE);
+  /* CASH COUNTER FOR A CASHIER (22-10-2026): the counters of the business /
+     location in the top bar, loaded when Add User opens */
+  const [inviteCounters, setInviteCounters] = useState([]);
+  useEffect(() => {
+    if (!inviting || !scope.business) { setInviteCounters([]); return undefined; }
+    let off = false;
+    const qs = new URLSearchParams({ perPage: '200', business: scope.business, location: scope.location || '' });
+    fetch('/api/pos-counter?' + qs, { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((d) => {
+        if (off) return;
+        setInviteCounters((d.rows || [])
+          .filter((r) => String(r.status || 'Active').toLowerCase() !== 'inactive')
+          .map((r) => ({ value: String(r._id), label: r.counterName || 'Counter' })));
+      })
+      .catch(() => { if (!off) setInviteCounters([]); });
+    return () => { off = true; };
+  }, [inviting, scope.business, scope.location]);
   const [inviteErrors, setInviteErrors] = useState({});
 
   /* roles this business has defined for itself, from /api/role */
@@ -432,6 +450,7 @@ export default function RolesPermissionsPage() {
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(invite.email.trim())) errs.email = 'That is not an email address';
     if (!invite.password) errs.password = 'Password is required';
     else if (invite.password.length < 8) errs.password = 'Use at least 8 characters';
+    if (invite.role === 'Cashier' && !invite.counterId) errs.counterId = 'Select the cash counter';
     setInviteErrors(errs);
     if (Object.keys(errs).length) return;
 
@@ -449,6 +468,7 @@ export default function RolesPermissionsPage() {
             role: invite.role,
             isActive: true,
             locationIds: [],
+            counterId: invite.role === 'Cashier' ? invite.counterId : '',
           },
         }),
       });
@@ -1042,6 +1062,25 @@ export default function RolesPermissionsPage() {
                 </select>
                 <div className="f-hint">{roles.find((r) => r.k === invite.role)?.description}</div>
               </div>
+
+              {/* a Cashier's own cash counter (22-10-2026) - the POS till
+                  offers only this one when they sign in */}
+              {invite.role === 'Cashier' && (
+                <div>
+                  <label className="f-label">Cash Counter <span className="text-danger">*</span></label>
+                  <select
+                    className="f-input"
+                    value={invite.counterId}
+                    onChange={(e) => setInvite((c) => ({ ...c, counterId: e.target.value }))}
+                  >
+                    <option value="">Select cash counter</option>
+                    {inviteCounters.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                  {inviteErrors.counterId
+                    ? <div className="f-err">{inviteErrors.counterId}</div>
+                    : <div className="f-hint">{inviteCounters.length ? 'Counters at the location in the top bar.' : 'No cash counter at the location in the top bar - add one in masters first.'}</div>}
+                </div>
+              )}
             </div>
 
             <div className="flex items-center gap-2 border-t border-line px-5 py-3">

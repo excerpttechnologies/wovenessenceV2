@@ -74,10 +74,21 @@ export async function GET(req, { params }) {
   const jar = await cookies();
   const session = readSession(jar.get(COOKIE)?.value);
   if (!session) return json({ user: null }, 401);
+  /* the cash counter assigned to this account (22-10-2026), read fresh so
+     a change on Roles & Permissions applies without signing in again */
+  let counterId = '';
+  try {
+    if (session.id && mongoose.isValidObjectId(session.id)) {
+      await dbConnect();
+      const row = await User.collection.findOne({ _id: new mongoose.Types.ObjectId(String(session.id)) }, { projection: { counterId: 1 } });
+      counterId = row?.counterId ? String(row.counterId) : '';
+    }
+  } catch { /* no assignment shown - the till lists every counter */ }
   return json({
     user: {
       name: session.name, email: session.email, role: session.role,
       locationIds: session.locationIds || [],
+      counterId,
     },
   });
 }

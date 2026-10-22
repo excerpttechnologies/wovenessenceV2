@@ -208,13 +208,10 @@ export async function GET(req) {
             },
           },
         },
-      },
-    },
-    { $unwind: '$rows' },
-    {
-      $group: {
-        _id: { method: '$rows.method', loyalty: '$rows.loyalty' },
-        amount: { $sum: '$rows.amount' },
+        /* change given back on this bill - tendered over the bill */
+        change: {
+          $max: [0, { $subtract: [{ $ifNull: ['$paid', 0] }, { $ifNull: ['$totalAmount', 0] }] }],
+        },
       },
     },
   ]);
@@ -224,16 +221,37 @@ export async function GET(req) {
      other method under its own name - Bank Deposit, Credit and the like. */
   const UPI_METHODS = ['upi/card', 'upi', 'paytm', 'phonepe', 'gpay'];
   const paidBy = new Map();
-  byMethod.forEach(({ _id, amount }) => {
-    const method = String(_id?.method || '').trim();
+  const bucketOf = (row) => {
+    const method = String(row?.method || '').trim();
     const key = method.toLowerCase();
-    const bucket = _id?.loyalty === true ? 'Loyalty Points'
+    return row?.loyalty === true ? 'Loyalty Points'
       : key === 'cash' ? 'Cash'
         : UPI_METHODS.includes(key) ? 'UPI'
           /* Bank Deposit on the payment dialog (and any "bank ..." name) */
           : key.includes('bank') || key.includes('deposit') ? 'Bank'
             : method || 'Other';
-    paidBy.set(bucket, (paidBy.get(bucket) || 0) + (Number(amount) || 0));
+  };
+  /* CHANGE GIVEN BACK is taken off each bill (user, 22-10-2026): 200
+     tendered on a 195 bill counts as Cash 195 - the 5 went back across the
+     counter. It comes off that bill's Cash first, then Bank, then UPI, then
+     anything else, never below zero, so the card adds up to what the shop
+     kept. */
+  const CHANGE_ORDER = ['Cash', 'Bank', 'UPI'];
+  byMethod.forEach(({ rows, change }) => {
+    const bill = new Map();
+    (rows || []).forEach((row) => {
+      const bucket = bucketOf(row);
+      bill.set(bucket, (bill.get(bucket) || 0) + (Number(row.amount) || 0));
+    });
+    let left = Number(change) || 0;
+    const order = [...CHANGE_ORDER, ...[...bill.keys()].filter((k) => !CHANGE_ORDER.includes(k))];
+    for (const bucket of order) {
+      if (left <= 0) break;
+      const have = bill.get(bucket) || 0;
+      const off = Math.min(have, left);
+      if (off > 0) { bill.set(bucket, have - off); left -= off; }
+    }
+    bill.forEach((amount, bucket) => paidBy.set(bucket, (paidBy.get(bucket) || 0) + amount));
   });
   /* Cash, UPI and Bank are shown on the card (Bank added, user,
      12-10-2026) - shown even at zero so the card reads the same every day.
@@ -378,7 +396,9 @@ export async function GET(req) {
     summary: {
       count: summaryCount,
       totalAmount: round2(sums && sums.totalAmount),
-      paid: round2(sums && sums.paid),
+      /* Collected = what the shop kept: tendered less the change given back
+         (user, 22-10-2026), so it matches Total Amount when bills are paid */
+      paid: round2((sums && sums.paid) - returned),
       paidBy: paidByList,
       sellDue: round2(sums && sums.sellDue),
       totalQty: round2(sums && sums.totalQty),

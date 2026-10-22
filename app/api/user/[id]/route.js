@@ -1,4 +1,4 @@
-import { isValidObjectId } from 'mongoose';
+import { isValidObjectId, Types } from 'mongoose';
 import dbConnect from '@/lib/db';
 import User from '@/models/User';
 import { handler, json } from '@/lib/apiError';
@@ -73,12 +73,19 @@ export const PUT = handler(async (req, { params }) => {
     deny: toList(data.deny),
   };
   if (isValidObjectId(body.business)) update.businessId = body.business;
+  /* the Cashier's cash counter (22-10-2026) - only touched when the request
+     carries it, so the list's status / role edits leave it as it is */
+  if ('counterId' in data) update.counterId = isValidObjectId(data.counterId) ? data.counterId : null;
 
   /* only when one was actually typed - see the note in ../route.js */
   if (data.password) update.password = hashPassword(data.password);
 
   const updated = await User.findByIdAndUpdate(id, update, { new: true }).select('-password').lean();
   if (!updated) return json({ error: 'User not found.', code: 'NOT_FOUND' }, 404);
+  /* written straight too - see the same note in ../route.js POST */
+  if ('counterId' in data) {
+    await User.collection.updateOne({ _id: updated._id }, { $set: { counterId: update.counterId ? new Types.ObjectId(String(update.counterId)) : null } });
+  }
 
   return json({ ok: true, id: String(updated._id) });
 });

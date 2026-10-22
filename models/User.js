@@ -46,6 +46,12 @@ const UserSchema = new mongoose.Schema(
        branch user to their own branch. */
     locationIds: { type: [mongoose.Schema.Types.ObjectId], ref: 'companyLocation', default: [] },
 
+    /* The cash counter a Cashier bills on (22-10-2026). Set on Add User when
+       the role is Cashier; the POS till then offers only this counter and
+       picks it for them. Null = no assignment, the till lists every counter
+       as before. */
+    counterId: { type: mongoose.Schema.Types.ObjectId, ref: 'posCounter', default: null },
+
     /* Optional per-account overrides on top of the role's permissions.
        Names come from lib/rbac.js PERMISSIONS. */
     allow: { type: [String], default: [] },

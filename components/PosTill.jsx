@@ -483,6 +483,20 @@ export default function PosTill() {
   const [exchangePick, setExchangePick] = useState(null);   // { code, rows }
   const [exchangeBusy, setExchangeBusy] = useState(false);
   const scanRef = useRef(null);
+  /* THE CASHIER'S OWN COUNTER (22-10-2026): set on Roles & Permissions ->
+     Add User. When it is one of this location's counters it is picked for
+     them and the dropdown is LOCKED on it - the cashier cannot change it
+     (user, 22-10-2026). No assignment, or a location where their counter
+     does not exist = the dropdown works as before. */
+  const [assignedCounter, setAssignedCounter] = useState('');
+  const counterChoices = counters;
+  const counterLocked = Boolean(assignedCounter) && counters.some((c) => c.value === assignedCounter);
+  useEffect(() => {
+    if (counterLocked && counter !== assignedCounter) setCounter(assignedCounter);
+  }, [counterLocked, assignedCounter, counter]);
+  /* a bill save in flight - see submitPayment (user, 22-10-2026) */
+  const submittingRef = useRef(false);
+  const [submitting, setSubmitting] = useState(false);
   /* 'qty' | 'scan' | null - where the cursor should go once the row just
      added has been rendered. Cleared as soon as it has been honoured. */
   const [focusAfterAdd, setFocusAfterAdd] = useState(null);
@@ -530,7 +544,10 @@ export default function PosTill() {
   /* Things that do not depend on the chosen business. */
   useEffect(() => {
     const json = (url) => fetch(url).then((r) => r.json());
-    json('/api/auth/me').then((d) => setCashier(d.user ? `${d.user.name} (Cashier)` : '')).catch(() => {});
+    json('/api/auth/me').then((d) => {
+      setCashier(d.user ? `${d.user.name} (Cashier)` : '');
+      setAssignedCounter(d.user?.counterId || '');
+    }).catch(() => {});
     json('/api/options?ref=business').then((d) => {
       const options = d.options || [];
       setBusinesses(options);
@@ -1074,6 +1091,57 @@ export default function PosTill() {
     setLineDiscAmt('');
   }
 
+  /* BILL IN PROGRESS SURVIVES A PAGE REFRESH (user, 22-10-2026). The lines
+     and the picks around them are kept in this browser's localStorage, one
+     copy per business / location / year, and put back when the till opens
+     on that scope with an empty bill. The copy is dropped when the bill is
+     emptied (Clear Screen, Hold, last line removed) and when it is saved,
+     so a billed sale can never come back. Stock is re-checked by the server
+     on save as always. */
+  const draftKey = business && location ? `posTillDraft:${business}:${location}:${finYear}` : '';
+  const draftLoadedRef = useRef('');      // the scope whose copy has been read
+  const draftJustLoadedRef = useRef(false);
+  useEffect(() => {
+    if (!draftKey || draftLoadedRef.current === draftKey) return;
+    draftLoadedRef.current = draftKey;
+    draftJustLoadedRef.current = true;
+    if (items.length) return;
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(draftKey) || 'null');
+      if (!saved || !Array.isArray(saved.items) || !saved.items.length) return;
+      setItems(saved.items);
+      setActiveRow(null);
+      setSalesPerson(saved.salesPerson || '');
+      setCounter(saved.counter || '');
+      setPayMode(saved.payMode || 'Cash');
+      setShipping(Number(saved.shipping || 0));
+      setLineDiscPct(saved.lineDiscPct || '');
+      setLineDiscAmt(saved.lineDiscAmt || '');
+      setSelectedProduct(saved.selectedProduct || null);
+      if (saved.customer && saved.customer !== 'walkin' && saved.customerOption) {
+        setCustomerOptions((rows) => [saved.customerOption, ...rows.filter((r) => r.value !== saved.customerOption.value && r.value !== 'walkin')]);
+        setCustomer(saved.customer);
+        setSelectedCustomer(saved.selectedCustomer || null);
+      }
+    } catch { /* storage blocked or a bad copy - start empty */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftKey]);
+  useEffect(() => {
+    if (!draftKey || draftLoadedRef.current !== draftKey) return;
+    /* the render that read the copy still has the empty bill - skip it so
+       the copy is not wiped before it lands */
+    if (draftJustLoadedRef.current) { draftJustLoadedRef.current = false; return; }
+    if (submittingRef.current) return;
+    try {
+      if (!items.length) { window.localStorage.removeItem(draftKey); return; }
+      const customerOption = customer !== 'walkin' ? customerOptions.find((o) => o.value === customer) || null : null;
+      window.localStorage.setItem(draftKey, JSON.stringify({
+        items, salesPerson, counter, payMode, shipping, lineDiscPct, lineDiscAmt, selectedProduct,
+        customer, selectedCustomer, customerOption: customerOption && { value: customerOption.value, label: customerOption.label, customer: customerOption.customer },
+      }));
+    } catch { /* storage full or blocked - the bill still works, it just won't survive a refresh */ }
+  }, [draftKey, items, salesPerson, counter, payMode, shipping, lineDiscPct, lineDiscAmt, selectedProduct, customer, selectedCustomer, customerOptions]);
+
   /* Pull a parked bill back onto the screen. The hold is deleted as it is
      resumed, so the same one cannot be opened at two counters and billed
      twice. */
@@ -1342,21 +1410,34 @@ export default function PosTill() {
   const timeStr = now ? now.toTimeString().slice(0, 5) : '';
 
   async function submitPayment(paymentData) {
+    /* ONE SAVE PER BILL (user, 22-10-2026): a second Submit click while the
+       first is still saving made a second invoice. The ref locks at once
+       (state alone updates too late for a quick double click); it is let go
+       only on an error - on success the till leaves for the receipt. */
+    if (submittingRef.current) return;
     if (!items.length || netAmount <= 0) { setMsg('Add an item before submitting payment.'); return; }
     /* the same mandatory check as openPay(), again on submit (user,
        21-10-2026). The popup closes so the message is seen. */
     if (payBlockMsg) { setShowMultiplePay(false); setMsg(payBlockMsg); beep('err'); return; }
+    submittingRef.current = true;
+    setSubmitting(true);
     try {
       const paid = paymentData.payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
       const customerRecord = selectedCustomer || customerOptions.find((option) => option.value === customer)?.customer;
       const response = await fetch('/api/sell-pos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ business, location, finYear, data: { date: saleDate, finYear, customerId: customer === 'walkin' ? null : customer, customerContact: customerRecord?.billingMobile || '', customerSnapshot: customer === 'walkin' ? null : customerRecord || null, counterId: counter || null, billingType: payMode, exempted: 'NO', items, payments: paymentData.payments, sellNote: paymentData.sellNote, staffNote: paymentData.staffNote, shipping: Number(shipping || 0), totalAmount: netAmount, paid, /* the server re-reads the balance and the master and decides for itself; this is the request, not the ruling */ loyaltyRedeemPoints: redeemPoints } }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Unable to save POS invoice');
+      /* billed - the refresh copy of this bill must not come back */
+      try { if (draftKey) window.localStorage.removeItem(draftKey); } catch { /* nothing kept */ }
       setShowMultiplePay(false);
       /* straight to the receipt, ready to print (user, 12-10-2026); its
          Close button returns to the POS list as before */
       router.push(data.id ? '/admin/transaction/sell/pos/print/' + data.id : '/admin/transaction/sell/pos');
-    } catch (error) { setMsg(error.message); }
+    } catch (error) {
+      submittingRef.current = false;
+      setSubmitting(false);
+      setMsg(error.message);
+    }
   }
 
   return (
@@ -1375,7 +1456,7 @@ export default function PosTill() {
           ever wired, and it stays. */}</div>
       <div className="grid grid-cols-1 gap-2 px-4 md:grid-cols-4"><input className="f-input" type="date" value={saleDate} onChange={(e) => setSaleDate(e.target.value)} /><MultiSelect mode="single" options={salesPeople} value={salesPerson} placeholder="Sales Person" onChange={pickHeaderSalesPerson} /><div className="flex items-center gap-2"><div className="min-w-0 flex-1"><MultiSelect mode="single" options={customerOptions} value={customer} placeholder="Walk-in Customer / phone number" onSearch={setCustomerSearch} onChange={selectCustomer} /></div></div><input className="f-input" value={cashier} readOnly /></div>
       </div>{selectedProduct && <div className="flex shrink-0 flex-col items-center justify-center gap-1 border-l border-line px-4 py-2"><ProductImage src={selectedProduct.image} alt={selectedProduct.name} size={120} width={220} onOpen={() => setPreviewImage({ src: selectedProduct.image, alt: selectedProduct.name })} /><span className="max-w-[220px] truncate text-[12px] font-semibold">{selectedProduct.barcode || selectedProduct.code}</span></div>}</div>
-      <div className="mt-2 grid grid-cols-1 items-center gap-2 px-4 md:grid-cols-6"><select className="f-input" value={payMode} onChange={(e) => setPayMode(e.target.value)}>{PAYMENT_MODES.map((mode) => <option key={mode}>{mode}</option>)}</select><div className="relative md:col-span-2"><input ref={scanRef} data-scan-target="" className="f-input" placeholder="Scan barcode, or type a product name / SKU" value={code} onChange={(e) => setCode(e.target.value)} onKeyDown={(e) => { if (['Enter', 'F9', 'Tab'].includes(e.key)) { e.preventDefault(); scan(); } }} />{scanBusy && <span className="absolute right-2 top-2 text-[11px] text-inkmuted">checking...</span>}{itemSuggestions.length > 0 && <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-64 overflow-auto rounded border border-line bg-white shadow-lg">{itemSuggestions.map((item) => <button type="button" key={item._id} className="flex w-full items-center gap-2 border-b border-line px-3 py-2 text-left text-[12px] hover:bg-[#f4f7fb]" onClick={() => addBarcodeItem(item)}><ProductImage src={item.productImageUrl} alt={item.itemId || item.itemCode} size={44} /><span className="min-w-0 flex-1"><b className="block truncate">{item.itemId || item.description || item.itemCode}</b><span className="text-inkmuted">{item.barcodeNo} · RSP {money(item.rsp)}</span></span></button>)}</div>}</div><select className="f-input" value={counter} onChange={(e) => setCounter(e.target.value)}><option value="">Select Cash Counter</option>{counters.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><div className="flex items-center gap-3 whitespace-nowrap md:col-span-2"><button type="button" className="btn bg-danger px-2 py-1 text-white" title="Process a customer return against a previous bill" onClick={() => { /* a new browser tab, so the bill in progress on the till is not lost */ const w = window.open(`/admin/transaction/sell/pos-return/add?business=${business}&location=${location}&finYear=${finYear}${customer && customer !== 'walkin' ? '&customer=' + customer : ''}`, '_blank'); if (w) { try { w.opener = null; } catch { /* cross-origin */ } } }}><Icon name="undo" size={13} /> Return / Refund</button><label className="flex items-center gap-1" title="Take goods back against a previous bill"><input type="checkbox" checked={isExchange} onChange={(e) => { setIsExchange(e.target.checked); setExchangePick(null); setExchangeInvoiceId(''); }} /> Exchange</label></div></div>
+      <div className="mt-2 grid grid-cols-1 items-center gap-2 px-4 md:grid-cols-6"><select className="f-input" value={payMode} onChange={(e) => setPayMode(e.target.value)}>{PAYMENT_MODES.map((mode) => <option key={mode}>{mode}</option>)}</select><div className="relative md:col-span-2"><input ref={scanRef} data-scan-target="" className="f-input" placeholder="Scan barcode, or type a product name / SKU" value={code} onChange={(e) => setCode(e.target.value)} onKeyDown={(e) => { if (['Enter', 'F9', 'Tab'].includes(e.key)) { e.preventDefault(); scan(); } }} />{scanBusy && <span className="absolute right-2 top-2 text-[11px] text-inkmuted">checking...</span>}{itemSuggestions.length > 0 && <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-64 overflow-auto rounded border border-line bg-white shadow-lg">{itemSuggestions.map((item) => <button type="button" key={item._id} className="flex w-full items-center gap-2 border-b border-line px-3 py-2 text-left text-[12px] hover:bg-[#f4f7fb]" onClick={() => addBarcodeItem(item)}><ProductImage src={item.productImageUrl} alt={item.itemId || item.itemCode} size={44} /><span className="min-w-0 flex-1"><b className="block truncate">{item.itemId || item.description || item.itemCode}</b><span className="text-inkmuted">{item.barcodeNo} · RSP {money(item.rsp)}</span></span></button>)}</div>}</div><select className="f-input disabled:cursor-not-allowed disabled:bg-[#f3f4f6]" value={counter} disabled={counterLocked} title={counterLocked ? 'Your assigned cash counter' : undefined} onChange={(e) => setCounter(e.target.value)}><option value="">Select Cash Counter</option>{counterChoices.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><div className="flex items-center gap-3 whitespace-nowrap md:col-span-2"><button type="button" className="btn bg-danger px-2 py-1 text-white" title="Process a customer return against a previous bill" onClick={() => { /* a new browser tab, so the bill in progress on the till is not lost */ const w = window.open(`/admin/transaction/sell/pos-return/add?business=${business}&location=${location}&finYear=${finYear}${customer && customer !== 'walkin' ? '&customer=' + customer : ''}`, '_blank'); if (w) { try { w.opener = null; } catch { /* cross-origin */ } } }}><Icon name="undo" size={13} /> Return / Refund</button><label className="flex items-center gap-1" title="Take goods back against a previous bill"><input type="checkbox" checked={isExchange} onChange={(e) => { setIsExchange(e.target.checked); setExchangePick(null); setExchangeInvoiceId(''); }} /> Exchange</label></div></div>
       {/* The customer summary strip that used to sit here - name, contact id,
           phone, Bills / Spent / Last, and an expandable purchase history - has
           been taken out at the counter's request. Picking a customer now only
@@ -1475,7 +1556,7 @@ export default function PosTill() {
             </div>
           )}</div></div></div>
       <div className="mt-2 flex flex-wrap items-center gap-3 bg-[#eef1f7] px-4 py-3"><button type="button" className="btn bg-[#17a2b8] text-white disabled:opacity-50" disabled={holding} onClick={holdBill}><Icon name="register" size={14} /> {holding ? 'Holding...' : 'Hold'}</button><button type="button" className="btn bg-[#6b7280] text-white disabled:opacity-50" disabled={!holds.length} onClick={() => setShowHolds(true)}><Icon name="register" size={14} /> Held ({holds.length})</button><button type="button" className="btn bg-[#2563a9] text-white" onClick={openPay}><Icon name="register" size={14} /> Multiple Pay</button><span className="text-[15px] font-bold">Total Payable: <span className="text-okgreen">{money(payableAfterPoints)}</span>{redeemAmount > 0 && <span className="ml-2 text-[12px] font-normal text-inkmuted">(net {money(netAmount)} - loyalty {money(redeemAmount)})</span>}</span><button type="button" className="btn bg-[#f2a19b] text-white" onClick={clearTill}><Icon name="x" size={14} /> Clear Screen</button><span className="flex-1" /><button type="button" className="btn btn-primary" onClick={() => router.push('/admin/transaction/sell/pos')}>Recent Transactions</button></div>
-      {showMultiplePay && <MultiplePayDialog totalItems={qty} /* WHAT IS LEFT TO COLLECT, not the value of the goods. Redeemed points are a payment the server adds on top of whatever is taken here (see app/api/sell-pos/route.js), so handing this the full figure would have the cashier collect 1000 in cash on a 1000 bill already part-settled by 300 points - and the customer would pay 1300. */ totalPayable={payableAfterPoints} onClose={() => setShowMultiplePay(false)} onSubmit={submitPayment} />}
+      {showMultiplePay && <MultiplePayDialog totalItems={qty} /* WHAT IS LEFT TO COLLECT, not the value of the goods. Redeemed points are a payment the server adds on top of whatever is taken here (see app/api/sell-pos/route.js), so handing this the full figure would have the cashier collect 1000 in cash on a 1000 bill already part-settled by 300 points - and the customer would pay 1300. */ totalPayable={payableAfterPoints} onClose={() => setShowMultiplePay(false)} onSubmit={submitPayment} saving={submitting} />}
 
       {/* Add Shipping Charge. Save commits the draft onto the bill; closing or
           clicking the backdrop leaves the previous charge untouched. */}

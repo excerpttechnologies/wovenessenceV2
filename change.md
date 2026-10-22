@@ -1,5 +1,17 @@
 # Changes
 
+## 22-10-2026
+
+### EXISTING
+
+- app/api/sell-pos/route.js
+- components/PosTill.jsx
+- models/User.js
+- app/api/user/route.js
+- app/api/user/[id]/route.js
+- app/api/auth/[action]/route.js
+- app/admin/staff-management/roles-permissions/page.jsx
+
 ## 21-10-2026
 
 ### NEW
