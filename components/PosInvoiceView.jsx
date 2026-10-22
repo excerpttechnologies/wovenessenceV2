@@ -72,7 +72,8 @@ export default function PosInvoiceView({ id, onBack, backLabel = 'Back', endpoin
     ...(changeReturn > 0 ? ['Cash Return: ' + rupees(changeReturn)] : []),
     ...(Number(doc.sellDue || 0) > 0 ? ['Balance Due: ' + rupees(doc.sellDue)] : []),
     '',
-    'Thank you for shopping with ' + (doc.locationName || doc.businessName || 'us') + '.',
+    /* fixed wording (user, 22-10-2026) */
+    'Thank you for shopping with wovenessence by TEMPLE FABRICS.',
   ];
   const shareSubject = 'Invoice ' + (doc.invoiceNo || '') + ' - ' + (doc.businessName || '');
   const shareMessage = [shareSubject, '', ...shareLines].join('\n');

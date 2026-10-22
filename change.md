@@ -2,6 +2,11 @@
 
 ## 22-10-2026
 
+### NEW
+
+- app/api/invoice-share/route.js
+- app/invoice/[token]/route.js
+
 ### EXISTING
 
 - app/api/sell-pos/route.js
@@ -11,6 +16,8 @@
 - app/api/user/[id]/route.js
 - app/api/auth/[action]/route.js
 - app/admin/staff-management/roles-permissions/page.jsx
+- app/admin/transaction/sell/pos/print/[id]/page.jsx
+- components/PosInvoiceView.jsx
 
 ## 21-10-2026
 

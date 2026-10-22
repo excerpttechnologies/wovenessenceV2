@@ -258,10 +258,109 @@ export default function PrintPosPage() {
     ...(shareChange > 0 ? ['Cash Return: ' + shareRupees(shareChange)] : []),
     ...(Number(doc.sellDue || 0) > 0 ? ['Balance Due: ' + shareRupees(doc.sellDue)] : []),
     '',
-    'Thank you for shopping with ' + (doc.locationName || doc.businessName || 'us') + '.',
+    /* fixed wording (user, 22-10-2026) */
+    'Thank you for shopping with wovenessence by TEMPLE FABRICS.',
   ];
   const shareSubject = 'Invoice ' + (doc.invoiceNo || '') + ' - ' + (doc.businessName || '');
   const shareMessage = [shareSubject, '', ...shareLines].join('\n');
+
+  /* SHARE AS PDF (user, 22-10-2026). The invoice on screen - in the paper
+     size picked above - is turned into a PDF in the browser (html2pdf.js,
+     as on the GRC screen) and handed to the device's share menu, which on
+     a phone or Windows lists WhatsApp, Mail, Instagram and the rest with
+     the PDF attached. A browser that cannot share files gets the PDF
+     downloaded and the chosen app opened, to attach it from Downloads -
+     WhatsApp / mail links cannot carry a file themselves. */
+  const pdfName = 'Invoice_' + String(doc.invoiceNo || id).replace(/[^\w-]+/g, '_') + '.pdf';
+  async function invoicePdfBlob() {
+    const html2pdf = (await import('html2pdf.js')).default;
+    const element = document.querySelector('.pos-screen > *');
+    if (!element) throw new Error('Invoice not found on the page');
+    /* one page exactly the size of the invoice as drawn */
+    const pxToMm = (px) => (px * 25.4) / 96;
+    const wMm = pxToMm(element.offsetWidth);
+    const hMm = pxToMm(element.scrollHeight) + 2;
+    return html2pdf().set({
+      margin: 0,
+      filename: pdfName,
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+      jsPDF: { unit: 'mm', format: [wMm, hMm], orientation: hMm >= wMm ? 'portrait' : 'landscape' },
+    }).from(element).outputPdf('blob');
+  }
+  async function sharePdf(target) {
+    const isPhone = /Android|iPhone|iPad/i.test(navigator.userAgent || '');
+    /* WHATSAPP / EMAIL SEND A DOWNLOAD LINK (user, 22-10-2026): WhatsApp
+       Web cannot be handed a file by a website, so the PDF is stored on the
+       server (app/api/invoice-share) and the message carries a link the
+       customer taps to open it. The WhatsApp tab is opened at once, inside
+       the click, so the pop-up blocker lets it through, and pointed at
+       WhatsApp once the link is ready. */
+    let waWin = null;
+    if (target === 'whatsapp') {
+      waWin = window.open('about:blank', '_blank');
+      if (!waWin) { setShareNote({ error: 'The browser blocked the WhatsApp window. Allow pop-ups for this site and try again.' }); return; }
+    }
+    setShareNote({ notice: 'Preparing the PDF...' });
+    let blob;
+    try {
+      blob = await invoicePdfBlob();
+    } catch {
+      if (waWin) waWin.close();
+      setShareNote({ error: 'Could not make the PDF. Use Print Invoice and save as PDF instead.' });
+      return;
+    }
+    const file = new File([blob], pdfName, { type: 'application/pdf' });
+    if (target === 'whatsapp' || target === 'email') {
+      let link = '';
+      try {
+        setShareNote({ notice: 'Creating the invoice link...' });
+        const form = new FormData();
+        form.append('invoiceId', String(doc._id || id));
+        form.append('file', file);
+        const r = await fetch('/api/invoice-share', { method: 'POST', body: form });
+        const d = await r.json();
+        if (!r.ok || !d.path) throw new Error(d.error || 'Could not create the invoice link.');
+        link = window.location.origin + d.path;
+      } catch (e) {
+        if (waWin) waWin.close();
+        setShareNote({ error: (e && e.message) || 'Could not create the invoice link.' });
+        return;
+      }
+      const text = shareSubject + '\n'
+        + 'Amount: Rs ' + Math.trunc(Number(doc.totalAmount || 0)) + '\n\n'
+        + 'Download your invoice: ' + link + '\n\n'
+        + 'Thank you for shopping with wovenessence by TEMPLE FABRICS.';
+      if (target === 'whatsapp') {
+        try { waWin.opener = null; } catch { /* ignore */ }
+        waWin.location.href = (isPhone ? 'https://wa.me/?text=' : 'https://web.whatsapp.com/send?text=') + encodeURIComponent(text);
+        setShareNote({ notice: 'WhatsApp opened with the invoice link - pick the person and send.' });
+      } else {
+        setShareNote(shareEmail(shareSubject, text));
+      }
+      return;
+    }
+    try {
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: shareSubject, text: shareSubject });
+        setShareNote({ notice: 'Invoice PDF shared.' });
+        return;
+      }
+    } catch (e) {
+      if (e && e.name === 'AbortError') { setShareNote(null); return; }   // share menu closed
+      /* anything else (e.g. the click is too old to share from) - fall through to download */
+    }
+    /* fallback: download, then open the chosen app */
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = pdfName; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    const attach = 'PDF downloaded as ' + pdfName + ' - attach it from your Downloads folder.';
+    const note = target === 'whatsapp' ? shareWhatsApp(shareSubject + ' - invoice PDF attached.')
+      : target === 'email' ? shareEmail(shareSubject, 'Please find the invoice ' + (doc.invoiceNo || '') + ' attached.')
+        : await shareInstagram(shareSubject, shareSubject);
+    setShareNote(note && note.error ? note : { notice: attach });
+  }
   /* the whole-rupee correction between the lines and what was charged */
   const roundOff = r2(netAmount - shipping - netSum);
   const pcs = r2(items.filter((it) => kindOf(it) === 'PC').reduce((a, it) => a + Number(it.qty || 0), 0));
@@ -322,9 +421,9 @@ export default function PrintPosPage() {
           {/* SHARE (user, 21-10-2026) - the same three buttons and the same
               message as the View POS screen (components/PosInvoiceView.jsx);
               screen-only, the printed bill is unchanged */}
-          <button type="button" title="Share on WhatsApp" aria-label="Share on WhatsApp" className="flex h-9 w-9 items-center justify-center rounded bg-[#25D366] text-white hover:bg-[#1da851]" onClick={() => setShareNote(shareWhatsApp(shareMessage))}><Icon name="whatsapp" size={18} /></button>
-          <button type="button" title="Share on Instagram" aria-label="Share on Instagram" className="flex h-9 w-9 items-center justify-center rounded bg-[#E1306C] text-white hover:bg-[#c1275c]" onClick={async () => setShareNote(await shareInstagram(shareSubject, shareMessage))}><Icon name="instagram" size={18} /></button>
-          <button type="button" title="Share by Email" aria-label="Share by Email" className="flex h-9 w-9 items-center justify-center rounded bg-brand text-white hover:opacity-90" onClick={() => setShareNote(shareEmail(shareSubject, shareLines.join('\n')))}><Icon name="mail" size={18} /></button>
+          <button type="button" title="Share on WhatsApp" aria-label="Share on WhatsApp" className="flex h-9 w-9 items-center justify-center rounded bg-[#25D366] text-white hover:bg-[#1da851]" onClick={() => sharePdf('whatsapp')}><Icon name="whatsapp" size={18} /></button>
+          {/* Instagram button removed (user, 22-10-2026) */}
+          <button type="button" title="Share by Email" aria-label="Share by Email" className="flex h-9 w-9 items-center justify-center rounded bg-brand text-white hover:opacity-90" onClick={() => sharePdf('email')}><Icon name="mail" size={18} /></button>
           <button type="button" className="btn" onClick={() => { setPageSize(format); window.print(); }}><Icon name="printer" size={14} /> Print Invoice</button>
           <button type="button" className="btn border-danger bg-danger text-white hover:border-[#9f1d17] hover:bg-[#9f1d17]" title="Close" aria-label="Close" onClick={() => {
             /* Close goes back to the POS billing screen for this bill's
