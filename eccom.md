@@ -1,5 +1,11 @@
 # Ecom Product (product-eccom) Changes
 
+## 23-10-2026
+
+### EXISTING
+
+- app/admin/ecommerce/product-eccom/page.jsx
+
 ## 22-10-2026
 
 ### EXISTING

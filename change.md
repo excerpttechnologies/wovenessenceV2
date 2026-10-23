@@ -9,6 +9,7 @@
 - app/admin/transaction/sell/pos/page.jsx
 - config/nav.js
 - components/BarcodeDetailView.jsx
+- app/admin/ecommerce/product-eccom/page.jsx
 
 ## 22-10-2026
 
