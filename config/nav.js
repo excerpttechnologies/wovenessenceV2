@@ -66,7 +66,10 @@ import {
   LuPackageMinus,
   LuArchive,
 } from 'react-icons/lu';
- 
+
+/* Archive menu on/off - see the Archive entry near the end (23-10-2026) */
+const SHOW_ARCHIVE = false;
+
 export const NAV = [
  
   {
@@ -715,14 +718,16 @@ export const NAV = [
   },
 
   /* Archive (21-10-2026): bills deleted from Sell -> POS land here, view
-     only. Visible to every logged-in user. */
-  {
+     only. Visible to every logged-in user.
+     HIDDEN for now (client, 23-10-2026) - set SHOW_ARCHIVE to true to bring
+     it back; the page /admin/archive/pos is kept. */
+  ...(SHOW_ARCHIVE ? [{
     label: 'Archive',
     icon: LuArchive,
     children: [
       { label: 'POS Bills', icon: LuArchive, href: '/admin/archive/pos' },
     ],
-  },
+  }] : []),
 
   {
     label: 'Logout',

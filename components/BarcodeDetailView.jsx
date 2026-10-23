@@ -929,20 +929,25 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
           <div className="flex flex-col gap-4 lg:flex-row">
             <div className="min-w-0 flex-1 overflow-hidden rounded border border-line">
               <Band title="Item Info">
-                <Cell 
-                  label="Item Name" 
+                {/* label only renamed Item Name -> Item Code (user, 23-10-2026); still the item name value */}
+                <Cell
+                  label="Item Code"
                   value={editing ? editItemName : text(d.itemName)}
                   editing={editing}
                   type="text"
                   onChange={setEditItemName}
                 />
-                <Cell 
-                  label="Item Code" 
+                {/* Item Code HIDDEN (user, 23-10-2026) - change false to true to
+                    show it again; the value is still saved unchanged on Edit */}
+                {false && (
+                <Cell
+                  label="Item Code"
                   value={editing ? editItemCode : text(d.itemCode)}
                   editing={editing}
                   type="text"
                   onChange={setEditItemCode}
                 />
+                )}
                 <Cell 
                   label="Barcode Number" 
                   value={editing ? editBarcodeNo : text(d.barcodeNo)}

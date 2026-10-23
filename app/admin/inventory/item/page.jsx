@@ -16,12 +16,12 @@ const CONFIG = {
   addTitle: "Add Item",
   serialNumber: true,  // Enable serial numbers
   columns: [
-    { k: "name", t: "Name" },
+    { k: "itemCode", t: "Item Code" },
     { k: "itemType", t: "Item Type" },
     { k: "hsnId", t: "HSN Code", f: "ref" },
     { k: "uomId", t: "UOM", f: "ref" },
-    { k: "prefix", t: "Prefix" },
-    { k: "itemCode", t: "Item Code" },
+    // { k: "prefix", t: "Prefix" },
+    // { k: "itemCode", t: "Item Code" },
     // { k: "groupId", t: "Group", f: "ref" },
     { k: "subGroupId", t: " Group", f: "ref" },
   ],

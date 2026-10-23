@@ -623,7 +623,7 @@ export const REPORT = {
        reason the Group Name filter matches on both. */
     {
       k: 'itemId',
-      label: 'Item Name',
+      label: 'Item Code',
       type: 'ref',
       ref: 'item',
       multi: true,

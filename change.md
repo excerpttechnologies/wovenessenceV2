@@ -6,6 +6,9 @@
 
 - app/admin/transaction/sell/pos/print/[id]/page.jsx
 - components/PosInvoiceView.jsx
+- app/admin/transaction/sell/pos/page.jsx
+- config/nav.js
+- components/BarcodeDetailView.jsx
 
 ## 22-10-2026
 

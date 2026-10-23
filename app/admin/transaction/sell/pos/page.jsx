@@ -28,6 +28,10 @@ import PosPaymentsView from '@/components/PosPaymentsView';
 
    Read with the local getters, exactly as fmt('date') in lib/format.js does,
    so the day this prints is the same day the column printed before. */
+/* The Delete (move to Archive) button on each bill. HIDDEN for now (client,
+   23-10-2026) - set to true to show it again; the code behind it is kept. */
+const SHOW_DELETE = false;
+
 const pad = (n) => String(n).padStart(2, '0');
 const sameDay = (a, b) => a.getFullYear() === b.getFullYear()
   && a.getMonth() === b.getMonth()
@@ -274,7 +278,7 @@ export default function TransactionSellPosListPage() {
         if (m.label === 'View Payments') return { ...m, onClick: (row) => setPopup({ id: row._id, kind: 'payments' }) };
         return m;
       }),
-      { label: 'Delete', icon: 'trash', tone: 'bg-danger text-white', onClick: archiveBill },
+      ...(SHOW_DELETE ? [{ label: 'Delete', icon: 'trash', tone: 'bg-danger text-white', onClick: archiveBill }] : []),
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), []);
