@@ -1,5 +1,12 @@
 # Changes
 
+## 23-10-2026
+
+### EXISTING
+
+- app/admin/transaction/sell/pos/print/[id]/page.jsx
+- components/PosInvoiceView.jsx
+
 ## 22-10-2026
 
 ### NEW
@@ -18,6 +25,8 @@
 - app/admin/staff-management/roles-permissions/page.jsx
 - app/admin/transaction/sell/pos/print/[id]/page.jsx
 - components/PosInvoiceView.jsx
+- app/api/product-eccom/route.js
+- app/admin/ecommerce/product-eccom/add/page.jsx
 
 ## 21-10-2026
 

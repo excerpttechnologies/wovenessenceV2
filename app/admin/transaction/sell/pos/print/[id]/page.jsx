@@ -297,9 +297,12 @@ export default function PrintPosPage() {
        the click, so the pop-up blocker lets it through, and pointed at
        WhatsApp once the link is ready. */
     let waWin = null;
-    if (target === 'whatsapp') {
+    /* Email on a computer opens Gmail in the browser the same way (user,
+       23-10-2026) - mailto: does nothing on a PC with no mail app. A phone
+       keeps mailto:, which opens its mail app. */
+    if (target === 'whatsapp' || (target === 'email' && !isPhone)) {
       waWin = window.open('about:blank', '_blank');
-      if (!waWin) { setShareNote({ error: 'The browser blocked the WhatsApp window. Allow pop-ups for this site and try again.' }); return; }
+      if (!waWin) { setShareNote({ error: 'The browser blocked the ' + (target === 'email' ? 'Gmail' : 'WhatsApp') + ' window. Allow pop-ups for this site and try again.' }); return; }
     }
     setShareNote({ notice: 'Preparing the PDF...' });
     let blob;
@@ -335,6 +338,12 @@ export default function PrintPosPage() {
         try { waWin.opener = null; } catch { /* ignore */ }
         waWin.location.href = (isPhone ? 'https://wa.me/?text=' : 'https://web.whatsapp.com/send?text=') + encodeURIComponent(text);
         setShareNote({ notice: 'WhatsApp opened with the invoice link - pick the person and send.' });
+      } else if (waWin) {
+        /* Gmail compose, subject and body filled in - type the customer's email and send */
+        try { waWin.opener = null; } catch { /* ignore */ }
+        waWin.location.href = 'https://mail.google.com/mail/?view=cm&fs=1&su=' + encodeURIComponent(shareSubject)
+          + '&body=' + encodeURIComponent(text);
+        setShareNote({ notice: 'Gmail opened with the invoice link - enter the customer\'s email and send.' });
       } else {
         setShareNote(shareEmail(shareSubject, text));
       }

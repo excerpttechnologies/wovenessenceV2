@@ -1,5 +1,12 @@
 # Ecom Product (product-eccom) Changes
 
+## 22-10-2026
+
+### EXISTING
+
+- app/api/product-eccom/route.js
+- app/admin/ecommerce/product-eccom/add/page.jsx
+
 ## 19-10-2026
 
 ### NEW
