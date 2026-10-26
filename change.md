@@ -15,6 +15,7 @@
 
 ### EXISTING
 
+- components/PosTill.jsx (scan box / search in capitals)
 - package.json (nodemailer added)
 - package-lock.json
 - .env (SMTP_USER / SMTP_PASS / SMTP_FROM - not in git)
