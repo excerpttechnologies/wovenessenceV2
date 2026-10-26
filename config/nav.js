@@ -707,6 +707,10 @@ export const NAV = [
       { label: 'Products', icon: LuTag, href: '/admin/ecommerce/product' },
       /* a test copy of Products, same data (19-10-2026) */
       { label: 'product-eccom', icon: LuTag, href: '/admin/ecommerce/product-eccom' },
+      /* Storefront traffic, product interest and tracked purchases. Read
+         separately from ERP sales; nothing here is posted into a ledger. */
+      { label: 'Website Analytics', icon: LuChartNoAxesColumn,
+        href: '/admin/ecommerce/website-analytics' },
       /* The same transfer engine as Stock Transfers, raised from the
          e-commerce side - not a separate inventory path. */
       { label: 'Direct Stock Transfer', icon: LuShuffle,

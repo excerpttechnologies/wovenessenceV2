@@ -18,6 +18,8 @@
     "delete:barcodes": "node scripts/deleteBarcodeDump.mjs",
     "delete:barcodes:apply": "node scripts/deleteBarcodeDump.mjs --apply",
     "test:inventory": "node --env-file=.env scripts/testInventoryFlow.mjs",
+    "test:dashboard": "node --import ./scripts/aliasRegister.mjs scripts/testDashboard.mjs",
+    "test:website-analytics": "node --import ./scripts/aliasRegister.mjs scripts/verifyWebsiteAnalytics.mjs",
     "migrate:barcodes": "node --env-file=.env scripts/migrateBarcodeLifecycle.mjs",
     "migrate:barcodes:apply": "node --env-file=.env scripts/migrateBarcodeLifecycle.mjs --apply",
     "smoke": "node --env-file=.env scripts/smokeAllRoutes.mjs",
