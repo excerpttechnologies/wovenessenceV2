@@ -9,7 +9,7 @@
    so the real modules are exercised rather than a copy of their logic. */
 
 import path from 'path';
-import { pathToFileURL } from 'url';
+import { pathToFileURL, fileURLToPath } from 'url';
 
 const ROOT = process.cwd();
 
@@ -21,6 +21,19 @@ export async function resolve(specifier, context, next) {
       try {
         return await next(pathToFileURL(candidate).href, context);
       } catch { /* try the next candidate */ }
+    }
+  }
+  /* Next lets a module import "./privacy" without an extension; Node does
+     not. Only relative specifiers are retried, and only as a fallback, so a
+     real missing file still fails with Node's own error. */
+  if ((specifier.startsWith('./') || specifier.startsWith('../')) && context.parentURL) {
+    if (!path.extname(specifier)) {
+      const target = path.resolve(path.dirname(fileURLToPath(context.parentURL)), specifier);
+      for (const candidate of [target + '.js', target + '.mjs', path.join(target, 'index.js')]) {
+        try {
+          return await next(pathToFileURL(candidate).href, context);
+        } catch { /* try the next candidate */ }
+      }
     }
   }
   return next(specifier, context);

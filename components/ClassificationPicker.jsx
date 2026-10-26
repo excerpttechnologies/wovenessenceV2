@@ -342,6 +342,7 @@ export default function ClassificationPicker({
   value = [],
   onChange,
   businessId,
+  productType,
   label,
   disabled = false,
   allowCreate = true,
@@ -370,7 +371,9 @@ export default function ClassificationPicker({
     let cancelled = false;
     setLoading(true);
     setLoadError('');
-    fetch(`/api/v1/admin/product-classification-options?business=${businessId}&type=${type}`)
+    const query = new URLSearchParams({ business: businessId, type });
+    if (productType) query.set('productType', productType);
+    fetch(`/api/v1/admin/product-classification-options?${query}`)
       .then(async (res) => {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Unable to load classification options');
@@ -393,7 +396,7 @@ export default function ClassificationPicker({
       });
 
     return () => { cancelled = true; };
-  }, [businessId, type]);
+  }, [businessId, type, productType]);
 
   // Close dropdown when clicking outside
   useEffect(() => {

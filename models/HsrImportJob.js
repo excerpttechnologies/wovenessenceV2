@@ -13,8 +13,23 @@ const HsrImportJobSchema = new mongoose.Schema(
     locationId: { type: mongoose.Schema.Types.ObjectId, ref: 'companyLocation', default: null, index: true },
     sourceLocationId: { type: mongoose.Schema.Types.ObjectId, ref: 'companyLocation', default: null },
     
-    operation: { type: String, enum: ['UPDATE_DETAILS', 'ADD_BARCODES', 'REPLACE_STOCK', 'ADD_STOCK', 'TRANSFER_STOCK'], index: true },
-    
+    /* HSR opening-stock operations plus the three Barcode + Master Data
+       import types, which share this audit trail. `source` below separates
+       the two families when the history is read. */
+    operation: {
+      type: String,
+      enum: [
+        'UPDATE_DETAILS', 'ADD_BARCODES', 'REPLACE_STOCK', 'ADD_STOCK', 'TRANSFER_STOCK',
+        'BARCODE_MASTER_IMPORT', 'BARCODE_STOCK_UPDATE', 'MASTER_DATA_IMPORT',
+      ],
+      index: true,
+    },
+
+    source: { type: String, default: 'HSR' },
+    scope: { type: String, default: '' },
+    strategy: { type: String, default: '' },
+    replaceStock: { type: Boolean, default: false },
+
     fileName: { type: String, default: '' },
     fileHash: { type: String, default: '' },
     
@@ -41,6 +56,9 @@ const HsrImportJobSchema = new mongoose.Schema(
       transferred: { type: Number, default: 0 },
       skipped: { type: Number, default: 0 },
       failed: { type: Number, default: 0 },
+      mastersCreated: { type: Number, default: 0 },
+      mastersFailed: { type: Number, default: 0 },
+      recovered: { type: Number, default: 0 },
     },
     
     reconciliation: {

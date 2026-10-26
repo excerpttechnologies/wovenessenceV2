@@ -39,7 +39,7 @@ function Modal({ title, onClose, children, size = 'md', headerAction }) {
 export default function HsrImportComponent({ api }) {
   const { business: scopeBusiness, location: scopeLocation, finYear: scopeFinYear } = useScope();
   const { options: locations } = useOptions('companylocations');
-  const { options: stockPoints } = useOptions('stockpoints');
+  const { options: stockPoints } = useOptions('stockpoint');
   const { options: businesses } = useOptions('business');
   
   const [open, setOpen] = useState(false);
@@ -48,6 +48,7 @@ export default function HsrImportComponent({ api }) {
   const [business, setBusiness] = useState(scopeBusiness || '');
   const [targetLocation, setTargetLocation] = useState(scopeLocation || '');
   const [sourceLocation, setSourceLocation] = useState('');
+  const [stockPoint, setStockPoint] = useState('');
   const [finYear, setFinYear] = useState(scopeFinYear || '');
   const [selectedOperation, setSelectedOperation] = useState(IMPORT_OPERATIONS.ADD_STOCK);
   const [analysis, setAnalysis] = useState(null);
@@ -72,6 +73,7 @@ export default function HsrImportComponent({ api }) {
     setBusiness(scopeBusiness || '');
     setTargetLocation(scopeLocation || '');
     setSourceLocation('');
+    setStockPoint('');
     setFinYear(scopeFinYear || '');
     setSelectedOperation(IMPORT_OPERATIONS.ADD_STOCK);
     setDryRun(true);
@@ -88,10 +90,10 @@ export default function HsrImportComponent({ api }) {
 
     setSelectedFile(file);
     setError('');
-    await analyzeWorkbook(file);
+    await analyzeWorkbook(file, selectedOperation);
   }
 
-  async function analyzeWorkbook(file) {
+  async function analyzeWorkbook(file, operation = selectedOperation) {
     setBusy(true);
     setStep('analyzing');
     setError('');
@@ -104,8 +106,9 @@ export default function HsrImportComponent({ api }) {
       formData.append('location', target);
       formData.append('sourceLocation', sourceLocation);
       formData.append('finYear', finYear);
-      formData.append('operation', selectedOperation);
+      formData.append('operation', operation);
       formData.append('fileName', file.name);
+      formData.append('stockPoint', stockPoint);
 
       const response = await fetch('/api/hsr-import', {
         method: 'POST',
@@ -133,7 +136,7 @@ export default function HsrImportComponent({ api }) {
   async function handleOperationChange(newOperation) {
     setSelectedOperation(newOperation);
     if (selectedFile) {
-      await analyzeWorkbook(selectedFile);
+      await analyzeWorkbook(selectedFile, newOperation);
     }
   }
 
@@ -151,6 +154,7 @@ export default function HsrImportComponent({ api }) {
       formData.append('finYear', finYear);
       formData.append('operation', selectedOperation);
       formData.append('dryRun', dryRun);
+      formData.append('stockPoint', stockPoint);
 
       const response = await fetch('/api/hsr-import', {
         method: 'POST',
@@ -235,7 +239,21 @@ export default function HsrImportComponent({ api }) {
                   {locations.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
 
-                <label htmlFor="hsr-fin-year" className="mb-1 block text-[13px text-ink">
+                <label htmlFor="hsr-stock-point" className="mb-1 block text-[13px] text-ink">
+                  Stock Point <span className="text-[12px] text-inkmuted"> (optional)</span>
+                </label>
+                <select
+                  id="hsr-stock-point"
+                  value={stockPoint}
+                  disabled={busy}
+                  onChange={(e) => { setStockPoint(e.target.value); setError(''); }}
+                  className="f-input mb-3 w-full"
+                >
+                  <option value="">Use the warehouse default</option>
+                  {stockPoints.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+
+                <label htmlFor="hsr-fin-year" className="mb-1 block text-[13px] text-ink">
                   Financial Year <span className="f-req">*</span>
                 </label>
                 <input
@@ -319,7 +337,7 @@ export default function HsrImportComponent({ api }) {
                         <ul className="mt-2 ml-4">
                           {masterResolution.unmatched.slice(0, 10).map((u, i) => (
                             <li key={i}>
-                              {u.type}: {u.name} ({u.rows.length} rows)
+                              {u.type}: {u.name} ({u.count ?? u.rows?.length ?? 0} rows)
                             </li>
                           ))}
                           {masterResolution.unmatched.length > 10 && (
@@ -331,7 +349,7 @@ export default function HsrImportComponent({ api }) {
                   </div>
                 )}
 
-                <h3 className="text-[15px font-bold uppercase tracking-wide mb-4">Select Import Operation</h3>
+                <h3 className="mb-4 text-[15px] font-bold uppercase tracking-wide">Select Import Operation</h3>
                 
                 <div className="space-y-2 mb-4">
                   {Object.entries(IMPORT_OPERATIONS).map(([key, label]) => (
@@ -352,6 +370,31 @@ export default function HsrImportComponent({ api }) {
                   ))}
                 </div>
 
+                {reconciliation?.summary && (
+                  <div className="mb-4 rounded border border-line bg-[#f7f9fc] p-4 text-[13px]">
+                    <div className="mb-2 font-semibold uppercase tracking-wide">Stock reconciliation</div>
+                    <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+                      <div><span className="text-inkmuted">Excel qty:</span> <strong>{Number(reconciliation.summary.totalExcelQty || 0).toLocaleString()}</strong></div>
+                      <div><span className="text-inkmuted">Existing:</span> <strong>{Number(reconciliation.summary.totalExistingTargetQty || 0).toLocaleString()}</strong></div>
+                      <div><span className="text-inkmuted">After import:</span> <strong>{Number(reconciliation.summary.totalProposedTargetQty || 0).toLocaleString()}</strong></div>
+                      <div><span className="text-inkmuted">Ready rows:</span> <strong>{Number(analysis.records?.ready || 0).toLocaleString()}</strong></div>
+                    </div>
+                  </div>
+                )}
+
+                <label className="mb-4 flex items-start gap-3 rounded border border-line p-3 text-[13px]">
+                  <input
+                    type="checkbox"
+                    checked={dryRun}
+                    onChange={(e) => setDryRun(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <strong>Dry run</strong> - validate and show counts without writing barcodes or stock.
+                    Uncheck this before the final import.
+                  </span>
+                </label>
+
                 {reconciliation && reconciliation.summary.warnings.length > 0 && (
                   <div className="mb-4 p-4 bg-[#fff8e6] border border-[#e7c96b] rounded">
                     <div className="font-semibold text-[#8a5a00] mb-2">Warnings:</div>
@@ -369,9 +412,51 @@ export default function HsrImportComponent({ api }) {
 
             {step === 'preview' && (
               <div>
-                <h3 className="text-mb-4">Import Preview</h3>
-                {/* Preview table would go here */}
-                <p className="text-inkmuted">Preview functionality coming soon...</p>
+                <h3 className="mb-3 text-[15px] font-bold uppercase tracking-wide">Import Preview</h3>
+                {analysis ? (
+                  <>
+                    <p className="mb-3 text-[13px] text-inkmuted">
+                      {analysis.records.ready.toLocaleString()} ready record(s) will be processed with
+                      {' '}<strong>{IMPORT_OPERATION_LABELS[selectedOperation]}</strong>
+                      {' '}into <strong>{analysis.reconciliation.targetLocation}</strong>.
+                      {dryRun ? ' This is a dry run - nothing will be written.' : ' This will write barcodes and stock movements.'}
+                    </p>
+                    <div className="max-h-[320px] overflow-auto rounded border border-line">
+                      <table className="w-full text-[12px]">
+                        <thead className="sticky top-0 bg-[#f7f9fc]">
+                          <tr>
+                            <th className="px-2 py-1 text-left">Line</th>
+                            <th className="px-2 py-1 text-left">Item Code</th>
+                            <th className="px-2 py-1 text-left">Item Name</th>
+                            <th className="px-2 py-1 text-right">Qty</th>
+                            <th className="px-2 py-1 text-left">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(analysis.records.sample || []).map((r) => (
+                            <tr key={r.line} className="border-t border-line">
+                              <td className="px-2 py-1">{r.line}</td>
+                              <td className="px-2 py-1">{r.itemCode || '-'}</td>
+                              <td className="px-2 py-1">{r.itemName || '-'}</td>
+                              <td className="px-2 py-1 text-right">{r.excelQty ?? '-'}</td>
+                              <td className={'px-2 py-1 ' + (r.hasProblems ? 'text-danger' : 'text-okgreen')}>
+                                {r.hasProblems ? (r.problems?.[0]?.message || 'Needs attention') : 'Ready'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {analysis.records.withProblems > 0 && (
+                      <p className="mt-2 text-[12px] text-danger">
+                        {analysis.records.withProblems} row(s) will be skipped because they still have problems.
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-inkmuted">No analysis available.</p>
+                )}
+                {error && <div className="flash flash-err mt-3">{error}</div>}
               </div>
             )}
 
@@ -398,7 +483,21 @@ export default function HsrImportComponent({ api }) {
                       <div>Transferred: {result.result.transferred || 0}</div>
                       <div>Skipped: {result.result.skipped || 0}</div>
                       <div>Failed: {result.result.failed || 0}</div>
+                      {Number(result.result.recovered || 0) > 0 && (
+                        <div>Recovered movements: {result.result.recovered}</div>
+                      )}
                     </div>
+                  </div>
+                )}
+
+                {result.failedDetails?.length > 0 && (
+                  <div className="mt-3 rounded border border-[#e7c96b] bg-[#fff8e6] p-3 text-[12px]">
+                    <div className="mb-1 font-semibold text-[#8a5a00]">Rows that failed</div>
+                    <ul className="ml-4 max-h-40 overflow-auto">
+                      {result.failedDetails.slice(0, 20).map((f, i) => (
+                        <li key={i}>Line {f.line || '-'} · {f.itemCode || '-'}: {f.error || f.reason}</li>
+                      ))}
+                    </ul>
                   </div>
                 )}
               </div>
@@ -412,7 +511,7 @@ export default function HsrImportComponent({ api }) {
                 <button
                   type="button"
                   className="btn btn-primary"
-                  onClick={() => selectedFile ? handleImport() : setError('Please select a file first')}
+                  onClick={() => selectedFile ? analyzeWorkbook(selectedFile, selectedOperation) : setError('Please select a file first')}
                   disabled={busy || !selectedFile}
                 >
                   {busy ? <span className="spin" /> : <Icon name="check" size={14} />} Analyze

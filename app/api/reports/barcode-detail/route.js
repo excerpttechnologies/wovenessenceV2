@@ -359,6 +359,7 @@ import StockMovement from '@/models/StockMovement';
 import Item from '@/models/Item';
 import ProductGroup from '@/models/ProductGroup';
 import Hsn from '@/models/Hsn';
+import Uom from '@/models/Uom';
 import Tax from '@/models/Tax';
 import CompanyLocation from '@/models/CompanyLocation';
 import { Supplier } from '@/lib/contacts';
@@ -391,7 +392,7 @@ export const PATCH = handler(async (req) => {
   if (!session) return json({ error: 'Unauthorized' }, 401);
 
   const initial = await BarcodeLabel.findById(unitId)
-    .select('status businessId currentLocationId locationId barcodeNo')
+    .select('status businessId currentBusinessId currentLocationId locationId barcodeNo itemId')
     .lean();
   if (!initial) return json({ error: 'That barcode no longer exists.' }, 404);
   if (body.business && String(initial.businessId || '') !== String(body.business)) {
@@ -410,8 +411,71 @@ export const PATCH = handler(async (req) => {
     return json({ error: 'Only barcodes currently in stock can be edited.' }, 409);
   }
 
+  const linkedItem = initial.itemId && isValidObjectId(String(initial.itemId))
+    ? await Item.findById(initial.itemId)
+      .select('businessId name itemCode subGroupId hsnId uomId')
+      .lean()
+    : null;
+  if (body.itemId !== undefined && String(body.itemId || '') !== String(initial.itemId || '')) {
+    return json({ error: 'The item reference cannot be changed from the barcode detail page.' }, 422);
+  }
+  const itemMasterChanged = Boolean(linkedItem && (
+    (body.itemName !== undefined && str(body.itemName) !== str(linkedItem.name)) ||
+    (body.itemCode !== undefined && str(body.itemCode) !== str(linkedItem.itemCode)) ||
+    (body.subGroupId !== undefined && str(body.subGroupId) !== String(linkedItem.subGroupId || '')) ||
+    (body.hsnId !== undefined && str(body.hsnId) !== String(linkedItem.hsnId || '')) ||
+    (body.uomId !== undefined && str(body.uomId) !== String(linkedItem.uomId || ''))
+  ));
+  if (itemMasterChanged) {
+    const deniedItemEdit = await screenDenial({
+      session,
+      screen: SCREENS.ITEM,
+      label: 'items',
+      action: PERM.UPDATE,
+      businessId: linkedItem.businessId || initial.businessId,
+    });
+    if (deniedItemEdit) {
+      return json({ error: deniedItemEdit.message, code: deniedItemEdit.code }, 403);
+    }
+  }
+
+  const currentLocationId = body.currentLocationId === undefined
+    ? String(initial.currentLocationId || initial.locationId || '')
+    : str(body.currentLocationId);
+  const originLocationId = body.originLocationId === undefined
+    ? String(initial.locationId || '')
+    : str(body.originLocationId);
+  const locationIdsToValidate = [...new Set([currentLocationId, originLocationId].filter(Boolean))];
+  const invalidLocationIds = locationIdsToValidate.filter((id) => !isValidObjectId(id));
+  if (invalidLocationIds.length) {
+    return json({ error: 'Select valid Current Location and Origin Location values.' }, 422);
+  }
+  if (!currentLocationId) {
+    return json({ error: 'Current Location is required.' }, 422);
+  }
+
+  const locationDocs = locationIdsToValidate.length
+    ? await CompanyLocation.find({ _id: { $in: locationIdsToValidate } })
+      .select('_id businessId')
+      .lean()
+    : [];
+  const locationById = new Map(locationDocs.map((location) => [String(location._id), location]));
+  const ownerBusinessId = String(initial.businessId || initial.currentBusinessId || '');
+  for (const locationId of locationIdsToValidate) {
+    const location = locationById.get(locationId);
+    if (!location) return json({ error: 'A selected location does not exist.' }, 422);
+    if (
+      ownerBusinessId &&
+      location.businessId &&
+      String(location.businessId) !== ownerBusinessId
+    ) {
+      return json({ error: 'Selected locations must belong to the barcode business.' }, 422);
+    }
+  }
+
   // Validate and prepare update fields
   const updates = {};
+  const itemUpdates = {};
   const errors = [];
 
   // Quantity - required, must be non-negative number
@@ -435,7 +499,25 @@ export const PATCH = handler(async (req) => {
   if (body.designNo !== undefined) updates.designNo = str(body.designNo);
   if (body.hsn !== undefined) updates.hsn = str(body.hsn);
   if (body.uom !== undefined) updates.uom = str(body.uom);
-  if (body.status !== undefined) updates.status = str(body.status);
+  if (body.status !== undefined && str(body.status) !== str(initial.status)) {
+    errors.push('Barcode status must be changed through the stock workflow.');
+  }
+  const oldCurrentLocationId = String(initial.currentLocationId || initial.locationId || '');
+  if (currentLocationId !== oldCurrentLocationId) {
+    updates.currentLocationId = new Types.ObjectId(currentLocationId);
+  }
+  const oldOriginLocationId = String(initial.locationId || '');
+  if (originLocationId !== oldOriginLocationId) {
+    updates.locationId = originLocationId;
+  }
+  if (linkedItem && body.itemName !== undefined && str(body.itemName) !== str(linkedItem.name)) {
+    if (!str(body.itemName)) errors.push('Item Name cannot be empty.');
+    else itemUpdates.name = str(body.itemName);
+  }
+  if (linkedItem && body.itemCode !== undefined && str(body.itemCode) !== str(linkedItem.itemCode)) {
+    if (!str(body.itemCode)) errors.push('Item Code cannot be empty.');
+    else itemUpdates.itemCode = str(body.itemCode);
+  }
 
   // Numeric price fields - must be non-negative if provided
   const priceFields = [
@@ -482,31 +564,100 @@ export const PATCH = handler(async (req) => {
   }
 
   // Validate ObjectId references if provided
-  if (body.subGroupId !== undefined && body.subGroupId !== null && String(body.subGroupId).trim() !== '') {
-    if (!isValidObjectId(String(body.subGroupId))) {
-      errors.push('Invalid Sub Group selection.');
-    }
-  }
-
-  if (body.hsnId !== undefined && body.hsnId !== null && String(body.hsnId).trim() !== '') {
-    if (!isValidObjectId(String(body.hsnId))) {
-      errors.push('Invalid HSN selection.');
-    }
-  }
-
-  if (body.uomId !== undefined && body.uomId !== null && String(body.uomId).trim() !== '') {
-    if (!isValidObjectId(String(body.uomId))) {
-      errors.push('Invalid UOM selection.');
+  const hasGroupSelection = body.subGroupId !== undefined || body.groupId !== undefined;
+  if (linkedItem && hasGroupSelection) {
+    const subGroupId = str(body.subGroupId);
+    const groupId = str(body.groupId);
+    if (!isValidObjectId(subGroupId) || !isValidObjectId(groupId)) {
+      errors.push('Select a valid Group and Sub Group.');
     } else {
-      updates.uomId = new Types.ObjectId(String(body.uomId));
+      const [subGroup, group] = await Promise.all([
+        ProductGroup.findById(subGroupId).select('businessId parentId').lean(),
+        ProductGroup.findById(groupId).select('businessId parentId').lean(),
+      ]);
+      const ownerBusinessId = String(linkedItem.businessId || initial.businessId || '');
+      const sameOwner = (master) => !master?.businessId || !ownerBusinessId
+        || String(master.businessId) === ownerBusinessId;
+      const relationshipMatches = subGroup?.parentId
+        ? String(subGroup.parentId) === groupId
+        : String(subGroup?._id || '') === groupId;
+      if (!subGroup || !group || !sameOwner(subGroup) || !sameOwner(group) || !relationshipMatches) {
+        errors.push('The selected Group and Sub Group are not a valid matching pair.');
+      } else {
+        itemUpdates.subGroupId = new Types.ObjectId(subGroupId);
+      }
     }
   }
 
-  if (body.itemId !== undefined && body.itemId !== null && String(body.itemId).trim() !== '') {
-    if (!isValidObjectId(String(body.itemId))) {
-      errors.push('Invalid Item selection.');
+  if (linkedItem && body.hsnId !== undefined && str(body.hsnId) !== String(linkedItem.hsnId || '')) {
+    const hsnId = str(body.hsnId);
+    const hsn = isValidObjectId(hsnId)
+      ? await Hsn.findById(hsnId).select('businessId code').lean()
+      : null;
+    const ownerBusinessId = String(linkedItem.businessId || initial.businessId || '');
+    if (!hsn || (hsn.businessId && ownerBusinessId && String(hsn.businessId) !== ownerBusinessId)) {
+      errors.push('Select a valid HSN for this business.');
     } else {
-      updates.itemId = new Types.ObjectId(String(body.itemId));
+      itemUpdates.hsnId = new Types.ObjectId(hsnId);
+      updates.hsn = str(hsn.code);
+    }
+  }
+
+  if (linkedItem && body.uomId !== undefined && str(body.uomId) !== String(linkedItem.uomId || '')) {
+    const uomId = str(body.uomId);
+    const uom = isValidObjectId(uomId)
+      ? await Uom.findById(uomId).select('businessId name shortName').lean()
+      : null;
+    const ownerBusinessId = String(linkedItem.businessId || initial.businessId || '');
+    if (!uom || (uom.businessId && ownerBusinessId && String(uom.businessId) !== ownerBusinessId)) {
+      errors.push('Select a valid UOM for this business.');
+    } else {
+      itemUpdates.uomId = new Types.ObjectId(uomId);
+      updates.uomId = new Types.ObjectId(uomId);
+      updates.uom = str(uom.shortName || uom.name);
+    }
+  }
+
+  if (body.supplierId !== undefined) {
+    const deniedSupplierRead = await screenDenial({
+      session,
+      screen: SCREENS.SUPPLIER,
+      label: 'suppliers',
+      action: PERM.READ,
+      businessId: initial.businessId,
+    });
+    if (deniedSupplierRead) {
+      return json({ error: deniedSupplierRead.message, code: deniedSupplierRead.code }, 403);
+    }
+
+    const supplierId = str(body.supplierId);
+    if (!supplierId) {
+      updates.supplierId = '';
+    } else if (!isValidObjectId(supplierId)) {
+      errors.push('Select a valid supplier.');
+    } else {
+      const supplier = await Supplier.findById(supplierId)
+        .select('businessId')
+        .lean();
+      if (!supplier) {
+        errors.push('The selected supplier does not exist.');
+      } else if (
+        initial.businessId &&
+        String(supplier.businessId || '') !== String(initial.businessId)
+      ) {
+        errors.push('The selected supplier belongs to another business.');
+      } else {
+        updates.supplierId = supplierId;
+      }
+    }
+  }
+
+  if (body.taxRegion !== undefined) {
+    const taxRegion = str(body.taxRegion);
+    if (taxRegion.length > 120) {
+      errors.push('Tax Region must be 120 characters or fewer.');
+    } else {
+      updates.supplierTaxRegion = taxRegion;
     }
   }
 
@@ -530,13 +681,119 @@ export const PATCH = handler(async (req) => {
 
     const options = dbSession ? { session: dbSession } : {};
     const updateResult = await BarcodeLabel.updateOne(
-      { _id: unit._id, status: BARCODE_STATUS.IN_STOCK },
+      {
+        _id: unit._id,
+        status: BARCODE_STATUS.IN_STOCK,
+        currentLocationId: unit.currentLocationId || null,
+        locationId: unit.locationId || '',
+      },
       { $set: updates },
       options
     );
     
     if (!updateResult.matchedCount) {
       return { error: json({ error: 'This barcode changed while you were editing. Reload it and try again.' }, 409) };
+    }
+
+    if (Object.keys(itemUpdates).length) {
+      const itemResult = await Item.updateOne(
+        { _id: unit.itemId },
+        { $set: itemUpdates },
+        options
+      );
+      if (!itemResult.matchedCount) {
+        return { error: json({ error: 'The linked item no longer exists.' }, 409) };
+      }
+    }
+
+    if (updates.currentLocationId !== undefined) {
+      const fromLocationId = unit.currentLocationId || unit.locationId || null;
+      const toLocationId = updates.currentLocationId;
+      const quantity = Number(unit.qtyNum ?? unit.qty ?? 0);
+      const businessId = unit.currentBusinessId || unit.businessId || '';
+      const userId = isValidObjectId(String(session.id || ''))
+        ? new Types.ObjectId(String(session.id))
+        : null;
+      const movementBase = {
+        businessId: isValidObjectId(String(businessId)) ? new Types.ObjectId(String(businessId)) : null,
+        finYear: unit.finYear || '',
+        barcodeId: unit._id,
+        barcodeNo: unit.barcodeNo || unit.barcodeGenerated || '',
+        itemId: unit.itemId || null,
+        itemCode: unit.itemCode || '',
+        itemName: unit.itemName || '',
+        uom: unit.uom || '',
+        batchType: unit.batchType || '',
+        statusBefore: unit.status,
+        statusAfter: unit.status,
+        refModel: 'barcodeDetailEdit',
+        refNo: unit.barcodeNo || unit.barcodeGenerated || '',
+        reason: 'Current location corrected from Barcode Report',
+        userId,
+        userName: session.name || '',
+        userEmail: session.email || '',
+        at: new Date(),
+      };
+      const locationMovements = [];
+      if (fromLocationId && quantity > 0) {
+        locationMovements.push({
+          ...movementBase,
+          type: MOVEMENT_TYPES.ADJUST_OUT,
+          qty: -quantity,
+          fromLocationId,
+          toLocationId: null,
+          notes: `Barcode moved from ${fromLocationId} to ${toLocationId}.`,
+        });
+      }
+      if (quantity > 0) {
+        locationMovements.push({
+          ...movementBase,
+          type: MOVEMENT_TYPES.ADJUST_IN,
+          qty: quantity,
+          fromLocationId: null,
+          toLocationId,
+          notes: `Barcode moved from ${fromLocationId || 'unassigned'} to ${toLocationId}.`,
+        });
+      }
+      if (locationMovements.length) {
+        await StockMovement.create(locationMovements, options);
+      }
+    }
+
+    if (updates.locationId !== undefined) {
+      const businessId = unit.currentBusinessId || unit.businessId || '';
+      const userId = isValidObjectId(String(session.id || ''))
+        ? new Types.ObjectId(String(session.id))
+        : null;
+      await StockMovement.create([{
+        businessId: isValidObjectId(String(businessId)) ? new Types.ObjectId(String(businessId)) : null,
+        finYear: unit.finYear || '',
+        type: MOVEMENT_TYPES.ORIGIN_CORRECTION,
+        barcodeId: unit._id,
+        barcodeNo: unit.barcodeNo || unit.barcodeGenerated || '',
+        itemId: unit.itemId || null,
+        itemCode: unit.itemCode || '',
+        itemName: unit.itemName || '',
+        uom: unit.uom || '',
+        batchType: unit.batchType || '',
+        qty: 0,
+        fromLocationId: unit.locationId && isValidObjectId(String(unit.locationId))
+          ? new Types.ObjectId(String(unit.locationId))
+          : null,
+        toLocationId: updates.locationId && isValidObjectId(String(updates.locationId))
+          ? new Types.ObjectId(String(updates.locationId))
+          : null,
+        statusBefore: unit.status,
+        statusAfter: unit.status,
+        refModel: 'barcodeDetailEdit',
+        refNo: unit.barcodeNo || unit.barcodeGenerated || '',
+        reason: 'Origin location corrected from Barcode Report',
+        notes: `Origin location changed from ${unit.locationId || 'unassigned'} to ${updates.locationId || 'unassigned'}.`,
+        userId,
+        userName: session.name || '',
+        userEmail: session.email || '',
+        at: new Date(),
+      }], options);
     }
 
     // Create stock movement if quantity changed
@@ -546,7 +803,7 @@ export const PATCH = handler(async (req) => {
       const delta = newQuantity - oldQuantity;
       
       if (delta !== 0) {
-        const locationId = unit.currentLocationId || unit.locationId || null;
+        const locationId = updates.currentLocationId || unit.currentLocationId || unit.locationId || null;
         const businessId = unit.currentBusinessId || unit.businessId || '';
         const userId = isValidObjectId(String(session.id || '')) ? new Types.ObjectId(String(session.id)) : null;
         const movement = {
@@ -637,7 +894,9 @@ export async function GET(req) {
     unit.locationId && isValidObjectId(String(unit.locationId))
       ? CompanyLocation.findById(unit.locationId).select('name').lean() : null,
     unit.supplierId && isValidObjectId(String(unit.supplierId))
-      ? Supplier.findById(unit.supplierId).select('businessName firstName lastName contactId billingState').lean() : null,
+      ? Supplier.findById(unit.supplierId).select(
+        'businessId businessName firstName lastName contactId gstNo billingMobile billingEmail billingAddressLine1 billingAddressLine2 billingCity billingState billingZipCode'
+      ).lean() : null,
   ]);
 
   /* Item Info's Sub Group / Group / GST Slab - the item's masters (a barcode
@@ -682,7 +941,7 @@ export async function GET(req) {
       ...(unit._id ? [{ barcodeId: unit._id }] : []),
       { barcodeNo: str(unit.barcodeNo) || code },
     ],
-  }).sort({ createdAt: 1 }).lean();
+  }).sort({ createdAt: 1, _id: 1 }).lean();
 
   const locIds = [...new Set(
     movements.flatMap((m) => [m.fromLocationId, m.toLocationId])
@@ -723,6 +982,16 @@ export async function GET(req) {
       .concat(supplier.contactId ? ['[' + supplier.contactId + ']'] : [])
       .join(' ')
     : str(unit.supplierId);
+  const supplierReadDenied = supplier
+    ? await screenDenial({
+      session,
+      screen: SCREENS.SUPPLIER,
+      label: 'suppliers',
+      action: PERM.READ,
+      businessId: supplier.businessId,
+    })
+    : null;
+  const mayReadSupplierDetails = !supplierReadDenied;
 
   /* THE BARCODE IMAGE - this barcode's own (barcodeLabel.imageUrl), as saved
      here or by the mobile app; nothing borrowed from the Item master. The
@@ -781,7 +1050,24 @@ export async function GET(req) {
       taxRegion: str(unit.supplierTaxRegion) || str(supplier?.billingState),
       source: str(unit.source),
 
+      supplierId: str(unit.supplierId),
+      supplierDisplayName: supplier
+        ? str(supplier.businessName) || [supplier.firstName, supplier.lastName].filter(Boolean).join(' ')
+        : '',
+      supplierCode: mayReadSupplierDetails ? str(supplier?.contactId) : '',
+      supplierGstin: mayReadSupplierDetails ? str(supplier?.gstNo) : '',
+      supplierContact: mayReadSupplierDetails ? str(supplier?.billingMobile) : '',
+      supplierEmail: mayReadSupplierDetails ? str(supplier?.billingEmail) : '',
+      supplierAddress: mayReadSupplierDetails ? [
+        supplier?.billingAddressLine1,
+        supplier?.billingAddressLine2,
+        supplier?.billingCity,
+        supplier?.billingState,
+        supplier?.billingZipCode,
+      ].map(str).filter(Boolean).join(', ') : '',
       supplierName,
+      currentLocationId: String(unit.currentLocationId || unit.locationId || ''),
+      originLocationId: String(unit.locationId || ''),
       currentLocation: currentLoc?.name || '',
       originLocation: originLoc?.name || '',
       grcNo: str(unit.grcNo),

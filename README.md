@@ -6,6 +6,10 @@ sell with consignment billing, reports, vouchers.
 
 The day-by-day log of every changed file lives in [change.md](change.md).
 
+For the Barcode + Master Data Excel import (templates, validation, strategies,
+stock-safety rules and API), see
+[BARCODE_IMPORT_README.md](BARCODE_IMPORT_README.md).
+
 ## Latest changes - 30-09-2026
 
 ### NEW

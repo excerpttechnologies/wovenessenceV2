@@ -3,6 +3,10 @@ import dbConnect from '@/lib/db';
 import ProductClassificationOption, { CLASSIFICATION_TYPES } from '@/models/ProductClassificationOption';
 import { requireSession } from '@/lib/session';
 import { escapeRegex } from '@/lib/validate';
+import {
+  FABRIC_CLASSIFICATION_OPTIONS,
+  PLAIN_FABRIC_CLASSIFICATION_OPTIONS,
+} from '@/lib/productClassificationConstants';
 
 const json = (d, s = 200) => Response.json(d, { status: s });
 
@@ -71,20 +75,57 @@ export async function GET(req) {
     }
   }
 
-  await ensureDefaultOptions(businessId, type);
+  const productType = (sp.get('productType') || '').trim().toUpperCase();
+  const productTypeOptions = productType === 'PLAIN FABRICS'
+    ? PLAIN_FABRIC_CLASSIFICATION_OPTIONS[type]
+    : productType === 'FABRICS'
+      ? FABRIC_CLASSIFICATION_OPTIONS[type]
+    : null;
+  if (productTypeOptions) {
+    const writes = await Promise.allSettled(productTypeOptions.map((name, index) =>
+      ProductClassificationOption.updateOne(
+        {
+          businessId,
+          type,
+          name: { $regex: `^${escapeRegex(name)}$`, $options: 'i' },
+        },
+        {
+          $setOnInsert: {
+            businessId,
+            type,
+            name,
+            displayOrder: index + 1,
+            isActive: true,
+          },
+        },
+        { upsert: true }
+      )
+    ));
+    const failure = writes.find((result) => result.status === 'rejected' && result.reason?.code !== 11000);
+    if (failure) throw failure.reason;
+  } else {
+    await ensureDefaultOptions(businessId, type);
+  }
 
   const filter = { businessId, isActive: true };
   if (type) filter.type = type;
+  if (productTypeOptions) filter.name = { $in: productTypeOptions };
 
   // Search by name if provided
   const search = (sp.get('search') || '').trim();
   if (search) {
-    filter.name = { $regex: escapeRegex(search), $options: 'i' };
+    const nameSearch = { name: { $regex: escapeRegex(search), $options: 'i' } };
+    if (productTypeOptions) filter.$and = [nameSearch];
+    else filter.name = nameSearch.name;
   }
 
   const options = await ProductClassificationOption.find(filter)
     .sort({ type: 1, displayOrder: 1, name: 1 })
     .lean();
+  if (productTypeOptions) {
+    const order = new Map(productTypeOptions.map((name, index) => [name.toLowerCase(), index]));
+    options.sort((a, b) => order.get(a.name.toLowerCase()) - order.get(b.name.toLowerCase()));
+  }
 
   // Group by type for easier consumption
   const grouped = {};
