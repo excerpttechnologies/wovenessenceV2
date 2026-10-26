@@ -19,11 +19,25 @@ const SalesReturnSchema = new mongoose.Schema(
     /* set when this document is converted downstream; null = still available */
     creditNoteId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
 
+    /* Same attribution rule as a sale (lib/salesChannel.js): only
+       "instagram" is stored, everything else - including every legacy
+       document - is an offline store return. */
+    salesChannel: {
+      type: String,
+      enum: ['', 'instagram'],
+      default: '',
+      index: true,
+    },
+
     /* line items are free-form per document type */
     items: { type: mongoose.Schema.Types.Mixed, default: [] },
   },
   { timestamps: true }
 );
+
+/* Return dates can be null on legacy rows; createdAt is the fallback. */
+SalesReturnSchema.index({ businessId: 1, returnDate: 1 });
+SalesReturnSchema.index({ businessId: 1, locationId: 1, returnDate: 1 });
 
 export default mongoose.models.salesReturn ||
   mongoose.model('salesReturn', SalesReturnSchema, 'salesreturn');

@@ -5,6 +5,7 @@ import { requireSession } from '@/lib/session';
 import { resolveRefLabels } from '@/lib/refLabels';
 import { validate, escapeRegex } from '@/lib/validate';
 import { nextDocNumber } from '@/lib/docnumber';
+import { normaliseSalesChannel } from '@/lib/salesChannel';
 import { FORM } from '@/app/admin/transaction/sell/salereturn/form';
 
 /* header fields AND the totals rows - the totals card holds real stored
@@ -91,6 +92,9 @@ export async function POST(req) {
   if (body.finYear) doc.finYear = body.finYear;
 
   if (Array.isArray(body.data?.items)) doc.items = body.data.items;
+  /* A credit against an Instagram invoice carries the same channel, so the
+     dashboard reduces Instagram revenue rather than the store's. */
+  doc.salesChannel = normaliseSalesChannel(body.data?.salesChannel);
 
   /* document number from the Doc Setup master */
   if (!doc.salesReturnNo) {

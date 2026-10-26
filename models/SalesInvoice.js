@@ -19,6 +19,15 @@ const SalesInvoiceSchema = new mongoose.Schema(
     netValue: { type: Number, default: null },
     salesInvoiceNo: { type: String, default: '' },
     customerMobile: { type: String, default: '' },
+
+    /* Same attribution rule as a POS bill (lib/salesChannel.js): only
+       "instagram" is stored, everything else is offline. */
+    salesChannel: {
+      type: String,
+      enum: ['', 'instagram'],
+      default: '',
+      index: true,
+    },
     deliveryChallanNo: { type: String, default: '' },
 
     /* line items are free-form per document type */
@@ -26,6 +35,13 @@ const SalesInvoiceSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+/* Sales invoices have no business date column; createdAt is the authoritative
+   report date, so it is the indexed range field. */
+SalesInvoiceSchema.index({ businessId: 1, createdAt: 1 });
+SalesInvoiceSchema.index({ businessId: 1, locationId: 1, createdAt: 1 });
+SalesInvoiceSchema.index({ businessId: 1, salesInvoiceNo: 1 });
+SalesInvoiceSchema.index({ businessId: 1, salesChannel: 1, createdAt: 1 });
 
 export default mongoose.models.salesInvoice ||
   mongoose.model('salesInvoice', SalesInvoiceSchema, 'salesinvoice');

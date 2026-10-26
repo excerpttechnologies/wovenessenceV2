@@ -38,6 +38,7 @@ function insertUnderUpi(rows, extras) {
 export default function MultiplePayDialog({
   totalItems, totalPayable, onClose, onSubmit,
   initialPayments = [], initialSellNote = '', initialStaffNote = '',
+  initialSalesChannel = '',
   title = 'Multiple Payment', submitLabel = 'Submit', saving = false,
 }) {
   const [payments, setPayments] = useState(() => {
@@ -70,6 +71,11 @@ export default function MultiplePayDialog({
   );
   const [sellNote, setSellNote] = useState(initialSellNote);
   const [staffNote, setStaffNote] = useState(initialStaffNote);
+  /* Recorded on the bill, not inferred later: "Instagram" only when the
+     operator says so, otherwise an offline store sale. */
+  const [salesChannel, setSalesChannel] = useState(
+    String(initialSalesChannel || '') === 'instagram' ? 'instagram' : ''
+  );
   const totalPaying = payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
   const changeReturn = Math.max(0, totalPaying - totalPayable);
   const balance = Math.max(0, totalPayable - totalPaying);
@@ -142,8 +148,8 @@ export default function MultiplePayDialog({
                 </span>
               </div>
             ))}
-            <div className="mt-3 grid gap-2 md:grid-cols-2"><label className="field-label">Sell note<input className="f-input" value={sellNote} onChange={(event) => setSellNote(event.target.value)} /></label><label className="field-label">Staff note<input className="f-input" value={staffNote} onChange={(event) => setStaffNote(event.target.value)} /></label></div>
-            <button type="button" className="btn btn-primary mx-auto mt-4 flex min-w-52 justify-center" disabled={saving} onClick={() => onSubmit({ payments, sellNote, staffNote })}>{saving ? 'Saving...' : submitLabel}</button>
+            <div className="mt-3 grid gap-2 md:grid-cols-3"><label className="field-label">Sell note<input className="f-input" value={sellNote} onChange={(event) => setSellNote(event.target.value)} /></label><label className="field-label">Staff note<input className="f-input" value={staffNote} onChange={(event) => setStaffNote(event.target.value)} /></label><label className="field-label">Sales channel<select className="f-input" value={salesChannel} onChange={(event) => setSalesChannel(event.target.value)}><option value="">Offline Store</option><option value="instagram">Instagram</option></select></label></div>
+            <button type="button" className="btn btn-primary mx-auto mt-4 flex min-w-52 justify-center" disabled={saving} onClick={() => onSubmit({ payments, sellNote, staffNote, salesChannel })}>{saving ? 'Saving...' : submitLabel}</button>
           </div>
           <div className="rounded-lg bg-[#ffc400] p-4 text-ink shadow-inner"><div className="border-b border-black/15 pb-3"><div className="text-[12px] font-semibold">Total Items:</div><div className="text-xl font-bold">{totalItems}</div></div><div className="border-b border-black/15 py-3"><div className="text-[12px] font-semibold">Total Payable:</div><div className="text-xl font-bold">{money(totalPayable)}</div></div><div className="border-b border-black/15 py-3"><div className="text-[12px] font-semibold">Total Paying:</div><div className="text-xl font-bold">{money(totalPaying)}</div></div><div className="border-b border-black/15 py-3"><div className="text-[12px] font-semibold">Cash Return:</div><div className="text-xl font-bold text-danger">{money(changeReturn)}</div></div><div className="pt-3"><div className="text-[12px] font-semibold">Balance:</div><div className="text-xl font-bold">{money(balance)}</div></div></div>
         </div>

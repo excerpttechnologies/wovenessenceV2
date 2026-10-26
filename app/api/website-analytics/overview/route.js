@@ -1,50 +1,36 @@
-import dbConnect from '@/lib/db';
-import { requireSession } from '@/lib/session';
-import { handler, json } from '@/lib/apiError';
-import { dashboardScope, scopeDescription } from '@/lib/dashboard/access';
-import { resolveRange } from '@/lib/dashboard/range';
-import { getWebsiteAnalytics } from '@/lib/website-analytics/service';
-
-/* /api/website-analytics/overview
-
-   GET ?business=&location=&finYear=&preset=&from=&to=
-
-   Website traffic and conversion for the selected period.
-
-   Missing tracking is reported as null metrics, never as zero: a site with
-   no tag and a site with no visitors need different fixes, and the screen
-   turns the two into different messages. */
+import { requirePermission, PERMISSIONS } from '@/lib/rbac';
+import { buildWebsiteAnalytics } from '@/lib/website-analytics/service';
 
 export const dynamic = 'force-dynamic';
 
-export const GET = handler(async (req) => {
-  const session = await requireSession();
-  if (!session) return json({ error: 'Unauthorized' }, 401);
+const PRIVATE_HEADERS = {
+  'Cache-Control': 'private, no-store, max-age=0',
+  Vary: 'Cookie',
+};
 
-  const sp = new URL(req.url).searchParams;
-  const scope = dashboardScope(sp, session);
-
-  let range;
-  try {
-    range = resolveRange({
-      preset: sp.get('preset') || '30d',
-      from: sp.get('from'),
-      to: sp.get('to'),
-      finYear: scope.finYear || sp.get('finYear') || '',
-    });
-  } catch (err) {
-    if (err instanceof RangeError) {
-      return json({ error: err.message, code: 'BAD_RANGE' }, 422);
-    }
-    throw err;
+function fail(err) {
+  if (err && err.status && err.message) {
+    return Response.json(
+      { error: err.message, code: err.code || 'ERROR', field: err.field || undefined },
+      { status: err.status, headers: PRIVATE_HEADERS }
+    );
   }
+  console.error('[website-analytics/overview]', err);
+  return Response.json(
+    { error: 'Could not load website analytics. Please retry.', code: 'INTERNAL' },
+    { status: 500, headers: PRIVATE_HEADERS }
+  );
+}
 
-  await dbConnect();
-  const snapshot = await getWebsiteAnalytics(scope, range);
-
-  return json({
-    ...snapshot,
-    scope: scopeDescription(scope, session),
-    timezone: 'Asia/Kolkata',
-  });
-});
+/* One request, one response: every panel on the screen reads this payload, so
+   the page cannot show two panels computed from different ranges. */
+export async function GET(req) {
+  try {
+    const session = await requirePermission(PERMISSIONS.REPORTS_VIEW);
+    const sp = new URL(req.url).searchParams;
+    const data = await buildWebsiteAnalytics(session, sp);
+    return Response.json(data, { headers: PRIVATE_HEADERS });
+  } catch (err) {
+    return fail(err);
+  }
+}

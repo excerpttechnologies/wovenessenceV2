@@ -1,6 +1,7 @@
 import { isValidObjectId, Types } from 'mongoose';
 import dbConnect from '@/lib/db';
 import PosInvoice from '@/models/PosInvoice';
+import { normaliseSalesChannel } from '@/lib/salesChannel';
 import Business from '@/models/Business';
 import CompanyLocation from '@/models/CompanyLocation';
 import { Customer } from '@/lib/contacts';
@@ -439,6 +440,9 @@ export const POST = handler(async (req) => {
   doc.counterId = body.data?.counterId && isValidObjectId(body.data.counterId) ? body.data.counterId : null;
   doc.billingType = String(body.data?.billingType || '');
   doc.exempted = String(body.data?.exempted || 'NO');
+  /* Recorded at billing. Anything that is not explicitly Instagram - and
+     every older bill with no field at all - is an offline store sale. */
+  doc.salesChannel = normaliseSalesChannel(body.data?.salesChannel);
 
   /* Line items are normalised before they are stored. The till was writing
      `code` while every report reads `itemCode` (lib/reports.js lineItemCode),

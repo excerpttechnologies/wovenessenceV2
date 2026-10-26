@@ -1,12 +1,3 @@
-// import { redirect } from 'next/navigation';
-
-// /* /admin is gated by middleware.js, which bounces signed-out visitors to /login. */
-// export default function Home() {
-//   redirect('/admin');
-// }
-
-
-
 
 "use client";
 

@@ -1,417 +1,258 @@
-/* Woven Essence website analytics tracker.
+/* ==========================================================================
+   Woven Essence — first-party website analytics tracker.
 
-   Drop this on the storefront:
+   Load it on the storefront with one tag, after the page is interactive:
 
-     <script defer src="https://erp.example.com/we-analytics.js"
-             data-business="<business _id>"
-             data-location="<companyLocation _id>"
-             data-endpoint="https://erp.example.com/api/website-analytics/collect"></script>
+     <script defer src="https://<erp-host>/we-analytics.js"></script>
 
-   Consent is denied by default. Nothing is sent until the visitor grants it:
-     - window.weAnalytics.consent('granted')
-     - or localStorage.we_analytics_consent = 'granted' before this loads
-     - or data-consent="implied" where another lawful basis applies
+   It records page views and session starts on its own, and exposes one global
+   for the storefront code to call on the events only the site can know about:
 
-   Do Not Track and Global Privacy Control always win. The tracker does not
-   use cookies, does not read form fields, and does not send a full URL - only
-   the pathname. Query strings, referrer paths, email addresses, phone numbers
-   and card numbers are stripped again on the server.
+     window.weTrack('product_view', { product: { id, itemCode, name } })
+     window.weTrack('add_to_cart', { product: {...}, value: 185 })
+     window.weTrack('login_success', { customerId })
+     window.weTrack('purchase', { orderId: 'WE-TF0001-000021' })
 
-   Attribution is kept for the life of the 30-minute session in sessionStorage,
-   so a visitor who lands from a campaign and then opens a product page is
-   still counted against that campaign. Nothing is stored before consent. */
-
+   Design notes:
+     - No cookies. A random id in localStorage identifies a browser, not a
+       person; the dashboard says so.
+     - The query string is never sent, so reset tokens and email parameters
+       cannot reach the database.
+     - `we_analytics_optout = '1'` in localStorage, or Global Privacy Control,
+       silences the tracker completely.
+     - A failed beacon is swallowed: analytics can never break checkout.
+   ========================================================================== */
 (function () {
   'use strict';
 
   var script = document.currentScript;
-  if (!script || window.__weAnalyticsLoaded) return;
-  window.__weAnalyticsLoaded = true;
+  var endpoint = (script && script.getAttribute('data-endpoint'))
+    || ((script && script.src) ? script.src.replace(/\/we-analytics\.js.*$/, '') + '/api/website-analytics/collect'
+      : '/api/website-analytics/collect');
 
-  var VERSION = '1.0.0';
-  var CONSENT_KEY = 'we_analytics_consent';
-  var VISITOR_KEY = 'we_analytics_visitor';
-  var SESSION_KEY = 'we_analytics_session';
-  var SESSION_AT_KEY = 'we_analytics_session_at';
-  var ATTR_KEY = 'we_analytics_attribution';
-  var SESSION_IDLE_MS = 30 * 60 * 1000;
-  var MAX_BODY = 12000;
-
-  var attr = function (name) {
-    return String(script.getAttribute('data-' + name) || '').trim();
+  var EVENTS = {
+    page_view: 1, session_start: 1, product_list_view: 1, product_view: 1, search: 1,
+    login_success: 1, sign_up_success: 1, add_to_cart: 1, remove_from_cart: 1,
+    view_cart: 1, begin_checkout: 1, add_shipping_info: 1, add_payment_info: 1,
+    purchase: 1, refund: 1, logout: 1
   };
+  var SESSION_IDLE_MS = 30 * 60 * 1000;
+  var VISITOR_KEY = 'we_vid';
+  var SESSION_KEY = 'we_sess';
+  var SOURCE_KEY = 'we_src';
 
-  var origin = '';
-  try { origin = new URL(script.src, location.href).origin; } catch (err) { origin = location.origin; }
-
-  var endpoint = attr('endpoint')
-    || (window.WE_ANALYTICS_ENDPOINT || '')
-    || origin + '/api/website-analytics/collect';
-  var businessId = attr('business') || window.WE_ANALYTICS_BUSINESS || '';
-  var locationId = attr('location') || window.WE_ANALYTICS_LOCATION || '';
-  var siteHost = attr('site') || location.hostname;
-  var consentMode = (attr('consent') || 'required').toLowerCase();
-
-  function dntEnabled() {
-    return navigator.doNotTrack === '1'
-      || window.doNotTrack === '1'
-      || navigator.msDoNotTrack === '1'
-      || navigator.globalPrivacyControl === true;
-  }
-
-  function storedConsent() {
+  function store(key, value) {
     try {
-      var value = localStorage.getItem(CONSENT_KEY);
-      return value === 'granted' || value === 'denied' ? value : '';
-    } catch (err) { return ''; }
-  }
-
-  function consentState() {
-    if (dntEnabled()) return 'denied';
-    var explicit = window.__WE_ANALYTICS_CONSENT__;
-    if (explicit === true || explicit === 'granted') return 'granted';
-    if (explicit === false || explicit === 'denied') return 'denied';
-    var stored = storedConsent();
-    if (stored) return stored;
-    return consentMode === 'implied' ? 'implied' : 'pending';
-  }
-
-  function hasConsent() {
-    var state = consentState();
-    return state === 'granted' || state === 'implied';
+      if (value === undefined) return localStorage.getItem(key);
+      localStorage.setItem(key, value);
+      return value;
+    } catch (error) {
+      return null;
+    }
   }
 
   function randomId(prefix) {
-    try {
-      if (window.crypto && typeof window.crypto.randomUUID === 'function') {
-        return prefix + window.crypto.randomUUID();
-      }
-    } catch (err) { /* fall through */ }
-    var random = '';
-    try {
-      var bytes = new Uint8Array(12);
-      window.crypto.getRandomValues(bytes);
-      for (var i = 0; i < bytes.length; i += 1) random += bytes[i].toString(16).padStart(2, '0');
-    } catch (err) {
-      random = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
-    }
-    return prefix + Date.now().toString(36) + random;
+    var bytes = new Uint8Array(12);
+    if (window.crypto && window.crypto.getRandomValues) window.crypto.getRandomValues(bytes);
+    else for (var i = 0; i < bytes.length; i += 1) bytes[i] = Math.floor(Math.random() * 256);
+    var text = Array.prototype.map.call(bytes, function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
+    return prefix + '_' + text;
   }
 
-  function clearIds() {
-    try {
-      localStorage.removeItem(VISITOR_KEY);
-      sessionStorage.removeItem(SESSION_KEY);
-      sessionStorage.removeItem(SESSION_AT_KEY);
-      sessionStorage.removeItem(ATTR_KEY);
-    } catch (err) { /* storage unavailable */ }
+  function optedOut() {
+    if (navigator.globalPrivacyControl === true) return true;
+    return store('we_analytics_optout') === '1' || store('we_consent') === 'denied';
   }
 
   function visitorId() {
-    try {
-      var existing = localStorage.getItem(VISITOR_KEY);
-      if (existing) return existing;
-      var id = randomId('v_');
-      localStorage.setItem(VISITOR_KEY, id);
-      return id;
-    } catch (err) { return randomId('v_'); }
+    var id = store(VISITOR_KEY);
+    if (id && /^[A-Za-z0-9_-]{8,64}$/.test(id)) return id;
+    id = randomId('v');
+    store(VISITOR_KEY, id);
+    return id;
   }
 
   function sessionId() {
     var now = Date.now();
-    try {
-      var existing = sessionStorage.getItem(SESSION_KEY);
-      var last = Number(sessionStorage.getItem(SESSION_AT_KEY) || 0);
-      if (existing && now - last < SESSION_IDLE_MS) {
-        sessionStorage.setItem(SESSION_AT_KEY, String(now));
-        return existing;
-      }
-      var id = randomId('s_');
-      sessionStorage.setItem(SESSION_KEY, id);
-      sessionStorage.setItem(SESSION_AT_KEY, String(now));
-      /* A new session starts with no inherited campaign. */
-      sessionStorage.removeItem(ATTR_KEY);
-      return id;
-    } catch (err) { return randomId('s_'); }
-  }
-
-  function hostOf(value) {
-    if (!value) return '';
-    try {
-      var url = new URL(value, location.href);
-      return String(url.hostname || '').toLowerCase().replace(/^www\./, '');
-    } catch (err) { return ''; }
-  }
-
-  function searchParams() {
-    try { return new URLSearchParams(location.search); } catch (err) { return null; }
-  }
-
-  function utm() {
-    var params = searchParams();
-    var get = function (key) { return params ? String(params.get(key) || '').trim().slice(0, 120) : ''; };
-    return {
-      source: get('utm_source'),
-      medium: get('utm_medium'),
-      campaign: get('utm_campaign'),
-    };
-  }
-
-  function ownHost() {
-    var host = hostOf(siteHost);
-    if (host) return host;
-    return String(location.hostname || '').toLowerCase().replace(/^www\./, '');
-  }
-
-  function externalReferrer() {
-    var host = hostOf(document.referrer);
-    var own = ownHost();
-    if (!host) return '';
-    /* Internal navigation is not acquisition. */
-    if (own && (host === own || host.slice(-(own.length + 1)) === '.' + own)) return '';
-    return host;
-  }
-
-  function readAttribution() {
-    try {
-      var raw = sessionStorage.getItem(ATTR_KEY);
-      if (!raw) return null;
-      var saved = JSON.parse(raw);
-      if (!saved || typeof saved !== 'object') return null;
-      var text = function (value) { return String(value || '').slice(0, 120); };
-      return {
-        source: text(saved.source),
-        medium: text(saved.medium),
-        campaign: text(saved.campaign),
-        referrerHost: text(saved.referrerHost),
-      };
-    } catch (err) { return null; }
-  }
-
-  function writeAttribution(touch) {
-    try { sessionStorage.setItem(ATTR_KEY, JSON.stringify(touch)); } catch (err) { /* storage unavailable */ }
-  }
-
-  function attribution() {
-    var source = utm();
-    var touch = {
-      source: source.source,
-      medium: source.medium,
-      campaign: source.campaign,
-      referrerHost: externalReferrer(),
-    };
-    var hasTouch = Boolean(touch.source || touch.medium || touch.referrerHost);
-    if (hasTouch) {
-      writeAttribution(touch);
-      return touch;
+    var raw = store(SESSION_KEY);
+    var session = null;
+    try { session = raw ? JSON.parse(raw) : null; } catch (error) { session = null; }
+    if (session && session.id && now - Number(session.last || 0) < SESSION_IDLE_MS) {
+      session.last = now;
+      store(SESSION_KEY, JSON.stringify(session));
+      return { id: session.id, started: false };
     }
-    return readAttribution() || { source: '', medium: '', campaign: '', referrerHost: '' };
+    session = { id: randomId('s'), last: now };
+    store(SESSION_KEY, JSON.stringify(session));
+    return { id: session.id, started: true };
   }
 
-  function byteLength(text) {
-    try { return new Blob([text]).size; } catch (err) { return text.length; }
-  }
-
-  function base() {
-    var touch = attribution();
-    return {
-      businessId: businessId || undefined,
-      locationId: locationId || undefined,
-      sessionId: sessionId(),
-      visitorId: visitorId(),
-      path: location.pathname || '/',
-      title: String(document.title || '').slice(0, 160),
-      referrerHost: touch.referrerHost || undefined,
-      source: touch.source || undefined,
-      medium: touch.medium || undefined,
-      campaign: touch.campaign || undefined,
-      consent: true,
-      currency: 'INR',
-      dnt: false,
-    };
-  }
-
-  function trimPayload(payload) {
-    var body;
-    try { body = JSON.stringify(payload); } catch (err) { return null; }
-    if (byteLength(body) <= MAX_BODY) return body;
-
-    var reduced = {};
-    Object.keys(payload).forEach(function (key) {
-      if (key === 'metadata') return;
-      if (key === 'title') { reduced.title = String(payload.title || '').slice(0, 80); return; }
-      if (key === 'searchQuery') { reduced.searchQuery = String(payload.searchQuery || '').slice(0, 80); return; }
-      reduced[key] = payload[key];
+  function classifySource() {
+    var search = window.location.search || '';
+    var params = {};
+    search.replace(/^\?/, '').split('&').forEach(function (pair) {
+      if (!pair) return;
+      var parts = pair.split('=');
+      try { params[decodeURIComponent(parts[0])] = decodeURIComponent(parts.slice(1).join('=') || ''); }
+      catch (error) { /* malformed parameter: ignore it */ }
     });
-    reduced.truncatedClient = true;
 
-    try { body = JSON.stringify(reduced); } catch (err) { return null; }
-    return byteLength(body) <= MAX_BODY ? body : null;
+    var utmSource = (params.utm_source || '').toLowerCase();
+    var utmMedium = (params.utm_medium || '').toLowerCase();
+    var campaign = params.utm_campaign || '';
+
+    var source = 'direct';
+    if (utmSource) {
+      if (utmMedium === 'cpc' || utmMedium === 'paid' || utmMedium === 'ads' || utmMedium === 'ppc') source = 'paid';
+      else if (utmSource.indexOf('instagram') >= 0) source = 'instagram';
+      else if (utmSource.indexOf('facebook') >= 0 || utmSource.indexOf('meta') >= 0) source = 'facebook';
+      else if (utmMedium === 'email' || utmSource.indexOf('newsletter') >= 0) source = 'email';
+      else if (utmMedium === 'social') source = 'social';
+      else if (utmMedium === 'organic') source = 'organic';
+      else source = 'referral';
+    } else if (document.referrer) {
+      var referrer = document.referrer.toLowerCase();
+      if (referrer.indexOf(window.location.host) >= 0) source = 'internal';
+      else if (/(google|bing|yahoo|duckduckgo|ecosia)\./.test(referrer)) source = 'organic';
+      else if (referrer.indexOf('instagram.') >= 0) source = 'instagram';
+      else if (/(facebook|fb\.)/.test(referrer)) source = 'facebook';
+      else if (/(mail|newsletter)/.test(referrer)) source = 'email';
+      else if (/(t\.co|twitter|x\.com|linkedin|pinterest|youtube|whatsapp)/.test(referrer)) source = 'social';
+      else source = 'referral';
+    } else if (utmMedium) {
+      source = 'referral';
+    }
+
+    if (source === 'internal') {
+      var saved = store(SOURCE_KEY);
+      if (saved) {
+        try { return JSON.parse(saved); } catch (error) { /* fall through */ }
+      }
+      source = 'direct';
+    }
+
+    var attribution = {
+      source: source,
+      referrer: document.referrer ? String(document.referrer).slice(0, 300) : '',
+      campaign: { source: utmSource, medium: utmMedium, name: campaign }
+    };
+    try { sessionStorage.setItem(SOURCE_KEY, JSON.stringify(attribution)); } catch (error) { /* ignore */ }
+    store(SOURCE_KEY, JSON.stringify(attribution));
+    return attribution;
   }
 
-  function post(body) {
-    if (!body) return false;
+  function attributedSource() {
+    var raw = store(SOURCE_KEY);
+    if (raw) {
+      try {
+        var saved = JSON.parse(raw);
+        if (saved && saved.source) return saved;
+      } catch (error) { /* recompute below */ }
+    }
+    return classifySource();
+  }
+
+  function deviceType() {
+    var ua = navigator.userAgent || '';
+    if (/iPad|Tablet|PlayBook|Silk/i.test(ua) || (/Android/i.test(ua) && !/Mobile/i.test(ua))) return 'tablet';
+    if (/Mobi|Android|iPhone|iPod|Windows Phone/i.test(ua)) return 'mobile';
+    if (/Macintosh|Windows|Linux|CrOS/i.test(ua)) return 'desktop';
+    return 'unknown';
+  }
+
+  function pageTypeOf(path) {
+    if (path === '/' || path === '') return 'home';
+    if (/^\/(products?|collections?|shop|catalog|category|categories)/.test(path)) return 'catalog';
+    if (/^\/product\//.test(path)) return 'product';
+    if (/^\/(cart|basket)/.test(path)) return 'cart';
+    if (/^\/(checkout|payment)/.test(path)) return 'checkout';
+    if (/^\/(account|profile|orders|login|register|signup|sign-in|sign-up)/.test(path)) return 'account';
+    return 'other';
+  }
+
+  function send(payload) {
+    if (optedOut()) return;
+    var body = JSON.stringify(payload);
     try {
       if (navigator.sendBeacon) {
-        var beacon = new Blob([body], { type: 'text/plain;charset=UTF-8' });
-        if (navigator.sendBeacon(endpoint, beacon)) return true;
+        var blob = new Blob([body], { type: 'application/json' });
+        if (navigator.sendBeacon(endpoint, blob)) return;
       }
-    } catch (err) { /* fall through to fetch */ }
-
+    } catch (error) { /* fall through to fetch */ }
     try {
       fetch(endpoint, {
         method: 'POST',
-        mode: 'cors',
-        credentials: 'omit',
-        keepalive: true,
-        headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+        headers: { 'Content-Type': 'application/json' },
         body: body,
-      }).catch(function () {});
-      return true;
-    } catch (err) { return false; }
+        keepalive: true,
+        credentials: 'omit'
+      }).catch(function () { /* never surface analytics failures */ });
+    } catch (error) { /* never surface analytics failures */ }
   }
 
-  function send(type, data) {
-    if (!hasConsent()) return false;
+  function track(name, props) {
+    if (optedOut()) return;
+    if (!EVENTS[name]) return;
 
-    var payload = base();
-    payload.type = type;
-    payload.eventId = randomId('e_');
-    payload.occurredAt = new Date().toISOString();
+    var details = props && typeof props === 'object' ? props : {};
+    var session = sessionId();
+    var source = attributedSource();
+    var path = String(window.location.pathname || '/').slice(0, 512);
 
-    if (data && typeof data === 'object') {
-      Object.keys(data).forEach(function (key) {
-        if (data[key] !== undefined) payload[key] = data[key];
+    send({
+      event: name,
+      ts: Date.now(),
+      visitorId: visitorId(),
+      sessionId: session.id,
+      path: path,
+      pageType: pageTypeOf(path),
+      source: source.source || 'unknown',
+      referrer: source.referrer || '',
+      campaign: source.campaign || {},
+      device: deviceType(),
+      product: details.product || undefined,
+      orderId: details.orderId || '',
+      value: typeof details.value === 'number' ? details.value : undefined,
+      customerId: details.customerId || '',
+      consent: store('we_analytics_optout') === '1' ? 'denied' : 'granted'
+    });
+
+    if (name === 'page_view' && session.started) {
+      send({
+        event: 'session_start',
+        ts: Date.now(),
+        visitorId: visitorId(),
+        sessionId: session.id,
+        path: path,
+        pageType: pageTypeOf(path),
+        source: source.source || 'unknown',
+        referrer: source.referrer || '',
+        campaign: source.campaign || {},
+        device: deviceType(),
+        consent: 'granted'
       });
     }
-
-    if (type === 'purchase' && !payload.orderId) return false;
-
-    return post(trimPayload(payload));
   }
 
-  var lastPath = '';
+  window.weTrack = track;
 
-  function pageview() {
-    var path = location.pathname || '/';
-    if (path === lastPath) return false;
-    lastPath = path;
-    return send('pageview', {});
+  function pageView() {
+    track('page_view');
   }
 
-  function track(type, data) {
-    if (!type) return false;
-    return send(String(type), data);
-  }
+  if (document.readyState === 'complete') pageView();
+  else window.addEventListener('load', pageView, { once: true });
 
-  function purchase(order) {
-    order = order || {};
-    if (!order.orderId) return false;
-    return send('purchase', {
-      orderId: String(order.orderId),
-      value: Number(order.value) || 0,
-      currency: order.currency || 'INR',
-      productId: order.productId || undefined,
-      productName: order.productName || undefined,
-      quantity: Number(order.quantity) || undefined,
-      path: order.path || location.pathname,
-    });
-  }
-
-  function search(term) {
-    if (!term) return false;
-    return send('search', { searchQuery: String(term), query: String(term) });
-  }
-
-  function product(data) {
-    data = data || {};
-    if (!data.productId && !data.productName) return false;
-    return send('product_view', {
-      productId: data.productId || undefined,
-      productName: data.productName || undefined,
-      value: Number(data.value) || undefined,
-      path: data.path || location.pathname,
-    });
-  }
-
-  function addToCart(data) {
-    data = data || {};
-    return send('add_to_cart', {
-      productId: data.productId || undefined,
-      productName: data.productName || undefined,
-      value: Number(data.value) || 0,
-      quantity: Number(data.quantity) || undefined,
-      path: data.path || location.pathname,
-    });
-  }
-
-  function checkout(data) {
-    data = data || {};
-    return send('checkout_start', {
-      value: Number(data.value) || 0,
-      currency: data.currency || 'INR',
-      path: data.path || location.pathname,
-    });
-  }
-
-  function consent(value) {
-    var next = value === true || value === 'granted' ? 'granted'
-      : value === false || value === 'denied' ? 'denied'
-      : '';
-    if (!next) return hasConsent();
-    try { localStorage.setItem(CONSENT_KEY, next); } catch (err) { /* ignore */ }
-    window.__WE_ANALYTICS_CONSENT__ = next === 'granted';
-    if (next === 'denied') {
-      clearIds();
-      lastPath = '';
-      return false;
-    }
-    lastPath = '';
-    pageview();
-    return true;
-  }
-
-  function onReady() {
-    if (hasConsent()) pageview();
-
-    var push = history.pushState;
-    var replace = history.replaceState;
-
-    history.pushState = function () {
-      var result = push.apply(history, arguments);
-      setTimeout(function () { if (hasConsent()) pageview(); }, 0);
+  /* Single-page navigation: a route change is a page view, but the same
+     session continues, which is what the session timeout is for. */
+  ['pushState', 'replaceState'].forEach(function (method) {
+    var original = window.history[method];
+    if (typeof original !== 'function') return;
+    window.history[method] = function () {
+      var result = original.apply(window.history, arguments);
+      pageView();
       return result;
     };
-
-    history.replaceState = function () {
-      var result = replace.apply(history, arguments);
-      setTimeout(function () { if (hasConsent()) pageview(); }, 0);
-      return result;
-    };
-
-    window.addEventListener('popstate', function () {
-      if (hasConsent()) pageview();
-    });
-  }
-
-  window.weAnalytics = {
-    version: VERSION,
-    endpoint: endpoint,
-    get state() { return consentState(); },
-    get granted() { return hasConsent(); },
-    consent: consent,
-    pageview: function () { lastPath = ''; return pageview(); },
-    track: track,
-    product: product,
-    addToCart: addToCart,
-    checkout: checkout,
-    purchase: purchase,
-    search: search,
-  };
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', onReady, { once: true });
-  } else {
-    onReady();
-  }
+  });
+  window.addEventListener('popstate', pageView);
 }());

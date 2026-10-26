@@ -7,6 +7,7 @@ import { resolveRefLabels } from '@/lib/refLabels';
 import { validate, escapeRegex } from '@/lib/validate';
 import { nextDocNumber } from '@/lib/docnumber';
 import { FORM } from '@/app/admin/transaction/sell/salesinvoice/form';
+import { normaliseSalesChannel } from '@/lib/salesChannel';
 
 /* header fields AND the totals rows - the totals card holds real stored
    numbers (taxable value, round off, net value, the editable discounts).
@@ -92,6 +93,9 @@ export async function POST(req) {
   if (body.finYear) doc.finYear = body.finYear;
 
   if (Array.isArray(body.data?.items)) doc.items = body.data.items;
+  /* The form does not offer it yet, but the API accepts the same attribution
+     rule the till uses, so an integration can tag a sales invoice too. */
+  doc.salesChannel = normaliseSalesChannel(body.data?.salesChannel);
 
   /* document number from the Doc Setup master */
   if (!doc.salesInvoiceNo) {

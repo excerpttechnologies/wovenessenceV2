@@ -1,55 +1,45 @@
-import dbConnect from '@/lib/db';
-import { requireSession } from '@/lib/session';
-import { handler, json } from '@/lib/apiError';
-import { dashboardScope, scopeDescription } from '@/lib/dashboard/access';
-import { resolveRange } from '@/lib/dashboard/range';
-import { getDashboardAnalytics } from '@/lib/dashboard/analytics';
-import { buildDashboardCsv } from '@/lib/dashboard/export';
-
-/* /api/dashboard/export
-
-   The same snapshot the screen is showing, as CSV. Every figure comes from
-   the identical analytics call, so the file cannot disagree with the page.
-
-   csvCell() in lib/dashboard/export.js neutralises cells that a spreadsheet
-   would otherwise treat as formulas. */
+import { requirePermission, PERMISSIONS } from '@/lib/rbac';
+import { buildDashboardAnalytics } from '@/lib/dashboard/service';
+import { dashboardFilename, dashboardWorkbookBuffer } from '@/lib/dashboard/export';
 
 export const dynamic = 'force-dynamic';
 
-export const GET = handler(async (req) => {
-  const session = await requireSession();
-  if (!session) return json({ error: 'Unauthorized' }, 401);
+function fail(err) {
+  if (err && err.status && err.message) {
+    return Response.json(
+      { error: err.message, code: err.code || 'ERROR', field: err.field || undefined },
+      { status: err.status, headers: { 'Cache-Control': 'private, no-store' } }
+    );
+  }
+  console.error('[dashboard/export]', err);
+  return Response.json(
+    { error: 'Could not build the dashboard report. Please retry.', code: 'INTERNAL' },
+    { status: 500, headers: { 'Cache-Control': 'private, no-store' } }
+  );
+}
 
-  const sp = new URL(req.url).searchParams;
-  const scope = dashboardScope(sp, session);
-
-  let range;
+/* The workbook is generated from the same buildDashboardAnalytics() call as
+   the screen for the same query string. It is never cached and never shared
+   between sessions. */
+export async function GET(req) {
   try {
-    range = resolveRange({
-      preset: sp.get('preset') || '30d',
-      from: sp.get('from'),
-      to: sp.get('to'),
-      finYear: scope.finYear || sp.get('finYear') || '',
+    const session = await requirePermission(PERMISSIONS.REPORTS_VIEW);
+    const sp = new URL(req.url).searchParams;
+    const data = await buildDashboardAnalytics(session, sp);
+    const buffer = dashboardWorkbookBuffer(data);
+    const filename = dashboardFilename(data);
+
+    return new Response(buffer, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': `attachment; filename="${filename}"`,
+        'Content-Length': String(buffer.length),
+        'Cache-Control': 'private, no-store, max-age=0',
+        Vary: 'Cookie',
+      },
     });
   } catch (err) {
-    if (err instanceof RangeError) {
-      return json({ error: err.message, code: 'BAD_RANGE' }, 422);
-    }
-    throw err;
+    return fail(err);
   }
-
-  await dbConnect();
-  const snapshot = await getDashboardAnalytics(scope, range);
-  const csv = '\uFEFF' + buildDashboardCsv(snapshot);
-  const filename = `dashboard-${range.fromKey}-to-${range.toKey}.csv`;
-
-  return new Response(csv, {
-    status: 200,
-    headers: {
-      'Content-Type': 'text/csv; charset=utf-8',
-      'Content-Disposition': `attachment; filename="${filename}"`,
-      'Cache-Control': 'no-store',
-      'X-Dashboard-Scope': scopeDescription(scope, session).locationId || 'all',
-    },
-  });
-});
+}

@@ -53,6 +53,11 @@ export default function NotificationBell() {
         business: business || '', location: location || '', finYear: finYear || '',
       });
       const r = await fetch('/api/notifications?' + qs);
+      if (r.status === 401) {
+        const next = window.location.pathname + window.location.search;
+        window.location.assign(`/login?next=${encodeURIComponent(next)}`);
+        return;
+      }
       if (!r.ok) throw new Error('failed');
       setData(await r.json());
     } catch {

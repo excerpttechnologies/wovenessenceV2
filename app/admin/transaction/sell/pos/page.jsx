@@ -208,6 +208,14 @@ const CONFIG = {
     { k: "counterName", t: "Counter" },
     { k: "customerName", t: "Customer Name" },
     { k: "customerContact", t: "Customer Contact" },
+    /* Recorded at billing (Offline Store unless the till says Instagram).
+       Exports read the same field, so a downloaded list can be checked
+       against the dashboard's channel report. */
+    {
+      k: "salesChannel",
+      t: "Channel",
+      value: (row) => (String(row.salesChannel || '') === 'instagram' ? 'Instagram' : 'Offline Store'),
+    },
     /* who sold it - every sales person on the bill's lines, once each */
     
     /* how many lines the bill carries */

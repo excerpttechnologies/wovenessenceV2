@@ -262,6 +262,9 @@ export const POST = handler(async (req) => {
       date: data.date ? new Date(data.date) : new Date(),
       parentInvoice: invoice.invoiceNo || '',
       parentInvoiceId: invoice._id,
+      /* The credit inherits the channel of the bill it credits, so an
+         Instagram sale's return reduces Instagram revenue too. */
+      salesChannel: invoice.salesChannel === 'instagram' ? 'instagram' : '',
       customerId: invoice.customerId || null,
       customerName: data.customerName || '',
       customerContact: invoice.customerContact || '',

@@ -1,632 +1,407 @@
 'use client';
 
-import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import Icon from '@/components/Icon';
-import LineChart from '@/components/LineChart';
-import BarList from '@/components/analytics/BarList';
-import StatTile from '@/components/analytics/StatTile';
-import { useScope } from '@/components/ScopeContext';
-import { RANGE_PRESETS } from '@/lib/dashboard/range';
+import styles from './dashboard.module.css';
+import FilterBar from './FilterBar';
+import KpiGrid from './KpiGrid';
+import KeyTakeaway from './KeyTakeaway';
+import RevenueTrend from './RevenueTrend';
+import InsightsPanel from './InsightsPanel';
+import CategoryDonut from './CategoryDonut';
+import TopProducts from './TopProducts';
+import RegionPerformance from './RegionPerformance';
+import ChannelPerformance from './ChannelPerformance';
+import ForecastPanel from './ForecastPanel';
+import DataNotes from './DataNotes';
+import { EmptyState, ErrorPanel, Glyph, Skeleton, StatusPill } from './ui';
 import {
-  formatCompactCurrency,
-  formatCurrency,
-  formatDateTime,
-  formatNumber,
-  formatPercent,
-  relativeTime,
-} from '@/lib/dashboard/format';
-import RangePicker from './RangePicker';
+  count, dateRangeLabel, daysBetween, financialYearBounds,
+  periodForFinancialYear, timeLabel,
+} from './format';
 
-const SALES_COLORS = ['#17a862', '#e2587c'];
-const PURCHASE_COLORS = ['#3d7ce6'];
+const EMPTY_FILTERS = {
+  company: '',
+  branch: '',
+  channel: 'all',
+  financialYear: '',
+  comparison: 'previous_period',
+  startDate: '',
+  endDate: '',
+};
 
-function greeting(hour) {
-  if (hour === null || hour === undefined) return 'Welcome';
-  if (hour < 12) return 'Good Morning';
-  if (hour < 17) return 'Good Afternoon';
-  return 'Good Evening';
+const LIVE_REFRESH_MS = 60_000;
+
+function validateFilters(filters) {
+  if (!filters.financialYear) return 'Choose a financial year.';
+  const bounds = financialYearBounds(filters.financialYear);
+  if (!filters.startDate || !filters.endDate) return 'Choose both a start and an end date.';
+  if (filters.startDate > filters.endDate) return 'The start date must be on or before the end date.';
+  const days = daysBetween(filters.startDate, filters.endDate);
+  if (days > 366) return `Select 366 days or fewer. This range is ${count(days)} days.`;
+  if (filters.startDate < bounds.start || filters.endDate > bounds.end) {
+    return `The selected dates must fall inside financial year ${filters.financialYear}.`;
+  }
+  return '';
 }
 
-function statusTone(status) {
-  const text = String(status || '').toLowerCase();
-  if (/paid|complete|closed|refund/.test(text)) return 'pill-green';
-  if (/part/.test(text)) return 'pill-yellow';
-  if (/due|unpaid|pending|fail/.test(text)) return 'pill-red';
-  if (/invoice/.test(text)) return 'pill-blue';
-  return 'pill-grey';
+function queryString(filters) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== '' && value !== null && value !== undefined) params.set(key, value);
+  });
+  return params.toString();
 }
 
-function Legend({ series, colors }) {
-  if (!series?.length) return null;
+function DashboardSkeleton() {
   return (
-    <div className="chart-legend">
-      {series.map((item, index) => (
-        <span className="chart-legend-item" key={item.name + index}>
-          <i style={{ background: colors[index] || '#888' }} />
-          {item.name}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-function Hero({ user, finYear, loading, failed, stale, rangeLabel }) {
-  const [now, setNow] = useState(null);
-
-  useEffect(() => setNow(new Date()), []);
-
-  const chip = loading
-    ? 'Refreshing...'
-    : failed
-      ? 'Data Unavailable'
-      : stale
-        ? 'Showing Last Result'
-        : 'All Systems Operational';
-
-  return (
-    <section className="hero">
-      <div className="hero-bg" />
-      <div className="hero-tint" />
-
-      <div className="hero-inner">
-        <div className="min-w-0">
-          <p className="hero-greet">
-            {greeting(now?.getHours())} <span aria-hidden="true">&#128075;</span>
-          </p>
-
-          <h1 className="hero-name">{user?.name || 'There'}</h1>
-          <p className="hero-sub">A live read of sales, stock and the storefront - all in one place</p>
-
-          <div className="hero-meta">
-            <span className={'hero-chip ' + (failed ? 'hero-chip-bad' : '')}>
-              <i className="hero-dot" />
-              {chip}
-            </span>
-
-            {now && (
-              <span className="hero-fact">
-                {now.toLocaleDateString('en-IN', {
-                  weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-                })}
-              </span>
-            )}
-
-            {finYear && <span className="hero-fact">Financial Year {finYear}</span>}
-            {rangeLabel && <span className="hero-fact">{rangeLabel}</span>}
+    <div className={styles.skeletonShell} aria-busy="true" aria-label="Loading sales dashboard">
+      <div className={styles.skeletonKpis}>
+        {Array.from({ length: 5 }).map((_, index) => (
+          <div key={index} className={styles.skeletonCard}>
+            <Skeleton className={styles.skIcon} />
+            <Skeleton className={styles.skLabel} />
+            <Skeleton className={styles.skValue} />
+            <Skeleton className={styles.skFoot} />
           </div>
-        </div>
-
-        <p className="hero-quote">
-          Streamline
-          <span>Operate</span>
-          <span>Grow <b>Together</b></span>
-        </p>
+        ))}
       </div>
-    </section>
-  );
-}
-
-function SectionHead({ title, sub, children }) {
-  return (
-    <div className="card-head">
-      <span className="card-title">{title}</span>
-      {sub && <span className="card-sub">{sub}</span>}
-      {children}
+      <div className={styles.skeletonGrid}>
+        <div className={styles.skeletonPanel}><Skeleton className={styles.skPanelTitle} /><Skeleton className={styles.skChart} /></div>
+        <div className={styles.skeletonPanel}><Skeleton className={styles.skPanelTitle} /><Skeleton className={styles.skLines} /></div>
+      </div>
+      <div className={styles.skeletonGrid}>
+        <div className={styles.skeletonPanel}><Skeleton className={styles.skPanelTitle} /><Skeleton className={styles.skChartSmall} /></div>
+        <div className={styles.skeletonPanel}><Skeleton className={styles.skPanelTitle} /><Skeleton className={styles.skLines} /></div>
+      </div>
     </div>
   );
 }
 
 export default function DashboardClient() {
-  const { business, location, finYear, user, businessReady, locationReady } = useScope();
-
-  const [presets, setPresets] = useState(RANGE_PRESETS);
-  const [preset, setPreset] = useState('30d');
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
-
+  const [options, setOptions] = useState(null);
+  const [optionsLoading, setOptionsLoading] = useState(true);
+  const [optionsError, setOptionsError] = useState('');
+  const [optionsRetry, setOptionsRetry] = useState(0);
+  const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [tick, setTick] = useState(0);
+  const [error, setError] = useState(null);
+  const [refreshTick, setRefreshTick] = useState(0);
+  const [lastUpdated, setLastUpdated] = useState('');
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState('');
+  const requestSeq = useRef(0);
 
-  const lastKey = useRef('');
-
-  const requestKey = [business, location, finYear, preset, from, to].join('|');
-  const scopeReady = businessReady && locationReady;
-
-  /* The period presets come from the API so a server-side change to the list
-     reaches the screen. The local constant is the fallback: a failed options
-     call must not leave the picker with no controls at all. */
   useEffect(() => {
-    let cancelled = false;
-    const params = new URLSearchParams({ business: business || '', finYear: finYear || '' });
-    fetch('/api/dashboard/options?' + params.toString(), { cache: 'no-store' })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((body) => {
-        if (cancelled || !body) return;
-        if (Array.isArray(body.presets) && body.presets.length) setPresets(body.presets);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') {
+        setRefreshTick((tick) => tick + 1);
+      }
+    };
+    const interval = window.setInterval(refreshWhenVisible, LIVE_REFRESH_MS);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
+  }, []);
+
+  /* Filter vocabulary is fetched once per page load. It is already narrowed
+     to the session's locations by the route. */
+  useEffect(() => {
+    const controller = new AbortController();
+    let alive = true;
+    setOptionsLoading(true);
+    setOptionsError('');
+
+    fetch('/api/dashboard/options', { signal: controller.signal, cache: 'no-store' })
+      .then(async (response) => {
+        const body = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(body?.error || 'The dashboard filters could not be loaded.');
+        return body;
       })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [business, finYear]);
+      .then((body) => {
+        if (!alive) return;
+        setOptions(body);
+        const fy = body.currentFinancialYear?.value || body.financialYears?.[0]?.value || '';
+        const period = body.defaultPeriod || periodForFinancialYear(fy);
+        setFilters({
+          ...EMPTY_FILTERS,
+          financialYear: fy,
+          startDate: period.startDate,
+          endDate: period.endDate,
+        });
+      })
+      .catch((err) => {
+        if (!alive || err.name === 'AbortError') return;
+        setOptionsError(err.message || 'The dashboard filters could not be loaded.');
+      })
+      .finally(() => { if (alive) setOptionsLoading(false); });
 
+    return () => { alive = false; controller.abort(); };
+  }, [optionsRetry]);
+
+  const validationError = useMemo(() => (options ? validateFilters(filters) : ''), [options, filters]);
+
+  /* Every filter change becomes one private, abortable request. A response is
+     only allowed to land if it belongs to the latest request. */
   useEffect(() => {
-    if (!scopeReady) return undefined;
-
-    /* A new scope or period starts from a clean slate. A manual refresh keeps
-       the last answer on screen while it re-reads, so the page does not blink
-       for a figure that has not changed. */
-    if (lastKey.current !== requestKey) {
+    if (!options) return undefined;
+    if (validationError) {
+      setLoading(false);
       setData(null);
-      lastKey.current = requestKey;
+      setError({ message: validationError, code: 'CHECK_FILTERS', validation: true });
+      return undefined;
     }
 
     const controller = new AbortController();
-    const params = new URLSearchParams({
-      business: business || '',
-      location: location || '',
-      finYear: finYear || '',
-      preset,
-      from,
-      to,
-    });
-
+    const sequence = requestSeq.current + 1;
+    requestSeq.current = sequence;
+    let alive = true;
     setLoading(true);
-    setError('');
+    setError(null);
+    setDownloadError('');
 
-    fetch('/api/dashboard/analytics?' + params.toString(), {
-      cache: 'no-store',
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        const body = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(body.error || 'The dashboard could not be loaded.');
-        return body;
+    const timer = window.setTimeout(() => {
+      fetch(`/api/dashboard/analytics?${queryString(filters)}`, {
+        signal: controller.signal,
+        cache: 'no-store',
       })
-      .then((body) => setData(body))
-      .catch((err) => {
-        if (err.name === 'AbortError') return;
-        setError(err.message || 'The dashboard could not be loaded.');
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-      });
+        .then(async (response) => {
+          const body = await response.json().catch(() => null);
+          if (!response.ok) {
+            const failure = new Error(body?.error || 'The sales analytics could not be loaded. Please retry.');
+            failure.code = body?.code;
+            failure.field = body?.field;
+            throw failure;
+          }
+          return body;
+        })
+        .then((body) => {
+          if (!alive || sequence !== requestSeq.current) return;
+          setData(body);
+          setLastUpdated(body?.meta?.generatedAt || '');
+        })
+        .catch((err) => {
+          if (!alive || sequence !== requestSeq.current || err.name === 'AbortError') return;
+          setData(null);
+          setError({ message: err.message, code: err.code, field: err.field });
+        })
+        .finally(() => {
+          if (alive && sequence === requestSeq.current) setLoading(false);
+        });
+    }, 220);
 
-    return () => controller.abort();
-  }, [scopeReady, requestKey, business, location, finYear, preset, from, to, tick]);
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [options, filters, validationError, refreshTick]);
 
-  const applyRange = (next) => {
-    setPreset(next.preset);
-    setFrom(next.from || '');
-    setTo(next.to || '');
-  };
-
-  const kpis = data?.kpis || {};
-  const inventory = data?.inventory || {};
-  const website = data?.website || {};
-  const range = data?.range || {};
-  const initialLoading = loading && !data;
-  const stale = Boolean(error && data);
-
-  const exportHref = useMemo(() => {
-    const params = new URLSearchParams({
-      business: business || '',
-      location: location || '',
-      finYear: finYear || '',
-      preset,
-      from,
-      to,
+  function changeFilter(key, value) {
+    setFilters((current) => {
+      const next = { ...current, [key]: value };
+      if (key === 'company') next.branch = '';
+      if (key === 'financialYear') Object.assign(next, periodForFinancialYear(value));
+      return next;
     });
-    return '/api/dashboard/export?' + params.toString();
-  }, [business, location, finYear, preset, from, to]);
+  }
 
-  const periodLabel = range.label || 'Last 30 days';
+  function retry() {
+    setRefreshTick((tick) => tick + 1);
+  }
+
+  async function download() {
+    if (!data) return;
+    setDownloading(true);
+    setDownloadError('');
+    try {
+      const response = await fetch(`/api/dashboard/export?${queryString(filters)}`, { cache: 'no-store' });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error || 'The report could not be built. Please retry.');
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get('Content-Disposition') || '';
+      const match = /filename="([^"]+)"/i.exec(disposition);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = match?.[1] || 'sales-dashboard.xlsx';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (err) {
+      setDownloadError(err.message || 'The report could not be built. Please retry.');
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  const meta = data?.meta;
+  const branchLabel = meta?.branchLabel
+    || (filters.branch
+      ? options?.branches.find((branch) => branch.value === filters.branch)?.label
+      : 'All four branches')
+    || 'All branches';
+  const companyLabel = meta?.companyLabel || (filters.company
+    ? options?.companies.find((company) => company.value === filters.company)?.label
+    : 'All companies') || 'All companies';
+  const comparisonLabel = meta?.comparison?.label || (filters.comparison === 'none' ? '' : 'Comparing');
+  const rangeLabel = meta
+    ? dateRangeLabel(meta.startDate, meta.endDate)
+    : filters.startDate && filters.endDate
+      ? dateRangeLabel(filters.startDate, filters.endDate)
+      : 'Preparing the report';
+  const emptySelection = data
+    && Number(data.kpis?.current?.orders || 0) === 0
+    && Number(data.kpis?.current?.revenue || 0) === 0;
+  const statusTone = error ? 'warning' : loading ? 'gold' : 'positive';
 
   return (
-    <>
-      <Hero
-        user={user}
-        finYear={finYear}
-        loading={loading}
-        failed={Boolean(error && !data)}
-        stale={stale}
-        rangeLabel={data ? periodLabel : ''}
-      />
-
-      {error && (
-        <div className="flash flash-err dash-flash">
-          <span>{error}</span>
-          <button type="button" className="btn ml-auto" onClick={() => setTick((value) => value + 1)}>
-            Try again
-          </button>
-        </div>
-      )}
-
-      <div className="stat-row grid grid-cols-1 gap-3.5 sm:grid-cols-2 xl:grid-cols-6">
-        <StatTile
-          icon="chart"
-          tone="green"
-          label="Net sales"
-          note="invoices less returns"
-          value={data ? formatCompactCurrency(kpis.netSales?.value) : ''}
-          previous={data ? formatCompactCurrency(kpis.netSales?.previous) : ''}
-          rawValue={kpis.netSales?.value}
-          change={kpis.netSales?.change}
-          loading={initialLoading}
-        />
-        <StatTile
-          icon="register"
-          tone="blue"
-          label="Gross sales"
-          value={data ? formatCompactCurrency(kpis.grossSales?.value) : ''}
-          previous={data ? formatCompactCurrency(kpis.grossSales?.previous) : ''}
-          rawValue={kpis.grossSales?.value}
-          change={kpis.grossSales?.change}
-          loading={initialLoading}
-        />
-        <StatTile
-          icon="undo"
-          tone="rose"
-          label="Returns"
-          note="POS and invoices"
-          value={data ? formatCompactCurrency(kpis.returns?.value) : ''}
-          previous={data ? formatCompactCurrency(kpis.returns?.previous) : ''}
-          rawValue={kpis.returns?.value}
-          change={kpis.returns?.change}
-          goodWhen="down"
-          loading={initialLoading}
-        />
-        <StatTile
-          icon="bag"
-          tone="teal"
-          label="Orders"
-          value={data ? formatNumber(kpis.orders?.value) : ''}
-          previous={data ? formatNumber(kpis.orders?.previous) : ''}
-          rawValue={kpis.orders?.value}
-          change={kpis.orders?.change}
-          loading={initialLoading}
-        />
-        <StatTile
-          icon="cash"
-          tone="amber"
-          label="Average order"
-          value={data ? formatCompactCurrency(kpis.averageOrderValue?.value) : ''}
-          previous={data ? formatCompactCurrency(kpis.averageOrderValue?.previous) : ''}
-          rawValue={kpis.averageOrderValue?.value}
-          change={kpis.averageOrderValue?.change}
-          loading={initialLoading}
-        />
-        <StatTile
-          icon="users"
-          tone="violet"
-          label="Customers"
-          note={data ? `${formatNumber(kpis.units?.value)} units sold` : ''}
-          value={data ? formatNumber(kpis.customers?.value) : ''}
-          previous={data ? formatNumber(kpis.customers?.previous) : ''}
-          rawValue={kpis.customers?.value}
-          change={kpis.customers?.change}
-          loading={initialLoading}
-        />
-      </div>
-
-      <div className="card dash-controls">
-        <div className="dash-controls-row">
-          <div className="min-w-0">
-            <span className="dash-eyebrow">Reporting period</span>
-            <strong className="dash-period">{data ? periodLabel : 'Loading period...'}</strong>
-            {range.days && (
-              <span className="dash-period-sub">
-                {range.days} day{range.days === 1 ? '' : 's'}
-                {range.previousLabel ? ` · compared with the ${range.previousLabel}` : ''}
-              </span>
-            )}
+    <div className={styles.shell}>
+      <section className={styles.hero}>
+        <span className={styles.heroWeave} aria-hidden="true" />
+        <div className={styles.heroInner}>
+          <div className={styles.heroCopy}>
+            <span className={styles.heroEyebrow}>
+              <Glyph name="sparkle" size={14} /> Retail ERP · Sales intelligence
+            </span>
+            <h1 className={styles.heroTitle}>Retail Saree &amp; Fabric Business</h1>
+            <p className={styles.heroSub}>
+              <b>AI-Powered Sales Report</b> · Four boutiques, read from the ERP and the storefront.
+              Net revenue, returns and channel attribution stay reconciled to the records — nothing
+              is estimated.
+            </p>
+            <div className={styles.heroMeta}>
+              <span className={styles.heroChip}><Glyph name="calendar" size={13} /> {rangeLabel}</span>
+              <span className={styles.heroChip}><Glyph name="store" size={13} /> {branchLabel}</span>
+              <span className={styles.heroChip}><Glyph name="filter" size={13} /> {companyLabel}</span>
+              <StatusPill tone={statusTone} icon={error ? 'warning' : loading ? 'refresh' : 'check'}>
+                {error ? 'Data unavailable' : loading ? 'Reading records' : 'Live ERP + storefront'}
+              </StatusPill>
+            </div>
           </div>
 
-          <div className="dash-actions">
-            <button
-              type="button"
-              className="btn"
-              onClick={() => setTick((value) => value + 1)}
-              disabled={loading}
-            >
-              <Icon name="refresh" size={15} />
-              {loading ? 'Refreshing...' : 'Refresh'}
-            </button>
-
-            <a className="btn" href={exportHref} aria-label="Download dashboard CSV">
-              <Icon name="file" size={15} />
-              Export CSV
-            </a>
+          <div className={styles.heroAside}>
+            <span className={styles.heroAsideLabel}>Report currency</span>
+            <b className={styles.heroAsideValue}>INR</b>
+            <span className={styles.heroAsideLine}>
+              {meta ? `${count(meta.days)} calendar days` : 'Inclusive India dates'}
+            </span>
+            <span className={styles.heroAsideLine}>
+              {comparisonLabel ? `Compared with ${comparisonLabel}` : 'No comparison period'}
+            </span>
+            <span className={styles.heroAsideRule} />
+            <span className={styles.heroAsideLine}>Rule-based insights · no AI provider</span>
           </div>
         </div>
+      </section>
 
-        <RangePicker
-          presets={presets}
-          preset={preset}
-          from={from || range.fromKey || ''}
-          to={to || range.toKey || ''}
-          label={data ? `${range.fromKey || ''} to ${range.toKey || ''}` : ''}
-          busy={loading}
-          onApply={applyRange}
+      {options ? (
+        <FilterBar
+          options={options}
+          filters={filters}
+          onChange={changeFilter}
+          onRefresh={retry}
+          onDownload={download}
+          loading={loading}
+          downloading={downloading}
+          lastUpdated={lastUpdated}
+          error={error?.validation ? error.message : ''}
+          canDownload={Boolean(data)}
         />
-      </div>
+      ) : null}
 
-      <div className="dash-grid-2">
-        <div className="card chart-card mb-0">
-          <SectionHead
-            title="Sales trend"
-            sub={data ? `${formatCurrency(kpis.netSales?.value)} net` : 'Sales and returns'}
-          >
-            {data && !data.dataState?.hasSales && <span className="pill pill-grey">No sales in period</span>}
-          </SectionHead>
-          <div className="card-body chart-body">
-            {initialLoading ? (
-              <div className="center-load"><span className="spin" /></div>
-            ) : data ? (
-              <>
-                <LineChart
-                  labels={data.salesTrend?.labels || []}
-                  series={data.salesTrend?.series || []}
-                  colors={SALES_COLORS}
-                  height={250}
-                />
-                <Legend series={data.salesTrend?.series || []} colors={SALES_COLORS} />
-              </>
-            ) : null}
-          </div>
+      {downloadError ? (
+        <div className={styles.actionError} role="alert">
+          <Glyph name="warning" size={16} /> {downloadError}
+          <button type="button" onClick={() => setDownloadError('')}>Dismiss</button>
         </div>
+      ) : null}
 
-        <div className="card chart-card mb-0">
-          <SectionHead
-            title="Purchases"
-            sub={data ? `${formatCompactCurrency(data.purchaseTrend?.total)} · ${data.purchaseTrend?.source || ''}` : 'Goods received'}
-          >
-            {data && !data.dataState?.hasPurchases && <span className="pill pill-grey">No purchases in period</span>}
-          </SectionHead>
-          <div className="card-body chart-body">
-            {initialLoading ? (
-              <div className="center-load"><span className="spin" /></div>
-            ) : data ? (
-              <>
-                <LineChart
-                  labels={data.purchaseTrend?.labels || []}
-                  series={data.purchaseTrend?.series || []}
-                  colors={PURCHASE_COLORS}
-                  height={250}
-                />
-                <Legend series={data.purchaseTrend?.series || []} colors={PURCHASE_COLORS} />
-              </>
-            ) : null}
-          </div>
-        </div>
-      </div>
+      {optionsLoading ? <DashboardSkeleton /> : null}
 
-      <div className="dash-grid-3">
-        <div className="card mb-0">
-          <SectionHead title="Sales channels" sub="net of returns" />
-          <div className="card-body">
-            {initialLoading ? (
-              <div className="center-load"><span className="spin" /></div>
-            ) : (
-              <BarList
-                rows={(data?.channels || []).map((channel) => ({
-                  ...channel,
-                  value: channel.net,
-                  sub: `${formatCompactCurrency(channel.sales)} sales · ${formatNumber(channel.orders)} orders`,
-                }))}
-                formatValue={(value, row) => `${formatCompactCurrency(value)} · ${formatPercent(row.share)}`}
-                empty="No sales were recorded in this period."
+      {!optionsLoading && optionsError ? (
+        <ErrorPanel
+          message={optionsError}
+          code="FILTERS"
+          onRetry={() => setOptionsRetry((value) => value + 1)}
+        />
+      ) : null}
+
+      {!optionsLoading && options && error && !data ? (
+        <ErrorPanel
+          message={error.message}
+          code={error.code}
+          onRetry={error.validation ? null : retry}
+        />
+      ) : null}
+
+      {!optionsLoading && options && !data && loading && !error ? <DashboardSkeleton /> : null}
+
+      {data ? (
+        <div className={`${styles.dataShell} ${loading ? styles.dataUpdating : ''}`} aria-busy={loading}>
+          {loading ? (
+            <div className={styles.updatingBar} role="status">
+              <Glyph name="refresh" size={14} className={styles.spinning} />
+              Updating the view for the selected filters…
+            </div>
+          ) : null}
+
+          <KpiGrid kpis={data.kpis} comparisonLabel={comparisonLabel} />
+
+          <KeyTakeaway text={data.keyTakeaway} />
+
+          {emptySelection ? (
+            <div className={styles.emptyCard}>
+              <EmptyState
+                title={data.meta?.channel === 'instagram' ? 'No bill was tagged Instagram in this selection' : 'No eligible sales in this selection'}
+                message={data.meta?.channel === 'instagram'
+                  ? 'Instagram sales are the bills whose Sales Channel was saved as Instagram at billing. Nothing is inferred, so an untagged order stays offline until its bill is corrected.'
+                  : 'The tables remain visible so zero activity can be distinguished from an unavailable source. Adjust the date range, branch or channel.'}
               />
-            )}
+            </div>
+          ) : null}
+
+          <div className={`${styles.grid} ${styles.gridMain}`}>
+            <RevenueTrend trend={data.trend} loading={loading} />
+            <InsightsPanel insights={data.insights} />
           </div>
-        </div>
 
-        <div className="card mb-0">
-          <SectionHead title="Payment mix" sub="what the till collected" />
-          <div className="card-body">
-            {initialLoading ? (
-              <div className="center-load"><span className="spin" /></div>
-            ) : (
-              <BarList
-                rows={(data?.payments || []).map((payment) => ({
-                  ...payment,
-                  sub: formatPercent(payment.share),
-                }))}
-                formatValue={(value) => formatCompactCurrency(value)}
-                tone="blue"
-                empty="No POS payment was recorded in this period."
-              />
-            )}
+          <div className={`${styles.grid} ${styles.gridTwo}`}>
+            <CategoryDonut categories={data.categories} totalRevenue={data.kpis?.current?.revenue} />
+            <TopProducts products={data.products} loading={loading} />
           </div>
-        </div>
 
-        <div className="card mb-0">
-          <SectionHead title="Top products" sub="by revenue" />
-          <div className="card-body">
-            {initialLoading ? (
-              <div className="center-load"><span className="spin" /></div>
-            ) : data?.topProducts?.length ? (
-              <BarList
-                rows={data.topProducts.map((product) => ({
-                  ...product,
-                  label: product.name,
-                  value: product.revenue,
-                  sub: `${formatNumber(product.qty)} sold${product.code ? ` · ${product.code}` : ''}`,
-                }))}
-                formatValue={(value) => formatCompactCurrency(value)}
-                tone="amber"
-              />
-            ) : (
-              <p className="dash-empty">No product lines were sold in this period.</p>
-            )}
-          </div>
-        </div>
-      </div>
+          <RegionPerformance
+            branches={data.branches}
+            branchLabel={data.meta?.branchLabel}
+            branchFiltered={Boolean(data.meta?.branch)}
+          />
 
-      <div className="dash-grid-2">
-        <div className="card mb-0">
-          <SectionHead title="Inventory at cost" sub={data ? `${formatNumber(inventory.items)} items` : ''} />
-          <div className="card-body">
-            {initialLoading ? (
-              <div className="center-load"><span className="spin" /></div>
-            ) : (
-              <>
-                <div className="dash-mini-stats">
-                  <div>
-                    <span>Stock value</span>
-                    <strong>{formatCurrency(inventory.value)}</strong>
-                  </div>
-                  <div>
-                    <span>Units in stock</span>
-                    <strong>{formatNumber(inventory.units)}</strong>
-                  </div>
-                  <div>
-                    <span>Low stock</span>
-                    <strong className={inventory.lowStockCount ? 'text-[#b77900]' : ''}>
-                      {formatNumber(inventory.lowStockCount)}
-                    </strong>
-                  </div>
-                  <div>
-                    <span>Out of stock</span>
-                    <strong className={inventory.outOfStockCount ? 'text-danger' : ''}>
-                      {formatNumber(inventory.outOfStockCount)}
-                    </strong>
-                  </div>
-                </div>
+          <ChannelPerformance
+            channels={data.channels}
+            reconciliation={data.reconciliation}
+            selectedChannel={data.meta?.channel}
+          />
 
-                <div className="dash-subhead">Needs attention</div>
-                {inventory.lowStock?.length || inventory.outOfStock?.length ? (
-                  <ul className="dash-list">
-                    {(inventory.outOfStock || []).map((item) => (
-                      <li key={'out-' + (item.code || item.name)}>
-                        <span className="dash-list-name" title={item.name}>{item.name}</span>
-                        <span className="pill pill-red">Out</span>
-                      </li>
-                    ))}
-                    {(inventory.lowStock || []).map((item) => (
-                      <li key={'low-' + (item.code || item.name)}>
-                        <span className="dash-list-name" title={item.name}>{item.name}</span>
-                        <span className="pill pill-yellow">{formatNumber(item.qty)} left</span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="dash-empty">
-                    {inventory.items ? 'Nothing is at or below the low-stock level.' : 'No barcode stock rows are available for this scope.'}
-                  </p>
-                )}
-              </>
-            )}
-          </div>
-        </div>
+          <ForecastPanel
+            forecast={data.forecast}
+            recommendations={data.recommendations}
+            inventory={data.inventory}
+          />
 
-        <div className="card mb-0">
-          <SectionHead
-            title="Website tracking"
-            sub="storefront, kept separate"
-          >
-            <Link className="card-sub dash-link" href="/admin/ecommerce/website-analytics">
-              Open analytics
-            </Link>
-          </SectionHead>
-          <div className="card-body">
-            {initialLoading ? (
-              <div className="center-load"><span className="spin" /></div>
-            ) : !website.installed ? (
-              <div className="dash-hint">
-                <span className="dash-hint-ico"><Icon name="eye" size={20} /></span>
-                <div>
-                  <strong>Not connected yet</strong>
-                  <p>
-                    No storefront event has been received. Add <code>public/we-analytics.js</code> to the
-                    website and set its <code>data-business</code> attribute.
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <>
-                <div className="dash-mini-stats">
-                  <div>
-                    <span>Events in period</span>
-                    <strong>{formatNumber(website.events)}</strong>
-                  </div>
-                  <div>
-                    <span>Tracked purchases</span>
-                    <strong>{formatNumber(website.purchases)}</strong>
-                  </div>
-                  <div>
-                    <span>Tracked revenue</span>
-                    <strong>{formatCurrency(website.revenue)}</strong>
-                  </div>
-                  <div>
-                    <span>Last event</span>
-                    <strong className="text-[15px]">{website.lastEventAt ? relativeTime(website.lastEventAt) : '-'}</strong>
-                  </div>
-                </div>
-                <p className="dash-note-line">
-                  Website revenue is tracked by the storefront tag and is not added to ERP net sales - the two
-                  would double-count an order that also reached the ERP.
-                </p>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
+          <DataNotes dataQuality={data.dataQuality} meta={data.meta} />
 
-      <div className="card">
-        <SectionHead title="Recent activity" sub="latest documents in this period" />
-        <div className="dash-table-wrap">
-          {initialLoading ? (
-            <div className="center-load"><span className="spin" /></div>
-          ) : data?.recent?.length ? (
-            <table className="dt">
-              <thead>
-                <tr>
-                  <th>When</th>
-                  <th>Type</th>
-                  <th>Document</th>
-                  <th>Party</th>
-                  <th className="text-right">Amount</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.recent.map((row) => {
-                  const document = row.href ? (
-                    <Link className="dash-doc-link" href={row.href}>{row.no}</Link>
-                  ) : row.no;
-                  return (
-                    <tr key={row.key}>
-                      <td className="whitespace-nowrap" title={formatDateTime(row.date)}>
-                        {relativeTime(row.date)}
-                      </td>
-                      <td className="whitespace-nowrap">{row.type}</td>
-                      <td className="whitespace-nowrap">{document}</td>
-                      <td>{row.party}</td>
-                      <td className="whitespace-nowrap text-right">{formatCurrency(row.amount)}</td>
-                      <td><span className={'pill ' + statusTone(row.status)}>{row.status || '-'}</span></td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          ) : (
-            <p className="dash-empty pad">No sales, returns or purchases were recorded in this period.</p>
-          )}
+          <footer className={styles.pageFoot}>
+            <span>Generated {lastUpdated ? timeLabel(lastUpdated) : 'just now'} IST · {rangeLabel}</span>
+            <span>Revenue is net recorded revenue. Zero means no recorded activity since go-live; N/A is reserved for unavailable sources.</span>
+          </footer>
         </div>
-      </div>
-
-      {data?.notes?.length > 0 && (
-        <div className="card dash-notes">
-          <SectionHead title="How these figures are built" />
-          <div className="card-body">
-            <ul>
-              {data.notes.map((note) => <li key={note}>{note}</li>)}
-            </ul>
-          </div>
-        </div>
-      )}
-    </>
+      ) : null}
+    </div>
   );
 }

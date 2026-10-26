@@ -9,6 +9,7 @@ import { isValidObjectId } from 'mongoose';
 import { requireSession } from '@/lib/session';
 import { validate } from '@/lib/validate';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { normaliseSalesChannel } from '@/lib/salesChannel';
 
 const POS = { screen: SCREENS.POS, label: 'POS bills' };
 const FIELDS = [];
@@ -131,6 +132,11 @@ export async function PUT(req, { params }) {
   }
   if (body.data?.sellNote !== undefined) doc.sellNote = body.data.sellNote;
   if (body.data?.staffNote !== undefined) doc.staffNote = body.data.staffNote;
+  /* Attribution can be corrected after the sale - a bill rung up as a store
+     sale and later confirmed as an Instagram order, or the reverse. */
+  if (body.data?.salesChannel !== undefined) {
+    doc.salesChannel = normaliseSalesChannel(body.data.salesChannel);
+  }
 
   /* never overwrite the document number on edit */
   delete doc.invoiceNo;

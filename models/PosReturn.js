@@ -41,6 +41,17 @@ const PosReturnSchema = new mongoose.Schema(
     refundMode: { type: String, default: 'Cash' },
     paymentStatus: { type: String, default: 'Refunded' },
 
+    /* The channel of the invoice being credited, copied when the return is
+       raised. A return against an Instagram bill must reduce Instagram
+       revenue, not the offline store's. Legacy returns have no field and
+       stay offline. */
+    salesChannel: {
+      type: String,
+      enum: ['', 'instagram'],
+      default: '',
+      index: true,
+    },
+
     reason: { type: String, default: '' },
     notes: { type: String, default: '' },
 
@@ -57,7 +68,9 @@ const PosReturnSchema = new mongoose.Schema(
 );
 
 PosReturnSchema.index({ businessId: 1, date: -1 });
+PosReturnSchema.index({ businessId: 1, locationId: 1, date: 1 });
 PosReturnSchema.index({ parentInvoiceId: 1 });
+PosReturnSchema.index({ businessId: 1, salesChannel: 1, date: 1 });
 PosReturnSchema.index({ 'items.barcodeNo': 1 });
 
 export default mongoose.models.posReturn ||

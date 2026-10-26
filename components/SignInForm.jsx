@@ -306,13 +306,20 @@ export default function SignInForm() {
   const [passwordFocused, setPasswordFocused] = useState(false);
 
   async function submit() {
+    const normalizedEmail = email.trim();
+    if (busy) return;
+    if (!normalizedEmail || !password) {
+      setError("Enter your email and password.");
+      return;
+    }
+
     setBusy(true);
     setError("");
     try {
       const r = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email: normalizedEmail, password }),
       });
       const d = await r.json();
       if (!r.ok) {
@@ -437,7 +444,6 @@ export default function SignInForm() {
     </div>
   );
 }
-
 
 
 

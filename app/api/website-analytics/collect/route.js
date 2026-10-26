@@ -1,115 +1,240 @@
-import { apiError, json } from '@/lib/apiError';
-import { recordWebsiteEvent } from '@/lib/website-analytics/collect';
+import crypto from 'crypto';
+import mongoose from 'mongoose';
+import dbConnect from '@/lib/db';
+import WebsiteEvent from '@/models/WebsiteEvent';
 
-/* /api/website-analytics/collect
+export const dynamic = 'force-dynamic';
 
-   The one public, unauthenticated write endpoint in the project. It accepts
-   a single storefront event and can be called from a page nobody has signed
-   into, so it is deliberately narrow:
+/* ==========================================================================
+   Public event ingestion for https://wovenessence.in.
 
-     - POST only, JSON only, 16 KB maximum body
-     - an Origin that is the same site or on WEBSITE_ANALYTICS_ALLOWED_ORIGINS
-     - consent checked before any database connection is opened
-     - bot traffic, Do Not Track and declined consent are acknowledged but
-       not stored
-     - the event id and purchase order id are unique, so a sendBeacon retry
-       cannot double-count
+   This endpoint is deliberately public: a browser on the storefront has no
+   ERP session. It is therefore written to be cheap to reject:
 
-   It never returns anything about existing data: 202 for accepted, skipped
-   or duplicate alike. That stops the endpoint being usable to probe whether
-   an order id has been seen. */
+     - only a fixed event vocabulary is accepted
+     - every field is length-clamped, and the body is capped at 8 KB
+     - timestamps must be within two days of now
+     - a unique dedupe key makes a retried beacon a no-op
+     - each IP is limited in memory and crawler user agents are dropped
+     - no cookies, no IP storage, no query strings
 
-const MAX_BODY_BYTES = 16 * 1024;
+   A purchase is only marked verified when its order reference exists in the
+   orders collection. A browser claim can never create an order or change one.
+   ========================================================================== */
 
-function allowedOrigins() {
-  return String(process.env.WEBSITE_ANALYTICS_ALLOWED_ORIGINS || '')
+const EVENTS = new Set([
+  'page_view', 'session_start', 'product_list_view', 'product_view', 'search',
+  'login_success', 'sign_up_success', 'add_to_cart', 'remove_from_cart', 'view_cart',
+  'begin_checkout', 'add_shipping_info', 'add_payment_info', 'purchase', 'refund', 'logout',
+]);
+
+const SOURCES = new Set(['direct', 'organic', 'paid', 'instagram', 'facebook', 'referral', 'email', 'social', 'unknown']);
+const DEVICES = new Set(['desktop', 'mobile', 'tablet', 'unknown']);
+const PAGE_TYPES = new Set(['home', 'catalog', 'product', 'account', 'cart', 'checkout', 'other']);
+const CONSENT = new Set(['granted', 'denied', 'unknown']);
+
+const MAX_BODY_BYTES = 8192;
+const RATE_LIMIT = 120;
+const RATE_WINDOW_MS = 60_000;
+const MAX_CLOCK_SKEW_MS = 48 * 60 * 60 * 1000;
+
+const buckets = new Map();
+let lastSweep = 0;
+
+function allowedOrigin(origin) {
+  if (!origin) return '';
+  const configured = String(process.env.WEBSITE_ANALYTICS_ORIGINS
+    || 'https://wovenessence.in,https://www.wovenessence.in,https://wovenessence.etpl.ai')
     .split(',')
-    .map((value) => value.trim().replace(/\/+$/, ''))
+    .map((value) => value.trim())
     .filter(Boolean);
+  return configured.includes(origin) ? origin : '';
 }
 
-function originOf(req) {
-  return String(req.headers.get('origin') || '').trim().replace(/\/+$/, '');
+function headers(origin) {
+  const base = {
+    'Cache-Control': 'no-store, max-age=0',
+    Vary: 'Origin',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    /* navigator.sendBeacon always sends in credentials mode, so the preflight
+       only passes when this is present next to an explicit origin. */
+    'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Max-Age': '86400',
+  };
+  if (origin) base['Access-Control-Allow-Origin'] = origin;
+  return base;
 }
 
-function originAllowed(req) {
-  const origin = originOf(req);
-  if (!origin) return true;                    // server-side or same-origin form post
-  try {
-    if (origin === new URL(req.url).origin) return true;
-  } catch { /* malformed request URL - fall through to the allow-list */ }
-  if (allowedOrigins().includes(origin)) return true;
-  return String(process.env.WEBSITE_ANALYTICS_ALLOW_ANY_ORIGIN || '').toLowerCase() === 'true';
+function noContent(origin) {
+  return new Response(null, { status: 204, headers: headers(origin) });
 }
 
-function cors(req, res) {
-  const origin = originOf(req);
-  if (origin && originAllowed(req)) {
-    res.headers.set('Access-Control-Allow-Origin', origin);
-    res.headers.set('Vary', 'Origin');
-  } else if (origin) {
-    res.headers.set('Vary', 'Origin');
+function tooMany(origin) {
+  return Response.json({ error: 'Too many events.' }, { status: 429, headers: headers(origin) });
+}
+
+function rateLimited(ip) {
+  const now = Date.now();
+  if (now - lastSweep > RATE_WINDOW_MS * 5) {
+    buckets.forEach((bucket, key) => {
+      if (bucket.reset < now) buckets.delete(key);
+    });
+    lastSweep = now;
   }
-  res.headers.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.headers.set('Access-Control-Allow-Headers', 'Content-Type');
-  res.headers.set('Access-Control-Max-Age', '86400');
-  res.headers.set('Cache-Control', 'no-store');
-  return res;
+  const bucket = buckets.get(ip);
+  if (!bucket || bucket.reset < now) {
+    buckets.set(ip, { count: 1, reset: now + RATE_WINDOW_MS });
+    return false;
+  }
+  bucket.count += 1;
+  return bucket.count > RATE_LIMIT;
 }
+
+function clean(value, max) {
+  return String(value ?? '').slice(0, max);
+}
+
+function numberOrNull(value, max = 1e9) {
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 && n <= max ? n : null;
+}
+
+function identifier(value) {
+  const text = String(value || '');
+  return /^[A-Za-z0-9_-]{8,64}$/.test(text) ? text : '';
+}
+
+const BOT_RE = /bot|crawler|spider|crawl|headless|monitor|preview|slurp|bing|yandex|lighthouse/i;
 
 export async function OPTIONS(req) {
-  if (!originAllowed(req)) {
-    return cors(req, json({ error: 'Origin is not allowed.', code: 'ORIGIN_NOT_ALLOWED' }, 403));
-  }
-  return cors(req, new Response(null, { status: 204 }));
+  return new Response(null, { status: 204, headers: headers(allowedOrigin(req.headers.get('origin'))) });
 }
 
 export async function POST(req) {
+  const origin = allowedOrigin(req.headers.get('origin'));
+  const bodyText = await req.text();
+  if (!bodyText || bodyText.length > MAX_BODY_BYTES) return noContent(origin);
+
+  const userAgent = clean(req.headers.get('user-agent'), 300);
+  if (!userAgent || BOT_RE.test(userAgent)) return noContent(origin);
+
+  const ip = clean(
+    req.headers.get('x-forwarded-for')?.split(',')[0]
+    || req.headers.get('x-real-ip')
+    || 'anonymous',
+    80
+  );
+  if (rateLimited(ip)) return tooMany(origin);
+
+  let payload;
   try {
-    if (!originAllowed(req)) {
-      return cors(req, json({ error: 'Origin is not allowed.', code: 'ORIGIN_NOT_ALLOWED' }, 403));
-    }
-
-    const type = String(req.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
-    if (type !== 'application/json' && type !== 'text/plain') {
-      return cors(req, json({ error: 'Send application/json.', code: 'BAD_CONTENT_TYPE' }, 415));
-    }
-
-    const declared = Number(req.headers.get('content-length') || 0);
-    if (declared > MAX_BODY_BYTES) {
-      return cors(req, json({ error: 'Event payload is too large.', code: 'PAYLOAD_TOO_LARGE' }, 413));
-    }
-
-    const text = await req.text();
-    if (Buffer.byteLength(text, 'utf8') > MAX_BODY_BYTES) {
-      return cors(req, json({ error: 'Event payload is too large.', code: 'PAYLOAD_TOO_LARGE' }, 413));
-    }
-
-    let body;
-    try {
-      body = JSON.parse(text || '{}');
-    } catch {
-      return cors(req, json({ error: 'Malformed JSON.', code: 'BAD_JSON' }, 400));
-    }
-
-    const result = await recordWebsiteEvent({ body, headers: req.headers });
-
-    if (result.status === 429) {
-      const res = json(
-        { ok: false, outcome: result.outcome, error: 'Too many events. Try again shortly.' },
-        429,
-      );
-      res.headers.set('Retry-After', String(result.retryAfterSeconds || 60));
-      return cors(req, res);
-    }
-
-    if (result.outcome === 'invalid') {
-      return cors(req, json({ ok: false, outcome: result.outcome, error: result.error }, result.status));
-    }
-
-    /* accepted, skipped and duplicate are indistinguishable on purpose */
-    return cors(req, json({ ok: true, outcome: result.outcome }, 202));
-  } catch (err) {
-    return cors(req, apiError(err));
+    payload = JSON.parse(bodyText);
+  } catch {
+    return noContent(origin);
   }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return noContent(origin);
+
+  const event = clean(payload.event, 40);
+  if (!EVENTS.has(event)) return noContent(origin);
+
+  const visitorId = identifier(payload.visitorId);
+  if (!visitorId) return noContent(origin);
+
+  const sessionId = identifier(payload.sessionId);
+  const at = Number(payload.ts);
+  const now = Date.now();
+  if (!Number.isFinite(at) || at > now + MAX_CLOCK_SKEW_MS || at < now - MAX_CLOCK_SKEW_MS) return noContent(origin);
+
+  const rawPath = String(payload.path || '');
+  /* Pathname only: a reset token or an email address in a query string must
+     never be stored. */
+  const path = clean(rawPath.split('?')[0].split('#')[0], 512);
+  if (path && !path.startsWith('/')) return noContent(origin);
+
+  const pageType = PAGE_TYPES.has(payload.pageType) ? payload.pageType : 'other';
+  const source = SOURCES.has(payload.source) ? payload.source : 'unknown';
+  const device = DEVICES.has(payload.device) ? payload.device : 'unknown';
+  const consent = CONSENT.has(payload.consent) ? payload.consent : 'unknown';
+  if (consent === 'denied') return noContent(origin);
+
+  const product = payload.product && typeof payload.product === 'object' ? {
+    id: clean(payload.product.id, 64),
+    itemCode: clean(payload.product.itemCode, 64),
+    name: clean(payload.product.name, 200),
+  } : { id: '', itemCode: '', name: '' };
+
+  const orderId = clean(payload.orderId, 80);
+  const customerId = clean(payload.customerId, 64);
+  const campaign = payload.campaign && typeof payload.campaign === 'object' ? {
+    source: clean(payload.campaign.source, 80),
+    medium: clean(payload.campaign.medium, 80),
+    name: clean(payload.campaign.name, 120),
+  } : { source: '', medium: '', name: '' };
+
+  const ts = new Date(at);
+  const dedupeKey = crypto.createHash('sha1').update([
+    visitorId, event, String(ts.getTime()), path, sessionId, product.id, orderId,
+  ].join('|')).digest('hex');
+
+  let verified = false;
+  let value = numberOrNull(payload.value);
+
+  try {
+    await dbConnect();
+    const db = mongoose.connection.db;
+
+    /* Server-side confirmation of a purchase: the order must exist, and its
+       own total wins over anything the browser reported.
+
+       Two order shapes are in play. ERP sales orders use `orderNumber` and
+       `amounts.grandTotal`; storefront orders are written with `orderNo` and
+       `netAmount` (see the storefront's order repository). The storefront also
+       keeps its own database, which on a shared cluster is a sibling of this
+       one, so it is consulted when its name differs. A reference that matches
+       neither stays unverified. */
+    if (event === 'purchase' && orderId) {
+      const storefrontDbName = String(process.env.STOREFRONT_DB_NAME || 'woven_essence_web').trim();
+      const databases = [db];
+      if (storefrontDbName && storefrontDbName !== db.databaseName) {
+        databases.push(mongoose.connection.useDb(storefrontDbName, { useCache: true }));
+      }
+      for (const database of databases) {
+        const order = await database.collection('orders').findOne(
+          { $or: [{ orderNumber: orderId }, { orderNo: orderId }] },
+          { projection: { 'amounts.grandTotal': 1, netAmount: 1, status: 1 } }
+        );
+        if (!order) continue;
+        verified = true;
+        const stored = Number(order?.amounts?.grandTotal ?? order?.netAmount);
+        if (Number.isFinite(stored)) value = stored;
+        break;
+      }
+    }
+
+    await WebsiteEvent.updateOne(
+      { dedupeKey },
+      {
+        $setOnInsert: {
+          event, ts, visitorId, sessionId, path, pageType,
+          source, referrer: clean(payload.referrer, 300), campaign,
+          device,
+          country: clean(payload.country, 64),
+          state: clean(payload.state, 64),
+          city: clean(payload.city, 64),
+          product,
+          orderId, verified, value,
+          customerId, consent, schemaVersion: 1,
+          dedupeKey,
+        },
+      },
+      { upsert: true }
+    );
+  } catch (err) {
+    /* Analytics must never fail a visitor's page load. A duplicate key from a
+       retried beacon is expected; anything else is logged and swallowed. */
+    if (err?.code !== 11000) console.error('[website-analytics/collect]', err?.message || err);
+  }
+
+  return noContent(origin);
 }

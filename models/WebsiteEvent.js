@@ -1,97 +1,72 @@
 import mongoose from 'mongoose';
 
-/* Website Events
+/* ==========================================================================
+   First-party website events.
 
-   One row per accepted storefront event: a page view, a product view, an
-   add-to-cart, a checkout start, a purchase, a search, or a named custom
-   event.
+   Written only by the tracking endpoint in
+   app/api/website-analytics/collect/route.js and read only by
+   lib/website-analytics/service.js. This collection is additive: no existing
+   ERP or storefront document is read back into it, and nothing here is ever
+   written to an order, cart, customer or stock record.
 
-   WHAT IS DELIBERATELY NOT STORED
-     - the raw IP address: only a salted hash, used for abuse limiting
-     - the raw User-Agent: only the parsed browser / OS / device class
-     - a full referrer URL: only its hostname
-     - page query strings: only the path
-     - arbitrary metadata keys that look like names, emails, phones, tokens
+   Privacy: there is no name, email, phone, IP address or full URL stored.
+   visitorId is a random first-party identifier generated in the visitor's
+   browser; path is the pathname with the query string removed, so reset
+   tokens and email parameters never reach the database.
+   ========================================================================== */
 
-   DEDUPLICATION
-     `eventId` is the tracker's id for this event. A sendBeacon retry carries
-     the same id, so the unique sparse index makes the retry a no-op instead
-     of a second page view. Purchases additionally use orderId as a
-     dedupeKey, so two tabs on the order confirmation page cannot count the
-     same sale twice.
-
-   RETENTION
-     occurredAt has a TTL index of 400 days. A purged row disappears on
-     Mongo's next TTL sweep; nothing in the application reads past that
-     window. */
-
-export const WEBSITE_EVENT_TYPES = [
-  'pageview',
-  'product_view',
-  'add_to_cart',
-  'checkout_start',
-  'purchase',
-  'search',
-  'custom',
-];
-
-const WebsiteEventSchema = new mongoose.Schema(
+const eventSchema = new mongoose.Schema(
   {
-    businessId: { type: mongoose.Schema.Types.ObjectId, ref: 'business', default: null, index: true },
-    locationId: { type: mongoose.Schema.Types.ObjectId, ref: 'companyLocation', default: null, index: true },
+    event: { type: String, required: true, trim: true, maxlength: 40 },
+    ts: { type: Date, required: true },
 
-    eventId: { type: String, default: undefined },
-    dedupeKey: { type: String, default: undefined },
+    visitorId: { type: String, required: true, trim: true, maxlength: 64 },
+    sessionId: { type: String, default: '', trim: true, maxlength: 64 },
 
-    type: { type: String, enum: WEBSITE_EVENT_TYPES, required: true, index: true },
-    name: { type: String, default: '' },
+    path: { type: String, default: '', trim: true, maxlength: 512 },
+    pageType: { type: String, default: 'other', maxlength: 24 },
 
-    path: { type: String, default: '' },
-    title: { type: String, default: '' },
+    source: { type: String, default: 'unknown', maxlength: 24 },
+    referrer: { type: String, default: '', maxlength: 300 },
+    campaign: {
+      source: { type: String, default: '', maxlength: 80 },
+      medium: { type: String, default: '', maxlength: 80 },
+      name: { type: String, default: '', maxlength: 120 },
+    },
 
-    referrerHost: { type: String, default: '' },
-    source: { type: String, default: '' },
-    medium: { type: String, default: '' },
-    channel: { type: String, default: '' },
-    campaign: { type: String, default: '' },
+    device: { type: String, default: 'unknown', maxlength: 16 },
+    /* Coarse geography supplied by the site's own edge/CDN headers. Never a
+       precise location, never derived from a customer address. */
+    country: { type: String, default: '', maxlength: 64 },
+    state: { type: String, default: '', maxlength: 64 },
+    city: { type: String, default: '', maxlength: 64 },
 
-    sessionId: { type: String, default: '', index: true },
-    visitorId: { type: String, default: '', index: true },
+    product: {
+      id: { type: String, default: '', maxlength: 64 },
+      itemCode: { type: String, default: '', maxlength: 64 },
+      name: { type: String, default: '', maxlength: 200 },
+    },
 
-    deviceType: { type: String, default: 'unknown' },
-    browser: { type: String, default: '' },
-    os: { type: String, default: '' },
-    country: { type: String, default: '' },
+    orderId: { type: String, default: '', maxlength: 80 },
+    /* true only when the order reference was found in the ERP/storefront
+       orders collection at ingestion time. Browser-reported purchases that
+       cannot be matched stay false and are never counted as conversions. */
+    verified: { type: Boolean, default: false },
+    value: { type: Number, default: null },
 
-    productId: { type: String, default: '' },
-    productName: { type: String, default: '' },
-    orderId: { type: String, default: '' },
-    value: { type: Number, default: 0, min: 0 },
-    currency: { type: String, default: 'INR' },
-    quantity: { type: Number, default: 0, min: 0 },
-    searchQuery: { type: String, default: '' },
+    customerId: { type: String, default: '', maxlength: 64 },
+    consent: { type: String, default: 'unknown', maxlength: 16 },
+    schemaVersion: { type: Number, default: 1 },
 
-    consent: { type: Boolean, default: true },
-    dnt: { type: Boolean, default: false },
-    isBot: { type: Boolean, default: false, index: true },
-    isInternal: { type: Boolean, default: false },
-
-    ipHash: { type: String, default: '' },
-    metadata: { type: mongoose.Schema.Types.Mixed, default: {} },
-
-    occurredAt: { type: Date, default: Date.now },
-    receivedAt: { type: Date, default: Date.now },
+    dedupeKey: { type: String, required: true, unique: true },
   },
-  { timestamps: true, collection: 'websiteevent' }
+  { collection: 'websiteevents', timestamps: true, minimize: false }
 );
 
-WebsiteEventSchema.index({ businessId: 1, occurredAt: -1 });
-WebsiteEventSchema.index({ businessId: 1, type: 1, occurredAt: -1 });
-WebsiteEventSchema.index({ sessionId: 1, occurredAt: 1 });
-WebsiteEventSchema.index({ visitorId: 1, occurredAt: 1 });
-WebsiteEventSchema.index({ eventId: 1 }, { unique: true, sparse: true });
-WebsiteEventSchema.index({ dedupeKey: 1 }, { unique: true, sparse: true });
-WebsiteEventSchema.index({ occurredAt: 1 }, { expireAfterSeconds: 400 * 24 * 60 * 60 });
+eventSchema.index({ ts: -1 });
+eventSchema.index({ visitorId: 1, ts: -1 });
+eventSchema.index({ event: 1, ts: -1 });
+eventSchema.index({ sessionId: 1 });
 
-export default mongoose.models.websiteEvent ||
-  mongoose.model('websiteEvent', WebsiteEventSchema, 'websiteevent');
+export default mongoose.models.WebsiteEvent
+  || mongoose.model('WebsiteEvent', eventSchema);

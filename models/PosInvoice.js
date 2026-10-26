@@ -20,6 +20,18 @@ const PosInvoiceSchema = new mongoose.Schema(
     exempted: { type: String, default: '' },
     billingType: { type: String, default: '' },
     paymentStatus: { type: String, default: '' },
+
+    /* WHERE THE SALE CAME FROM. The business asked for Instagram orders to be
+       attributable without an integration, so the till records the channel
+       on the bill itself. Only "instagram" is stored; anything else, old or
+       new, is an offline store sale (see lib/salesChannel.js). No document is
+       rewritten - the field is absent until an operator sets it. */
+    salesChannel: {
+      type: String,
+      enum: ['', 'instagram'],
+      default: '',
+      index: true,
+    },
     /* Shipping charge entered on the till. Part of totalAmount, but kept
        separately too so a bill can say WHY its total exceeds the goods. */
     shipping: { type: Number, default: 0 },
@@ -50,6 +62,16 @@ const PosInvoiceSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+/* Report scope: business/location plus the invoice date. `date` is nullable
+   on legacy bills, so the dashboard also has a createdAt fallback; these
+   indexes keep the normal dated path covered without changing any document. */
+PosInvoiceSchema.index({ businessId: 1, date: 1 });
+PosInvoiceSchema.index({ businessId: 1, locationId: 1, date: 1 });
+PosInvoiceSchema.index({ businessId: 1, invoiceNo: 1 });
+/* Channel is an equality match on the dashboard's Instagram scope, alongside
+   the same business/date range the report already uses. */
+PosInvoiceSchema.index({ businessId: 1, salesChannel: 1, date: 1 });
 
 export default mongoose.models.posInvoice ||
   mongoose.model('posInvoice', PosInvoiceSchema, 'posinvoice');

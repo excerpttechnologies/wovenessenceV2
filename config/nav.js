@@ -713,14 +713,15 @@ export const NAV = [
       { label: 'Products', icon: LuTag, href: '/admin/ecommerce/product' },
       /* a test copy of Products, same data (19-10-2026) */
       { label: 'product-eccom', icon: LuTag, href: '/admin/ecommerce/product-eccom' },
-      /* Storefront traffic, product interest and tracked purchases. Read
-         separately from ERP sales; nothing here is posted into a ledger. */
-      { label: 'Website Analytics', icon: LuChartNoAxesColumn,
-        href: '/admin/ecommerce/website-analytics' },
       /* The same transfer engine as Stock Transfers, raised from the
          e-commerce side - not a separate inventory path. */
       { label: 'Direct Stock Transfer', icon: LuShuffle,
         href: '/admin/ecommerce/direct-stock-transfer' },
+      /* Visitor behaviour, traffic sources and online order performance. Reads
+         the storefront collections that share this database; it never writes
+         to an order, cart or customer record. */
+      { label: 'Website Analytics', icon: LuChartNoAxesColumn,
+        href: '/admin/ecommerce/website-analytics' },
       /* Orders and Coupons are on the deployed sidebar but have no screen
          here yet. Left out rather than shipped as dead links - the same call
          Staff Management's three entries got. */

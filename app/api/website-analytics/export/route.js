@@ -1,51 +1,42 @@
-import dbConnect from '@/lib/db';
-import { requireSession } from '@/lib/session';
-import { handler, json } from '@/lib/apiError';
-import { dashboardScope, scopeDescription } from '@/lib/dashboard/access';
-import { resolveRange } from '@/lib/dashboard/range';
-import { getWebsiteAnalytics } from '@/lib/website-analytics/service';
-import { buildWebsiteAnalyticsCsv } from '@/lib/website-analytics/export';
-
-/* /api/website-analytics/export
-
-   The overview as CSV, from the same service call the screen makes. */
+import { requirePermission, PERMISSIONS } from '@/lib/rbac';
+import { buildWebsiteAnalytics } from '@/lib/website-analytics/service';
+import { websiteAnalyticsBuffer, websiteAnalyticsFilename } from '@/lib/website-analytics/export';
 
 export const dynamic = 'force-dynamic';
 
-export const GET = handler(async (req) => {
-  const session = await requireSession();
-  if (!session) return json({ error: 'Unauthorized' }, 401);
+function fail(err) {
+  if (err && err.status && err.message) {
+    return Response.json(
+      { error: err.message, code: err.code || 'ERROR' },
+      { status: err.status, headers: { 'Cache-Control': 'private, no-store' } }
+    );
+  }
+  console.error('[website-analytics/export]', err);
+  return Response.json(
+    { error: 'Could not build the website analytics report. Please retry.', code: 'INTERNAL' },
+    { status: 500, headers: { 'Cache-Control': 'private, no-store' } }
+  );
+}
 
-  const sp = new URL(req.url).searchParams;
-  const scope = dashboardScope(sp, session);
-
-  let range;
+/* Same query string as the screen, same builder, same figures. */
+export async function GET(req) {
   try {
-    range = resolveRange({
-      preset: sp.get('preset') || '30d',
-      from: sp.get('from'),
-      to: sp.get('to'),
-      finYear: scope.finYear || sp.get('finYear') || '',
+    const session = await requirePermission(PERMISSIONS.REPORTS_VIEW);
+    const sp = new URL(req.url).searchParams;
+    const data = await buildWebsiteAnalytics(session, sp);
+    const buffer = websiteAnalyticsBuffer(data);
+
+    return new Response(buffer, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': `attachment; filename="${websiteAnalyticsFilename(data)}"`,
+        'Content-Length': String(buffer.length),
+        'Cache-Control': 'private, no-store, max-age=0',
+        Vary: 'Cookie',
+      },
     });
   } catch (err) {
-    if (err instanceof RangeError) {
-      return json({ error: err.message, code: 'BAD_RANGE' }, 422);
-    }
-    throw err;
+    return fail(err);
   }
-
-  await dbConnect();
-  const snapshot = await getWebsiteAnalytics(scope, range);
-  const csv = '\uFEFF' + buildWebsiteAnalyticsCsv(snapshot);
-  const filename = `website-analytics-${range.fromKey}-to-${range.toKey}.csv`;
-
-  return new Response(csv, {
-    status: 200,
-    headers: {
-      'Content-Type': 'text/csv; charset=utf-8',
-      'Content-Disposition': `attachment; filename="${filename}"`,
-      'Cache-Control': 'no-store',
-      'X-Website-Scope': scopeDescription(scope, session).locationId || 'all',
-    },
-  });
-});
+}
