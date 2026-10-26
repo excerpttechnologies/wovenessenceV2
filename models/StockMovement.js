@@ -30,6 +30,7 @@ export const MOVEMENT_TYPES = {
   POS_RETURN_IN: 'POS_RETURN_IN',       // customer return, back into stock
   ADJUST_IN: 'ADJUST_IN',               // stock adjustment, positive
   ADJUST_OUT: 'ADJUST_OUT',             // stock adjustment, negative
+  ORIGIN_CORRECTION: 'ORIGIN_CORRECTION', // audit-only correction to a barcode's origin location
   ECOM_OUT: 'ECOM_OUT',                 // e-commerce direct transfer, despatched
 };
 

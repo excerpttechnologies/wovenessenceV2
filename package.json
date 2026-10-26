@@ -12,6 +12,7 @@
     "seed:items": "node --env-file=.env scripts/seedItems.mjs",
     "seed:barcodes": "node scripts/seedBarcodeDump.mjs",
     "seed:barcodes:apply": "node scripts/seedBarcodeDump.mjs --apply",
+    "seed:warehouse-stock": "node scripts/seed-warehouse-stock.js",
     "migrate:ecommerce": "node --env-file=.env scripts/migrateEcommerceProducts.mjs",
     "migrate:ecommerce:apply": "node --env-file=.env scripts/migrateEcommerceProducts.mjs --apply",
     "delete:barcodes": "node scripts/deleteBarcodeDump.mjs",
@@ -91,7 +92,8 @@
     "ic:receive-pending": "node --env-file=.env --import ./scripts/aliasRegister.mjs scripts/receivePendingIcChallans.mjs",
     "ic:receive-pending:apply": "node --env-file=.env --import ./scripts/aliasRegister.mjs scripts/receivePendingIcChallans.mjs --apply",
     "hsr:sync": "node --env-file=.env --import ./scripts/aliasRegister.mjs scripts/seedHsrOpening.mjs --sync",
-    "hsr:sync:apply": "node --env-file=.env --import ./scripts/aliasRegister.mjs scripts/seedHsrOpening.mjs --sync --apply"
+    "hsr:sync:apply": "node --env-file=.env --import ./scripts/aliasRegister.mjs scripts/seedHsrOpening.mjs --sync --apply",
+    "test:barcode-import": "node --max-old-space-size=4096 --env-file=.env --import ./scripts/aliasRegister.mjs scripts/testBarcodeMasterImport.mjs"
   },
   "dependencies": {
     "dotenv": "^18.0.7",

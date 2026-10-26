@@ -644,6 +644,141 @@ function Band({ title, children, last = false }) {
   );
 }
 
+function SupplierPicker({ business, displayName, selectedId, editing, onSelect }) {
+  const [query, setQuery] = useState(displayName || '');
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    setQuery(displayName || '');
+  }, [displayName, editing]);
+
+  useEffect(() => {
+    if (!editing) {
+      setRows([]);
+      setLoading(false);
+      setError('');
+      return undefined;
+    }
+
+    let off = false;
+    const timer = setTimeout(async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const params = new URLSearchParams({ search: query.trim(), perPage: '15' });
+        if (business) params.set('business', business);
+        const response = await fetch('/api/supplier?' + params, { cache: 'no-store' });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || 'Could not load suppliers.');
+        if (!off) setRows(result.rows || []);
+      } catch (requestError) {
+        if (!off) {
+          setRows([]);
+          setError(requestError.message || 'Could not load suppliers.');
+        }
+      } finally {
+        if (!off) setLoading(false);
+      }
+    }, 250);
+
+    return () => {
+      off = true;
+      clearTimeout(timer);
+    };
+  }, [business, editing, query]);
+
+  function choose(row) {
+    const name = row.businessName || [row.firstName, row.lastName].filter(Boolean).join(' ');
+    onSelect({
+      id: String(row._id),
+      displayName: name,
+      code: row.contactId || '',
+      gstin: row.gstNo || '',
+      contact: row.billingMobile || '',
+      email: row.billingEmail || '',
+      address: [
+        row.billingAddressLine1,
+        row.billingAddressLine2,
+        row.billingCity,
+        row.billingState,
+        row.billingZipCode,
+      ].filter(Boolean).join(', '),
+      state: row.billingState || '',
+    });
+    setQuery(name);
+    setOpen(false);
+  }
+
+  return (
+    <div className="px-4 py-3">
+      <label htmlFor="barcode-supplier-picker" className="text-[11px] uppercase tracking-wide text-inkmuted">Supplier</label>
+      {editing ? (
+        <div className="relative mt-1">
+          <input
+            id="barcode-supplier-picker"
+            aria-label="Supplier"
+            aria-expanded={open}
+            aria-controls="barcode-supplier-options"
+            role="combobox"
+            autoComplete="off"
+            className="f-input !h-[30px] w-full"
+            value={query}
+            onFocus={() => setOpen(true)}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setOpen(true);
+              if (selectedId) onSelect(null);
+            }}
+          />
+          {open && (
+            <div id="barcode-supplier-options" role="listbox" className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded border border-line bg-white shadow-lg">
+              {loading && <div className="px-3 py-2 text-sm text-inkmuted">Loading suppliers...</div>}
+              {!loading && error && <div className="px-3 py-2 text-sm text-red-700" role="alert">{error}</div>}
+              {!loading && !error && rows.length === 0 && <div className="px-3 py-2 text-sm text-inkmuted">No suppliers found.</div>}
+              {!loading && !error && rows.map((row) => {
+                const name = row.businessName || [row.firstName, row.lastName].filter(Boolean).join(' ');
+                return (
+                  <button
+                    key={row._id}
+                    type="button"
+                    role="option"
+                    aria-selected={String(row._id) === selectedId}
+                    className="block w-full px-3 py-2 text-left text-sm hover:bg-[#f4f7fb]"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => choose(row)}
+                  >
+                    {name || 'Unnamed supplier'}{row.contactId ? ` (${row.contactId})` : ''}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {!selectedId && <div className="mt-1 text-xs text-red-700">Select a supplier from the results.</div>}
+        </div>
+      ) : (
+        <div className="mt-0.5 text-[13.5px] text-ink">{displayName || '-'}</div>
+      )}
+    </div>
+  );
+}
+
+function supplierForEdit(detail) {
+  if (!detail?.supplierId) return null;
+  return {
+    id: String(detail.supplierId),
+    displayName: String(detail.supplierDisplayName ?? ''),
+    code: String(detail.supplierCode ?? ''),
+    gstin: String(detail.supplierGstin ?? ''),
+    contact: String(detail.supplierContact ?? ''),
+    email: String(detail.supplierEmail ?? ''),
+    address: String(detail.supplierAddress ?? ''),
+    state: String(detail.taxRegion ?? ''),
+  };
+}
+
 export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
   const { business } = useScope();
   const [data, setData] = useState(null);
@@ -676,6 +811,12 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
   const [editWsp, setEditWsp] = useState('');
   const [editDp, setEditDp] = useState('');
   const [editDesignNo, setEditDesignNo] = useState('');
+  const [editCurrentLocationId, setEditCurrentLocationId] = useState('');
+  const [editOriginLocationId, setEditOriginLocationId] = useState('');
+  const [editSupplierId, setEditSupplierId] = useState('');
+  const [editSupplier, setEditSupplier] = useState(null);
+  const [editTaxRegion, setEditTaxRegion] = useState('');
+  const [editSupplierQueryPending, setEditSupplierQueryPending] = useState(false);
   
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
@@ -695,6 +836,7 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
   useEffect(() => {
     setSearchTerm(barcodeNo);
     setEditing(false);
+    setEditSupplierQueryPending(false);
     setSaveError('');
     setSaveSuccess('');
   }, [barcodeNo]);
@@ -738,6 +880,11 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
         setEditWsp(String(detail.wsp ?? ''));
         setEditDp(String(detail.dp ?? ''));
         setEditDesignNo(String(detail.designNo ?? detail.description ?? ''));
+        setEditCurrentLocationId(String(detail.currentLocationId ?? ''));
+        setEditOriginLocationId(String(detail.originLocationId ?? ''));
+        setEditSupplierId(String(detail.supplierId ?? ''));
+        setEditSupplier(supplierForEdit(detail));
+        setEditTaxRegion(String(detail.taxRegion ?? ''));
       })
       .catch(() => { if (!off) setError('Could not reach the server.'); })
       .finally(() => { if (!off) setLoading(false); });
@@ -763,14 +910,17 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
   }
 
   const d = data?.detail || {};
+  const supplierInfo = editing ? editSupplier : supplierForEdit(d);
   const rows = data?.movements || [];
   const history = data?.history || null;
   const lastMovement = rows[rows.length - 1];
+  const canEdit = d.status === 'IN_STOCK';
   const totalReceipts = rows.reduce((total, row) => total + Number(row.receipts || 0), 0);
   const totalIssues = rows.reduce((total, row) => total + Number(row.issues || 0), 0);
 
   function startEditing() {
     const detail = d || {};
+    setEditSupplierQueryPending(false);
     setEditItemName(String(detail.itemName ?? ''));
     setEditItemCode(String(detail.itemCode ?? ''));
     setEditBarcodeNo(String(detail.barcodeNo ?? ''));
@@ -794,6 +944,11 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
     setEditWsp(String(detail.wsp ?? ''));
     setEditDp(String(detail.dp ?? ''));
     setEditDesignNo(String(detail.designNo ?? detail.description ?? ''));
+    setEditCurrentLocationId(String(detail.currentLocationId ?? ''));
+    setEditOriginLocationId(String(detail.originLocationId ?? ''));
+    setEditSupplierId(String(detail.supplierId ?? ''));
+    setEditSupplier(supplierForEdit(detail));
+    setEditTaxRegion(String(detail.taxRegion ?? ''));
     setSaveError('');
     setSaveSuccess('');
     setEditing(true);
@@ -802,6 +957,7 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
   function cancelEditing() {
     // Reset all edit fields to original values from data
     const detail = d || {};
+    setEditSupplierQueryPending(false);
     setEditItemName(String(detail.itemName ?? ''));
     setEditItemCode(String(detail.itemCode ?? ''));
     setEditBarcodeNo(String(detail.barcodeNo ?? ''));
@@ -825,12 +981,26 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
     setEditWsp(String(detail.wsp ?? ''));
     setEditDp(String(detail.dp ?? ''));
     setEditDesignNo(String(detail.designNo ?? detail.description ?? ''));
+    setEditCurrentLocationId(String(detail.currentLocationId ?? ''));
+    setEditOriginLocationId(String(detail.originLocationId ?? ''));
+    setEditSupplierId(String(detail.supplierId ?? ''));
+    setEditSupplier(supplierForEdit(detail));
+    setEditTaxRegion(String(detail.taxRegion ?? ''));
     setSaveError('');
     setSaveSuccess('');
     setEditing(false);
   }
 
   async function saveDetails() {
+    if (editSupplierQueryPending) {
+      setSaveError('Select a supplier from the results before saving.');
+      return;
+    }
+    if (d.supplierId && !editSupplierId) {
+      setSaveError('Select a supplier from the results before saving.');
+      return;
+    }
+
     setSaving(true);
     setSaveError('');
     setSaveSuccess('');
@@ -843,6 +1013,7 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
         barcodeNo: editBarcodeNo,
         description: editDescription,
         subGroupId: editSubGroupId || undefined,
+        groupId: editGroupId || undefined,
         hsnId: editHsnId || undefined,
         hsn: editHsn,
         gst: editGst,
@@ -859,6 +1030,10 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
         wsp: editWsp,
         dp: editDp,
         designNo: editDesignNo,
+        currentLocationId: editCurrentLocationId,
+        originLocationId: editOriginLocationId,
+        supplierId: editSupplierId,
+        taxRegion: editTaxRegion,
       };
 
       const response = await fetch('/api/reports/barcode-detail', {
@@ -912,11 +1087,11 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
                   Cancel
                 </button>
               </>
-            ) : (
+            ) : canEdit ? (
               <button type="button" className="btn !h-[30px] !px-2.5" onClick={startEditing}>
                 <Icon name="pencil" size={13} /> Edit
               </button>
-            )}
+            ) : null}
             <button type="button" className="btn !h-[30px] !px-2.5" onClick={onBack}>
               <Icon name="back" size={13} /> Back
             </button>
@@ -989,10 +1164,9 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
                 <DropdownCell
                   label="GST Slab"
                   value={text(d.gstSlab)}
-                  editing={editing}
+                  editing={false}
                   optionsRef="tax"
                   selectedId={editGstSlabId}
-                  onChange={setEditGstSlabId}
                 />
                 <Cell 
                   label="GST %" 
@@ -1012,8 +1186,8 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
                 <Cell 
                   label="Status" 
                   value={editing ? (statusOptions.find(opt => opt.value === editStatus[0])?.label || text(d.status)) : text(d.status)}
-                  editing={editing}
-                  dropdown={editing}
+                  editing={false}
+                  dropdown={false}
                   dropdownValue={editStatus}
                   dropdownOptions={statusOptions}
                   onChange={(val) => setEditStatus(val ? [val] : [])}
@@ -1100,10 +1274,47 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
               </Band>
 
               <Band title="Supplier Details" last>
-                <Cell label="Supplier" value={text(d.supplierName)} />
-                <Cell label="Tax Region" value={text(d.taxRegion)} />
-                <Cell label="Current Location" value={text(d.currentLocation)} />
-                <Cell label="Origin Location" value={text(d.originLocation)} />
+                <SupplierPicker
+                  business={business}
+                  displayName={editing ? (supplierInfo?.displayName || '') : (d.supplierDisplayName || d.supplierName || '')}
+                  selectedId={editing ? editSupplierId : String(d.supplierId || '')}
+                  editing={editing}
+                  onSelect={(supplier) => {
+                    setEditSupplier(supplier);
+                    setEditSupplierId(supplier?.id || '');
+                    setEditTaxRegion(supplier?.state || '');
+                    setEditSupplierQueryPending(!supplier);
+                  }}
+                />
+                <Cell label="Supplier Code" value={text(supplierInfo?.code)} />
+                <Cell label="Supplier ID" value={text(supplierInfo?.id)} />
+                <Cell label="GSTIN" value={text(supplierInfo?.gstin)} />
+                <Cell label="Contact" value={text(supplierInfo?.contact)} />
+                <Cell label="Email" value={text(supplierInfo?.email)} />
+                <Cell label="Address" value={text(supplierInfo?.address)} wide />
+                <Cell
+                  label="Tax Region"
+                  value={editing ? editTaxRegion : text(d.taxRegion)}
+                  editing={editing}
+                  type="text"
+                  onChange={setEditTaxRegion}
+                />
+                <DropdownCell
+                  label="Current Location"
+                  value={text(d.currentLocation)}
+                  editing={editing}
+                  optionsRef="companylocations"
+                  selectedId={editCurrentLocationId}
+                  onChange={setEditCurrentLocationId}
+                />
+                <DropdownCell
+                  label="Origin Location"
+                  value={text(d.originLocation)}
+                  editing={editing}
+                  optionsRef="companylocations"
+                  selectedId={editOriginLocationId}
+                  onChange={setEditOriginLocationId}
+                />
                 <Cell label="GRC Number" value={text(d.grcNo)} bold />
                 <Cell label="GRC Date" value={when(d.grcDate)} bold />
                 <Cell label="Age" value={displayAge(d.stockAge, d.grcDate)} bold />
