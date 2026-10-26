@@ -96,8 +96,10 @@ import logoFile from '@/bill-template/posinvoice-temp.png';
 
 const LOGO = logoFile.src || logoFile;
 /* the second logo, printed under the first (user, 19-10-2026) */
+/* second logo - not shown any more (user, 26-10-2026); uncomment with the
+   two <img src={LOGO2}> lines below to bring it back
 import logoFile2 from '@/bill-template/posinvoice-temp1.png';
-const LOGO2 = logoFile2.src || logoFile2;
+const LOGO2 = logoFile2.src || logoFile2; */
 const TAGLINE = 'TRADITION | FABRICS | TIMELESS YOU';
 const THANK_YOU = '!! Thank you for your purchase, YOU MAKE OUR DAY !!';
 const DEFAULT_TERMS = [
@@ -108,6 +110,9 @@ const DEFAULT_TERMS = [
   'Subject to Bangalore Jurisdiction',
 ];
 const FOOTER_NOTE = 'TUESDAY HOLIDAY';
+/* the old Email button (Gmail with the invoice link) - hidden for now; the
+   direct-email button replaces it (user, 26-10-2026) */
+const SHOW_GMAIL_EMAIL = false;
 
 /* Indian grouping, two places - 18,485.00 */
 const inr = (v) => Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -190,6 +195,11 @@ export default function PrintPosPage() {
   useEffect(() => { setMounted(true); }, []);
   /* what the last share button did, for one line of feedback */
   const [shareNote, setShareNote] = useState(null);   // { error } | { notice }
+  /* the direct Email box - the customer's address, and whether it is sending (26-10-2026) */
+  const [emailBox, setEmailBox] = useState(null);     // { to, error } | null
+  const [emailSending, setEmailSending] = useState(false);
+  /* the last WhatsApp-app link, for an "open it" fallback link (26-10-2026) */
+  const [waAppUrl, setWaAppUrl] = useState('');
   useEffect(() => {
     try {
       const saved = window.localStorage.getItem(FORMAT_KEY);
@@ -205,6 +215,30 @@ export default function PrintPosPage() {
       .then((r) => r.json())
       .then((d) => setDoc(d.doc || null));
   }, [id]);
+
+  /* FOOTER TEMPLATE (user, 26-10-2026): the bill's company's Active templates
+     from Masters -> POS Footer Templates; the one picked is remembered on
+     this PC per company, like the paper size. Nothing picked = no footer,
+     the bill exactly as before. */
+  const [footerTemplates, setFooterTemplates] = useState([]);
+  const [footerPick, setFooterPick] = useState('');
+  const billBusiness = doc ? String((doc.businessId && doc.businessId._id) || doc.businessId || '') : '';
+  const footerKey = 'posFooterTemplate:' + billBusiness;
+  useEffect(() => {
+    if (!billBusiness) return undefined;
+    let off = false;
+    try { setFooterPick(window.localStorage.getItem(footerKey) || ''); } catch { /* not remembered */ }
+    fetch('/api/pos-footer-template?active=1&perPage=200&business=' + billBusiness, { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((d) => { if (!off) setFooterTemplates(d.rows || []); })
+      .catch(() => { if (!off) setFooterTemplates([]); });
+    return () => { off = true; };
+  }, [billBusiness, footerKey]);
+  const pickFooter = (v) => {
+    setFooterPick(v);
+    try { window.localStorage.setItem(footerKey, v); } catch { /* not remembered, still used */ }
+  };
+  const footerTpl = footerTemplates.find((t) => t._id === footerPick) || null;
 
   /* ONE PAGE, AS LONG AS THE RECEIPT (user, 12-10-2026 - it printed on two).
      `@page { size: 80mm auto }` is not valid CSS - the browser dropped it and
@@ -285,11 +319,40 @@ export default function PrintPosPage() {
       filename: pdfName,
       image: { type: 'jpeg', quality: 0.98 },
       html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+      /* keep the footer template's Google review link clickable in the PDF (26-10-2026) */
+      enableLinks: true,
       jsPDF: { unit: 'mm', format: [wMm, hMm], orientation: hMm >= wMm ? 'portrait' : 'landscape' },
     }).from(element).outputPdf('blob');
   }
+  /* DIRECT EMAIL WITH THE PDF ATTACHED (user, 26-10-2026): the PDF is built
+     here, exactly as for WhatsApp, and app/api/invoice-email sends it from
+     the shop's Gmail account in .env - no mail window opens. */
+  async function sendInvoiceEmail() {
+    const to = String(emailBox?.to || '').trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) { setEmailBox((b) => ({ ...b, error: 'Enter a valid email address.' })); return; }
+    setEmailSending(true);
+    setEmailBox((b) => ({ ...b, error: '' }));
+    try {
+      const blob = await invoicePdfBlob();
+      const form = new FormData();
+      form.append('to', to);
+      form.append('invoiceId', String(doc._id || id));
+      form.append('file', new File([blob], pdfName, { type: 'application/pdf' }));
+      const r = await fetch('/api/invoice-email', { method: 'POST', body: form });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || 'Could not send the email.');
+      setEmailBox(null);
+      setShareNote({ notice: 'Invoice emailed to ' + to + ' with the PDF attached.' });
+    } catch (e) {
+      setEmailBox((b) => (b ? { ...b, error: (e && e.message) || 'Could not send the email.' } : b));
+    } finally {
+      setEmailSending(false);
+    }
+  }
+
   async function sharePdf(target) {
     const isPhone = /Android|iPhone|iPad/i.test(navigator.userAgent || '');
+    setWaAppUrl('');
     /* WHATSAPP / EMAIL SEND A DOWNLOAD LINK (user, 22-10-2026): WhatsApp
        Web cannot be handed a file by a website, so the PDF is stored on the
        server (app/api/invoice-share) and the message carries a link the
@@ -314,7 +377,7 @@ export default function PrintPosPage() {
       return;
     }
     const file = new File([blob], pdfName, { type: 'application/pdf' });
-    if (target === 'whatsapp' || target === 'email') {
+    if (target === 'whatsapp' || target === 'email' || target === 'whatsapp-app') {
       let link = '';
       try {
         setShareNote({ notice: 'Creating the invoice link...' });
@@ -334,7 +397,17 @@ export default function PrintPosPage() {
         + 'Amount: Rs ' + Math.trunc(Number(doc.totalAmount || 0)) + '\n\n'
         + 'Download your invoice: ' + link + '\n\n'
         + 'Thank you for shopping with wovenessence by TEMPLE FABRICS.';
-      if (target === 'whatsapp') {
+      if (target === 'whatsapp-app') {
+        /* WHATSAPP APP (user, 26-10-2026): whatsapp:// opens the installed
+           WhatsApp app (WhatsApp for Windows / the phone app) with the
+           message; nothing opens if the app is not installed. If the
+           browser holds the launch back (it can, once the click is a few
+           seconds old), the note below carries a link to open it by hand. */
+        const appUrl = 'whatsapp://send?text=' + encodeURIComponent(text);
+        setWaAppUrl(appUrl);
+        window.location.href = appUrl;
+        setShareNote({ notice: 'WhatsApp app opened with the invoice link - pick the person and send. Nothing opened? Use the link below, or install WhatsApp for Windows.' });
+      } else if (target === 'whatsapp') {
         try { waWin.opener = null; } catch { /* ignore */ }
         waWin.location.href = (isPhone ? 'https://wa.me/?text=' : 'https://web.whatsapp.com/send?text=') + encodeURIComponent(text);
         setShareNote({ notice: 'WhatsApp opened with the invoice link - pick the person and send.' });
@@ -426,13 +499,30 @@ export default function PrintPosPage() {
             </button>
           ))}
         </div>
+        {/* footer template picker (26-10-2026) - screen only */}
+        <select
+          className="rounded border border-line bg-white px-2 py-1 text-[12px]"
+          title="Invoice footer"
+          aria-label="Invoice footer"
+          value={footerTpl ? footerPick : ''}
+          onChange={(e) => pickFooter(e.target.value)}
+        >
+          <option value="">No footer</option>
+          {footerTemplates.map((t) => <option key={t._id} value={t._id}>{t.templateName || 'Footer'}</option>)}
+        </select>
         <div className="flex gap-2">
           {/* SHARE (user, 21-10-2026) - the same three buttons and the same
               message as the View POS screen (components/PosInvoiceView.jsx);
               screen-only, the printed bill is unchanged */}
-          <button type="button" title="Share on WhatsApp" aria-label="Share on WhatsApp" className="flex h-9 w-9 items-center justify-center rounded bg-[#25D366] text-white hover:bg-[#1da851]" onClick={() => sharePdf('whatsapp')}><Icon name="whatsapp" size={18} /></button>
+          <button type="button" title="Share on WhatsApp Web" aria-label="Share on WhatsApp Web" className="flex h-9 w-9 items-center justify-center rounded bg-[#25D366] text-white hover:bg-[#1da851]" onClick={() => sharePdf('whatsapp')}><Icon name="whatsapp" size={18} /></button>
+          {/* WHATSAPP APP (26-10-2026): the same link message, opened in the installed WhatsApp app */}
+          <button type="button" title="Share on WhatsApp App" aria-label="Share on WhatsApp App" className="flex h-9 items-center justify-center gap-1 rounded bg-[#128C7E] px-2 text-[11px] font-bold text-white hover:bg-[#0e6f64]" onClick={() => sharePdf('whatsapp-app')}><Icon name="whatsapp" size={16} /> App</button>
           {/* Instagram button removed (user, 22-10-2026) */}
-          <button type="button" title="Share by Email" aria-label="Share by Email" className="flex h-9 w-9 items-center justify-center rounded bg-brand text-white hover:opacity-90" onClick={() => sharePdf('email')}><Icon name="mail" size={18} /></button>
+          {/* the Gmail-with-link Email button - HIDDEN for now (user, 26-10-2026);
+              set SHOW_GMAIL_EMAIL to true to bring it back */}
+          {SHOW_GMAIL_EMAIL && <button type="button" title="Share by Email" aria-label="Share by Email" className="flex h-9 w-9 items-center justify-center rounded bg-brand text-white hover:opacity-90" onClick={() => sharePdf('email')}><Icon name="mail" size={18} /></button>}
+          {/* DIRECT EMAIL (26-10-2026): type the customer's address, the PDF is sent from the shop's account */}
+          <button type="button" title="Email the invoice PDF" aria-label="Email the invoice PDF" className="flex h-9 w-9 items-center justify-center rounded bg-brand text-white hover:opacity-90" onClick={() => { setShareNote(null); setEmailBox({ to: doc.customerEmail || '', error: '' }); }}><Icon name="mail" size={18} /></button>
           <button type="button" className="btn" onClick={() => { setPageSize(format); window.print(); }}><Icon name="printer" size={14} /> Print Invoice</button>
           <button type="button" className="btn border-danger bg-danger text-white hover:border-[#9f1d17] hover:bg-[#9f1d17]" title="Close" aria-label="Close" onClick={() => {
             /* Close goes back to the POS billing screen for this bill's
@@ -447,7 +537,41 @@ export default function PrintPosPage() {
             {shareNote.error || shareNote.notice}
           </div>
         )}
+        {/* by-hand fallback when the browser did not launch the WhatsApp app */}
+        {waAppUrl && (
+          <div className="w-full text-right text-[11px]">
+            <a href={waAppUrl} className="font-semibold text-brand underline">Open WhatsApp app</a>
+          </div>
+        )}
       </div>
+
+      {/* DIRECT EMAIL BOX (26-10-2026) - screen only, never printed */}
+      {emailBox && (
+        <div className="no-print fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4" onClick={() => { if (!emailSending) setEmailBox(null); }}>
+          <div className="w-full max-w-md rounded-lg bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-1 text-[15px] font-bold">Email invoice {doc.invoiceNo || ''}</div>
+            <div className="mb-3 text-[12px] text-inkmuted">The invoice PDF is sent straight to this address as an attachment.</div>
+            <label className="f-label">Customer email</label>
+            <input
+              type="email"
+              className="f-input w-full"
+              placeholder="customer@example.com"
+              autoFocus
+              value={emailBox.to}
+              disabled={emailSending}
+              onChange={(e) => setEmailBox((b) => ({ ...b, to: e.target.value, error: '' }))}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); sendInvoiceEmail(); } }}
+            />
+            {emailBox.error && <div className="f-err mt-1">{emailBox.error}</div>}
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" className="btn" disabled={emailSending} onClick={() => setEmailBox(null)}>Cancel</button>
+              <button type="button" className="btn btn-primary" disabled={emailSending} onClick={sendInvoiceEmail}>
+                {emailSending ? 'Sending...' : <><Icon name="mail" size={14} /> Send</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* PRINTING (user, 15-10-2026 - it printed blank). globals.css hides
           `body > *:not(.print-doc)` at print time, which removes the whole
@@ -470,6 +594,7 @@ export default function PrintPosPage() {
           place={place}
           phones={phones}
           termLines={termLines}
+          footerTpl={footerTpl}
           paidBy={paidBy}
           changeReturn={changeReturn}
           totals={{ netSum, mrpSum, discSum, taxSum, taxable, cgst, sgst, shipping, netAmount, roundOff, pcs, mtr }}
@@ -481,8 +606,8 @@ export default function PrintPosPage() {
         <div className="text-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={LOGO} alt={seller.name || 'Logo'} className="mx-auto mb-1 w-[62mm]" />
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={LOGO2} alt="" className="mx-auto mb-1 w-[50mm]" />
+          {/* second logo (posinvoice-temp1.png) removed (user, 26-10-2026):
+              <img src={LOGO2} alt="" className="mx-auto mb-1 w-[50mm]" /> */}
           <div className="text-[8.5px] tracking-[0.15em]">{TAGLINE}</div>
           <div className="mt-1 text-[12px] font-bold">{seller.name || doc.businessName}</div>
           {address && <div>{address}</div>}
@@ -622,6 +747,8 @@ export default function PrintPosPage() {
           <BarcodeSvg value={doc.invoiceNo || ''} height={40} width={1.6} displayValue fontSize={13} className="block h-[16mm] w-[62mm]" />
         </div>
         <div className="mt-2 text-center text-[12px] font-bold">{FOOTER_NOTE}</div>
+        {/* chosen footer template, added after everything (26-10-2026) */}
+        <FooterTemplateBlock tpl={footerTpl} />
       </main>
         );
         return (
@@ -686,7 +813,7 @@ export default function PrintPosPage() {
    ========================================================================== */
 function SheetInvoice({
   paper, doc, seller, items, when, billDate, address, place, phones, termLines,
-  paidBy, changeReturn, totals: t, hsnRows,
+  paidBy, changeReturn, totals: t, hsnRows, footerTpl = null,
 }) {
   /* No boxes (client, 19-10-2026): laid out like the 4-inch bill - centred
      letterhead, dashed rules between sections, rows without cell borders.
@@ -716,8 +843,8 @@ function SheetInvoice({
         <div className="flex items-center justify-center" style={{ gap: paper.w * 0.05 + 'mm' }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={LOGO} alt={sellerName || 'Logo'} style={{ width: paper.w * 0.32 + 'mm' }} />
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={LOGO2} alt="" style={{ width: paper.w * 0.32 + 'mm' }} />
+          {/* second logo (posinvoice-temp1.png) removed (user, 26-10-2026):
+              <img src={LOGO2} alt="" style={{ width: paper.w * 0.32 + 'mm' }} /> */}
         </div>
         <div className="mt-0.5 tracking-[0.15em]" style={{ fontSize: '0.75em' }}>{TAGLINE}</div>
         <div className="mt-1 font-bold" style={{ fontSize: '1.35em' }}>{sellerName}</div>
@@ -865,6 +992,36 @@ function SheetInvoice({
         <BarcodeSvg value={doc.invoiceNo || ''} height={40} width={1.8} displayValue fontSize={13} className="block h-[16mm] w-[70mm]" />
       </div>
       <div className="mt-2 text-center font-bold" style={{ fontSize: '1.1em' }}>{FOOTER_NOTE}</div>
+      {/* chosen footer template, added after everything (26-10-2026) */}
+      <FooterTemplateBlock tpl={footerTpl} />
     </main>
+  );
+}
+
+/* THE INVOICE FOOTER TEMPLATE (26-10-2026), from Masters -> POS Footer
+   Templates. Sits after the last line of the bill, inside the same paper
+   width, so nothing above it moves. Renders nothing when none is picked.
+
+   ONE TEMPLATE, ALL LINKS (user, 26-10-2026): no Template 1 / 2 any more -
+   every link the template has is shown, one clickable line each (screen
+   and shared PDF; paper cannot be clicked), in the form's order. */
+function FooterTemplateBlock({ tpl }) {
+  if (!tpl) return null;
+  const links = [
+    [tpl.reviewUrl, tpl.reviewText || 'Review us on Google'],
+    /* only the E-commerce Name as typed - no "Shop online:" prefix (user, 26-10-2026) */
+    [tpl.ecommerceUrl, tpl.ecommerceName || tpl.ecommerceUrl],
+    [tpl.instagramUrl, tpl.instagramText || 'Follow us on Instagram'],
+    [tpl.communityUrl, tpl.communityText || 'Join our Community'],
+  ].filter(([url]) => url);
+  if (!links.length) return null;
+  return (
+    <div className="mt-2 border-t border-dashed border-black pt-2 text-center font-bold">
+      {links.map(([url, text], i) => (
+        <div key={i} className={i ? 'mt-1' : undefined}>
+          <a href={url} target="_blank" rel="noopener noreferrer" className="text-black underline">{text}</a>
+        </div>
+      ))}
+    </div>
   );
 }

@@ -1,5 +1,31 @@
 # Changes
 
+## 26-10-2026
+
+### NEW
+
+- models/PosFooterTemplate.js
+- app/admin/setting/pos-footer/fields.js
+- app/admin/setting/pos-footer/page.jsx
+- app/admin/setting/pos-footer/add/page.jsx
+- app/admin/setting/pos-footer/[id]/page.jsx
+- app/api/pos-footer-template/route.js
+- app/api/pos-footer-template/[id]/route.js
+- app/api/invoice-email/route.js
+
+### EXISTING
+
+- package.json (nodemailer added)
+- package-lock.json
+- .env (SMTP_USER / SMTP_PASS / SMTP_FROM - not in git)
+
+- config/nav.js
+- lib/screenPermission.js
+
+- components/PosInvoiceView.jsx
+- components/PosTill.jsx
+- app/admin/transaction/sell/pos/print/[id]/page.jsx
+
 ## 23-10-2026
 
 ### EXISTING

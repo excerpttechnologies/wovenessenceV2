@@ -56,6 +56,27 @@ export default function PosInvoiceView({ id, onBack, backLabel = 'Back', endpoin
      the printed invoice and the Payments popup */
   const changeReturn = Math.max(0, Number(doc.paid || 0) - Number(doc.totalAmount || 0));
 
+  /* ADDITIONAL DETAILS (user, 26-10-2026): item count / total qty / net
+     badges, per-line tax and price incl. tax, payment total, and a Tax &
+     Amount Summary. A line is worth its saved netAmount (lineTotal on older
+     bills, else rsp x qty less discount); RSP is GST-inclusive, so the tax
+     is backed out of the line, as on the printed invoice. */
+  const money2 = (value) => (Math.round(Number(value || 0) * 100) / 100).toFixed(2);
+  const lineNetOf = (item) => {
+    const stored = Number(item.netAmount ?? item.lineTotal ?? NaN);
+    if (Number.isFinite(stored)) return stored;
+    return Number(item.rsp || 0) * Number(item.qty || 0) * (1 - Number(item.discountPct || 0) / 100);
+  };
+  const lineTaxOf = (item) => { const net = lineNetOf(item); return net - net / (1 + Number(item.gst || 0) / 100); };
+  const billItems = doc.items || [];
+  const totalQty = Math.round(billItems.reduce((sum, item) => sum + Number(item.qty || 0), 0) * 1000) / 1000;
+  const itemsSubTotal = billItems.reduce((sum, item) => sum + lineNetOf(item), 0);
+  const taxTotal = billItems.reduce((sum, item) => sum + lineTaxOf(item), 0);
+  const taxableAmount = itemsSubTotal - taxTotal;
+  const shippingAmount = Number(doc.shipping || 0);
+  const roundOff = Number(doc.totalAmount || 0) - itemsSubTotal - shippingAmount;
+  const paymentsTotal = displayedPayments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+
   /* THE MESSAGE the share routes send - built from this bill only. Whole
      rupees, as on the till. */
   const rupees = (v) => 'Rs ' + Math.trunc(Number(v || 0));
@@ -181,9 +202,19 @@ export default function PosInvoiceView({ id, onBack, backLabel = 'Back', endpoin
         <div><b>Customer Email:</b> {doc.customerEmail || '-'}</div><div><b>Customer Address:</b> {doc.customerAddress || '-'}</div>
         <div><b>Sales Person:</b> {doc.salesPersonName || '-'}</div>
         {/* <div><b>Exempted:</b> {doc.exempted || 'NO'}</div> */}
+        <div><b>Exempted / International:</b> {doc.exempted || 'NO'}</div>
+        {/* Created By (user, 26-10-2026): the bills do not record the user, so
+            it reads as POS and the company the bill was made in */}
+        <div><b>Created By:</b> POS{doc.businessName ? ' - ' + doc.businessName : ''}</div>
       </div>
-      <div className="mt-4 overflow-x-auto"><table className="dt"><thead><tr>{['Image', 'Barcode No', 'Item Code', 'Item Name', 'HSN', 'GST (%)', 'Quantity', 'RSP', 'Discount', 'Tax', 'Subtotal'].map((x) => <th key={x}>{x}</th>)}</tr></thead><tbody>{(doc.items || []).map((item, i) => <tr key={i}><td onMouseEnter={() => item.image && setPreviewImage({ src: item.image, alt: item.itemName || item.name || item.itemCode, hover: true })} onMouseLeave={() => setPreviewImage((p) => (p && p.hover ? null : p))}><ProductImage src={item.image} alt={item.itemName || item.name || item.itemCode} size={52} onOpen={item.image ? () => setPreviewImage({ src: item.image, alt: item.itemName || item.name || item.itemCode, hover: false }) : undefined} /></td><td className="font-mono text-[12px]">{item.barcodeNo || item.barcode || '-'}</td><td>{item.code || item.itemCode || '-'}</td><td>{item.description || item.itemName || item.name || '-'}</td><td>{item.hsn || '-'}</td><td>{gstPct(item.gst)}</td><td>{item.qty || 0}</td><td>{money(item.rsp)}</td><td>{money(item.discountAmount || Number(item.rsp || 0) * Number(item.qty || 0) * Number(item.discountPct || 0) / 100)}</td><td>{money(Number(item.lineTotal || 0) * Number(item.gst || 0) / 100)}</td><td>{money(item.lineTotal)}</td></tr>)}</tbody><tfoot><tr><td colSpan="10" className="text-right font-bold">Total Payable</td><td className="font-bold">{money(doc.totalAmount)}</td></tr><tr><td colSpan="10" className="text-right font-bold">Total Paid</td><td>{money(doc.paid)}</td></tr><tr><td colSpan="10" className="text-right font-bold">Cash Return</td><td>{money(changeReturn)}</td></tr><tr><td colSpan="10" className="text-right font-bold">Total Remaining</td><td>{money(doc.sellDue)}</td></tr></tfoot></table></div>
-      <div className="mt-5 overflow-x-auto"><h2 className="mb-2 font-semibold">Payment Methods</h2><table className="dt"><thead><tr>{['Date', 'Amount', 'Payment Method', 'Payment Note'].map((x) => <th key={x}>{x}</th>)}</tr></thead><tbody>{displayedPayments.length ? displayedPayments.map((payment, i) => <tr key={i}><td>{doc.date ? new Date(doc.date).toLocaleDateString('en-GB') : '-'}</td><td>{money(payment.amount)}</td><td>{payment.method || '-'}</td><td>{payment.note || '-'}</td></tr>) : <tr><td colSpan="4" className="dt-empty">No payments recorded.</td></tr>}</tbody></table></div>
+      {/* item badges (26-10-2026) */}
+      <div className="mt-4 flex flex-wrap items-center justify-end gap-2 text-[12px]">
+        <span className="rounded border border-line bg-[#eef1f7] px-2 py-1 font-semibold">{billItems.length} Item{billItems.length === 1 ? '' : 's'}</span>
+        <span className="rounded border border-line bg-[#eef1f7] px-2 py-1">Total Qty: <b>{totalQty}</b></span>
+        <span className="rounded border border-line bg-[#eef1f7] px-2 py-1">Net Amount: <b>₹{money2(doc.totalAmount)}</b></span>
+      </div>
+      <div className="mt-4 overflow-x-auto"><table className="dt"><thead><tr>{['Image', 'Barcode No', 'Item Code', 'Item Name', 'HSN', 'GST (%)', 'Quantity', 'RSP', 'Discount', 'Tax', 'Tax Amount', 'Price (Inc. Tax)', 'Subtotal'].map((x) => <th key={x}>{x}</th>)}</tr></thead><tbody>{(doc.items || []).map((item, i) => <tr key={i}><td onMouseEnter={() => item.image && setPreviewImage({ src: item.image, alt: item.itemName || item.name || item.itemCode, hover: true })} onMouseLeave={() => setPreviewImage((p) => (p && p.hover ? null : p))}><ProductImage src={item.image} alt={item.itemName || item.name || item.itemCode} size={52} onOpen={item.image ? () => setPreviewImage({ src: item.image, alt: item.itemName || item.name || item.itemCode, hover: false }) : undefined} /></td><td className="font-mono text-[12px]">{item.barcodeNo || item.barcode || '-'}</td><td>{item.code || item.itemCode || '-'}</td><td>{item.description || item.itemName || item.name || '-'}</td><td>{item.hsn || '-'}</td><td>{gstPct(item.gst)}</td><td>{item.qty || 0}</td><td>{money(item.rsp)}</td><td>{money(item.discountAmount || Number(item.rsp || 0) * Number(item.qty || 0) * Number(item.discountPct || 0) / 100)}</td><td>{money(Number(item.lineTotal || 0) * Number(item.gst || 0) / 100)}</td><td>{money2(lineTaxOf(item))}</td><td>{money2(lineNetOf(item))}</td><td>{money(item.lineTotal)}</td></tr>)}</tbody><tfoot><tr><td colSpan="12" className="text-right font-bold">Total Payable</td><td className="font-bold">{money(doc.totalAmount)}</td></tr><tr><td colSpan="12" className="text-right font-bold">Total Paid</td><td>{money(doc.paid)}</td></tr><tr><td colSpan="12" className="text-right font-bold">Cash Return</td><td>{money(changeReturn)}</td></tr><tr><td colSpan="12" className="text-right font-bold">Total Remaining</td><td>{money(doc.sellDue)}</td></tr></tfoot></table></div>
+      <div className="mt-5 grid gap-4 lg:grid-cols-2"><div className="overflow-x-auto"><h2 className="mb-2 flex items-center justify-between font-semibold">Payment Methods<span className="rounded border border-line bg-[#eef1f7] px-2 py-0.5 text-[11px] font-semibold">{displayedPayments.length} Entr{displayedPayments.length === 1 ? 'y' : 'ies'}</span></h2><table className="dt"><thead><tr>{['Date', 'Amount', 'Payment Method', 'Payment Note'].map((x) => <th key={x}>{x}</th>)}</tr></thead><tbody>{displayedPayments.length ? displayedPayments.map((payment, i) => <tr key={i}><td>{doc.date ? new Date(doc.date).toLocaleDateString('en-GB') : '-'}</td><td>{money(payment.amount)}</td><td>{payment.method || '-'}</td><td>{payment.note || '-'}</td></tr>) : <tr><td colSpan="4" className="dt-empty">No payments recorded.</td></tr>}</tbody>{displayedPayments.length > 0 && <tfoot><tr><td className="text-right font-bold">Total Paid</td><td className="font-bold">{money2(paymentsTotal)}</td><td colSpan="2" /></tr></tfoot>}</table></div>{/* Tax & Amount Summary (26-10-2026) */}<div><h2 className="mb-2 flex items-center justify-between font-semibold">Tax &amp; Amount Summary<span className="rounded border border-line bg-[#eef1f7] px-2 py-0.5 text-[11px] font-semibold">{doc.invoiceNo || '-'}</span></h2><table className="dt"><tbody><tr><td>Sub Total</td><td className="text-right">₹{money2(itemsSubTotal)}</td></tr>{shippingAmount > 0 && <tr><td>Shipping</td><td className="text-right">₹{money2(shippingAmount)}</td></tr>}<tr><td>Taxable Amount</td><td className="text-right">₹{money2(taxableAmount)}</td></tr><tr><td>Tax (CGST + SGST)</td><td className="text-right">₹{money2(taxTotal)}</td></tr><tr><td>Round Off</td><td className="text-right">₹{money2(roundOff)}</td></tr><tr><td>Total Paid</td><td className="text-right">₹{money2(doc.paid)}</td></tr><tr className="bg-[#e7f6ec]"><td className="font-bold">Net Amount</td><td className="text-right font-bold">₹{money2(doc.totalAmount)}</td></tr></tbody></table></div></div>
       {/* on screen only - not in the shared PDF (user, 23-10-2026) */}
       <div className="mt-4 grid gap-2 text-[13px] md:grid-cols-2" data-html2canvas-ignore="true"><div><b>Sell note:</b> {doc.sellNote || '-'}</div><div><b>Staff note:</b> {doc.staffNote || '-'}</div></div>
       {previewImage && (

@@ -147,6 +147,12 @@ export const NAV = [
         icon: LuMonitor,
         href: '/admin/setting/poscounter',
       },
+      /* footers for the POS invoice, picked on the invoice page (26-10-2026) */
+      {
+        label: 'POS Footer Templates',
+        icon: LuMonitor,
+        href: '/admin/setting/pos-footer',
+      },
       {
         label: 'Barcode Settings',
         icon: LuBarcode,
