@@ -34,6 +34,8 @@ const SHOW_GMAIL_EMAIL = false;
 /* the old WhatsApp Web link button - hidden; the WhatsApp button now sends
    the PDF directly to a typed number (user, 27-10-2026) */
 const SHOW_WHATSAPP_WEB_LINK = false;
+/* the WhatsApp App (whatsapp://) button - hidden (user, 27-10-2026) */
+const SHOW_WHATSAPP_APP = false;
 
 /* `endpoint` (21-10-2026): where the bill is read from - the live POS bills by
    default; Archive -> POS Bills points it at /api/pos-archive/ */
@@ -268,8 +270,9 @@ export default function PosInvoiceView({ id, onBack, backLabel = 'Back', endpoin
               {SHOW_WHATSAPP_WEB_LINK && <button type="button" title="Share on WhatsApp Web" aria-label="Share on WhatsApp Web" className="flex h-9 w-9 items-center justify-center rounded bg-[#25D366] text-white hover:bg-[#1da851]" onClick={() => shareViewPdf('whatsapp')}><Icon name="whatsapp" size={18} /></button>}
               {/* DIRECT WHATSAPP (27-10-2026): type the customer's mobile, the PDF is sent from the shop's WhatsApp number */}
               <button type="button" title="Send the invoice PDF on WhatsApp" aria-label="Send the invoice PDF on WhatsApp" className="flex h-9 w-9 items-center justify-center rounded bg-[#25D366] text-white hover:bg-[#1da851]" onClick={() => { setShareNote(null); setWaBox({ to: doc.customerContact || '', error: '' }); }}><Icon name="whatsapp" size={18} /></button>
-              {/* WHATSAPP APP (27-10-2026): the same link message, opened in the installed WhatsApp app */}
-              <button type="button" title="Share on WhatsApp App" aria-label="Share on WhatsApp App" className="flex h-9 items-center justify-center gap-1 rounded bg-[#128C7E] px-2 text-[11px] font-bold text-white hover:bg-[#0e6f64]" onClick={() => shareViewPdf('whatsapp-app')}><Icon name="whatsapp" size={16} /> App</button>
+              {/* WHATSAPP APP (27-10-2026): the same link message, opened in the installed WhatsApp app.
+                  HIDDEN for now (user, 27-10-2026); set SHOW_WHATSAPP_APP to true to bring it back */}
+              {SHOW_WHATSAPP_APP && <button type="button" title="Share on WhatsApp App" aria-label="Share on WhatsApp App" className="flex h-9 items-center justify-center gap-1 rounded bg-[#128C7E] px-2 text-[11px] font-bold text-white hover:bg-[#0e6f64]" onClick={() => shareViewPdf('whatsapp-app')}><Icon name="whatsapp" size={16} /> App</button>}
               {/* Instagram button removed (user, 23-10-2026) */}
               {/* the Gmail-with-link Email button - HIDDEN for now (user, 27-10-2026);
                   set SHOW_GMAIL_EMAIL to true to bring it back */}
