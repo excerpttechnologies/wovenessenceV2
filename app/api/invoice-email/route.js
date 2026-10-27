@@ -23,7 +23,7 @@ export const runtime = 'nodejs';
 const json = (d, s = 200) => Response.json(d, { status: s });
 const MAX_BYTES = 5 * 1024 * 1024;
 const EMAIL_RX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const SHOP = 'wovenessence by TEMPLE FABRICS';
+const SHOP = 'WOVENESSENCE BY TEMPLE FABRICS';
 
 export async function POST(req) {
   const session = await requireSession();
