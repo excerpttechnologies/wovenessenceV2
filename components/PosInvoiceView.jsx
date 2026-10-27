@@ -31,6 +31,9 @@ const gstPct = (value) => String(Math.round(Number(value || 0) * 100) / 100);
 /* the old Email button (Gmail with the invoice link) - hidden for now; the
    direct-email button replaces it (user, 27-10-2026) */
 const SHOW_GMAIL_EMAIL = false;
+/* the old WhatsApp Web link button - hidden; the WhatsApp button now sends
+   the PDF directly to a typed number (user, 27-10-2026) */
+const SHOW_WHATSAPP_WEB_LINK = false;
 
 /* `endpoint` (21-10-2026): where the bill is read from - the live POS bills by
    default; Archive -> POS Bills points it at /api/pos-archive/ */
@@ -47,6 +50,9 @@ export default function PosInvoiceView({ id, onBack, backLabel = 'Back', endpoin
   /* the direct Email box - customer's address, and whether it is sending (27-10-2026) */
   const [emailBox, setEmailBox] = useState(null);     // { to, error } | null
   const [emailSending, setEmailSending] = useState(false);
+  /* the direct WhatsApp box - customer's mobile, and whether it is sending (27-10-2026) */
+  const [waBox, setWaBox] = useState(null);           // { to, error } | null
+  const [waSending, setWaSending] = useState(false);
   /* this screen, turned into the shared PDF (23-10-2026) */
   const viewRef = useRef(null);
 
@@ -163,6 +169,33 @@ export default function PosInvoiceView({ id, onBack, backLabel = 'Back', endpoin
     }
   }
 
+  /* DIRECT WHATSAPP WITH THE PDF (user, 27-10-2026): the box takes the
+     customer's mobile and app/api/invoice-whatsapp sends the PDF from the
+     shop's WhatsApp Business number (Cloud API, settings in .env) */
+  async function sendViewWhatsApp() {
+    const raw = String(waBox?.to || '').trim();
+    const digits = raw.replace(/\D/g, '');
+    if (digits.length < 10 || digits.length > 15) { setWaBox((b) => ({ ...b, error: 'Enter a valid mobile number.' })); return; }
+    setWaSending(true);
+    setWaBox((b) => ({ ...b, error: '' }));
+    try {
+      const { blob, pdfName } = await viewPdf();
+      const form = new FormData();
+      form.append('to', raw);
+      form.append('invoiceId', String(doc._id || id));
+      form.append('file', new File([blob], pdfName, { type: 'application/pdf' }));
+      const r = await fetch('/api/invoice-whatsapp', { method: 'POST', body: form });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || 'Could not send on WhatsApp.');
+      setWaBox(null);
+      setShareNote({ notice: 'Invoice PDF sent on WhatsApp to ' + (d.to || raw) + '.' });
+    } catch (e) {
+      setWaBox((b) => (b ? { ...b, error: (e && e.message) || 'Could not send on WhatsApp.' } : b));
+    } finally {
+      setWaSending(false);
+    }
+  }
+
   async function shareViewPdf(target) {
     const isPhone = /Android|iPhone|iPad/i.test(navigator.userAgent || '');
     setWaAppUrl('');
@@ -230,7 +263,11 @@ export default function PosInvoiceView({ id, onBack, backLabel = 'Back', endpoin
           {/* SHARE DIRECTLY - one button per route, no panel in between */}
           <div className="flex flex-col items-end gap-1" data-html2canvas-ignore="true">
             <div className="flex items-center gap-1.5">
-              <button type="button" title="Share on WhatsApp Web" aria-label="Share on WhatsApp Web" className="flex h-9 w-9 items-center justify-center rounded bg-[#25D366] text-white hover:bg-[#1da851]" onClick={() => shareViewPdf('whatsapp')}><Icon name="whatsapp" size={18} /></button>
+              {/* the WhatsApp Web link button - HIDDEN for now (user, 27-10-2026);
+                  set SHOW_WHATSAPP_WEB_LINK to true to bring it back */}
+              {SHOW_WHATSAPP_WEB_LINK && <button type="button" title="Share on WhatsApp Web" aria-label="Share on WhatsApp Web" className="flex h-9 w-9 items-center justify-center rounded bg-[#25D366] text-white hover:bg-[#1da851]" onClick={() => shareViewPdf('whatsapp')}><Icon name="whatsapp" size={18} /></button>}
+              {/* DIRECT WHATSAPP (27-10-2026): type the customer's mobile, the PDF is sent from the shop's WhatsApp number */}
+              <button type="button" title="Send the invoice PDF on WhatsApp" aria-label="Send the invoice PDF on WhatsApp" className="flex h-9 w-9 items-center justify-center rounded bg-[#25D366] text-white hover:bg-[#1da851]" onClick={() => { setShareNote(null); setWaBox({ to: doc.customerContact || '', error: '' }); }}><Icon name="whatsapp" size={18} /></button>
               {/* WHATSAPP APP (27-10-2026): the same link message, opened in the installed WhatsApp app */}
               <button type="button" title="Share on WhatsApp App" aria-label="Share on WhatsApp App" className="flex h-9 items-center justify-center gap-1 rounded bg-[#128C7E] px-2 text-[11px] font-bold text-white hover:bg-[#0e6f64]" onClick={() => shareViewPdf('whatsapp-app')}><Icon name="whatsapp" size={16} /> App</button>
               {/* Instagram button removed (user, 23-10-2026) */}
@@ -279,6 +316,34 @@ export default function PosInvoiceView({ id, onBack, backLabel = 'Back', endpoin
       <div className="mt-5 grid gap-4 lg:grid-cols-2"><div className="overflow-x-auto"><h2 className="mb-2 flex items-center justify-between font-semibold">Payment Methods<span className="rounded border border-line bg-[#eef1f7] px-2 py-0.5 text-[11px] font-semibold">{displayedPayments.length} Entr{displayedPayments.length === 1 ? 'y' : 'ies'}</span></h2><table className="dt"><thead><tr>{['Date', 'Amount', 'Payment Method', 'Payment Note'].map((x) => <th key={x}>{x}</th>)}</tr></thead><tbody>{displayedPayments.length ? displayedPayments.map((payment, i) => <tr key={i}><td>{doc.date ? new Date(doc.date).toLocaleDateString('en-GB') : '-'}</td><td>{money(payment.amount)}</td><td>{payment.method || '-'}</td><td>{payment.note || '-'}</td></tr>) : <tr><td colSpan="4" className="dt-empty">No payments recorded.</td></tr>}</tbody>{displayedPayments.length > 0 && <tfoot><tr><td className="text-right font-bold">Total Paid</td><td className="font-bold">{money2(paymentsTotal)}</td><td colSpan="2" /></tr></tfoot>}</table></div>{/* Tax & Amount Summary (26-10-2026) */}<div><h2 className="mb-2 flex items-center justify-between font-semibold">Tax &amp; Amount Summary<span className="rounded border border-line bg-[#eef1f7] px-2 py-0.5 text-[11px] font-semibold">{doc.invoiceNo || '-'}</span></h2><table className="dt"><tbody><tr><td>Sub Total</td><td className="text-right">₹{money2(itemsSubTotal)}</td></tr>{shippingAmount > 0 && <tr><td>Shipping</td><td className="text-right">₹{money2(shippingAmount)}</td></tr>}<tr><td>Taxable Amount</td><td className="text-right">₹{money2(taxableAmount)}</td></tr><tr><td>Tax (CGST + SGST)</td><td className="text-right">₹{money2(taxTotal)}</td></tr><tr><td>Round Off</td><td className="text-right">₹{money2(roundOff)}</td></tr><tr><td>Total Paid</td><td className="text-right">₹{money2(doc.paid)}</td></tr><tr className="bg-[#e7f6ec]"><td className="font-bold">Net Amount</td><td className="text-right font-bold">₹{money2(doc.totalAmount)}</td></tr></tbody></table></div></div>
       {/* on screen only - not in the shared PDF (user, 23-10-2026) */}
       <div className="mt-4 grid gap-2 text-[13px] md:grid-cols-2" data-html2canvas-ignore="true"><div><b>Sell note:</b> {doc.sellNote || '-'}</div><div><b>Staff note:</b> {doc.staffNote || '-'}</div></div>
+      {/* DIRECT WHATSAPP BOX (27-10-2026) - never part of the PDF */}
+      {waBox && (
+        <div data-html2canvas-ignore="true" className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4" onClick={() => { if (!waSending) setWaBox(null); }}>
+          <div className="w-full max-w-md rounded-lg bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-1 text-[15px] font-bold">Send invoice {doc.invoiceNo || ''} on WhatsApp</div>
+            <div className="mb-3 text-[12px] text-inkmuted">The invoice PDF is sent straight to this WhatsApp number.</div>
+            <label className="f-label">Customer mobile number</label>
+            <input
+              type="tel"
+              className="f-input w-full"
+              placeholder="9876543210"
+              autoFocus
+              value={waBox.to}
+              disabled={waSending}
+              onChange={(e) => setWaBox((b) => ({ ...b, to: e.target.value, error: '' }))}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); sendViewWhatsApp(); } }}
+            />
+            <div className="mt-1 text-[11px] text-inkmuted">10-digit number, or with country code (91 is added automatically).</div>
+            {waBox.error && <div className="f-err mt-1">{waBox.error}</div>}
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" className="btn" disabled={waSending} onClick={() => setWaBox(null)}>Cancel</button>
+              <button type="button" className="btn btn-primary" disabled={waSending} onClick={sendViewWhatsApp}>
+                {waSending ? 'Sending...' : <><Icon name="whatsapp" size={14} /> Send</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* DIRECT EMAIL BOX (27-10-2026) - never part of the PDF */}
       {emailBox && (
         <div data-html2canvas-ignore="true" className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4" onClick={() => { if (!emailSending) setEmailBox(null); }}>

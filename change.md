@@ -1,5 +1,17 @@
 # Changes
 
+## 27-10-2026
+
+### NEW
+
+- app/api/invoice-whatsapp/route.js
+
+### EXISTING
+
+- components/PosInvoiceView.jsx (merged with latest main from GitHub - teammate changes kept, direct WhatsApp added)
+- .gitignore (newbarcodes/, seeded_images_27-10-2026/ and .rar entries fixed - no leading spaces)
+- .env (WHATSAPP_ settings + WHATSAPP_INVOICE_TEMPLATE - not in git)
+
 ## 26-10-2026
 
 ### NEW
