@@ -3178,7 +3178,7 @@ const FAIL_REASONS = ['Image is unclear', 'Required fields could not be detected
    difference (diff field) each one is written through */
 const COMPARE = [
   ['barcode', 'Barcode'], ['itemCode', 'Item Code'], ['description', 'Description'], ['uom', 'UOM'], ['qty', 'Quantity'],
-  ['hsn', 'HSN'], ['gst', 'GST %'], ['purRate', 'Purchase Rate'], ['finalNet', 'Final Rate'], ['retailPrice', 'Retail Price (RSP)'],
+  ['hsn', 'HSN'], ['gst', 'GST %'], ['purRate', 'Purchase Rate'], ['finalNet', 'Final Rate'], ['retailPrice', 'Retail Price (RSP)'], ['offerPrice', 'Offer Price'],
   ['wspPrice', 'WSP'], ['dpPrice', 'DP'], ['supplier', 'Supplier', 'supplierId'], ['location', 'Location'], ['status', 'Stock'],
 ];
 /* one value on the page, two fields on the barcode: a Details page's WSP is
@@ -3193,7 +3193,7 @@ const ITEM_INFO = [
   ['uom', 'Unit / UOM'], ['ecomId', 'ECom ID', true], ['consignment', 'Is Consignment', true], ['supplierDescription', 'Supplier Description'],
   ['pma', 'P-M-F'], ['invoiceNo', 'Purchase Invoice'], ['grcNo', 'GRC No.'], ['description', 'Print Description'],
 ];
-const PRICE_INFO = [['purRate', 'Purchase Rate'], ['discount', 'Discount'], ['finalNet', 'Final Rate'], ['retailPrice', 'RSP'], ['wspPrice', 'WSP'], ['dpPrice', 'DP']];
+const PRICE_INFO = [['purRate', 'Purchase Rate'], ['discount', 'Discount'], ['finalNet', 'Final Rate'], ['retailPrice', 'RSP'], ['offerPrice', 'Offer Price'], ['wspPrice', 'WSP'], ['dpPrice', 'DP']];
 const SUPPLIER_INFO = [['supplier', 'Supplier'], ['taxRegion', 'Tax Region'], ['note', 'Note', true]];
 /* a field's master, for "not found - kept as text" (masters are never created) */
 const MASTER_OF = { itemName: 'Item', group: 'Group', subGroup: 'Sub Group', hsn: 'HSN', gstSlab: 'GST Slab', supplier: 'Supplier', stockLocation: 'Location', stockPoint: 'Stock Point' };
@@ -4620,22 +4620,22 @@ function Section({ title, children, aside = null }) {
 }
 
 /* One value of the page: a box to correct it in (or, read-only, as read) */
-function Field({ label, value, original, onChange, readOnly = false, busy = false, hint = '', mono = false }) {
+function Field({ label, value, original, onChange, readOnly = false, busy = false, hint = '', mono = false, highlight = false }) {
   const corrected = !readOnly && txt(value) !== txt(original);
   return (
     <label className="block min-w-0">
-      <span className="block text-[11px] font-semibold uppercase tracking-wide text-inkmuted">
+      <span className={'block text-[11px] font-semibold uppercase tracking-wide ' + (highlight ? 'text-[#b42318]' : 'text-inkmuted')}>
         {label}{corrected ? <span className="ml-1 normal-case text-[#8a5a00]">(corrected)</span> : null}
       </span>
       {readOnly ? (
-        <span className={'block min-h-[30px] break-words py-1 text-[13px] text-ink ' + (mono ? 'font-mono' : '')}>{txt(value) || '—'}</span>
+        <span className={'block min-h-[30px] break-words py-1 text-[13px] ' + (highlight ? 'font-semibold text-[#b42318] ' : 'text-ink ') + (mono ? 'font-mono' : '')}>{txt(value) || '—'}</span>
       ) : (
         <input
           value={value}
           onChange={(e) => onChange(e.target.value)}
           readOnly={busy}
           aria-label={label}
-          className={'f-input h-[30px] w-full text-[13px] ' + (mono ? 'font-mono ' : '') + (corrected ? 'border-[#e7c96b] bg-[#fffbf0]' : '')}
+          className={'f-input h-[30px] w-full text-[13px] ' + (highlight ? 'border-[#f2b8b5] bg-[#fff5f5] font-semibold text-[#b42318] ' : '') + (mono ? 'font-mono ' : '') + (corrected ? 'border-[#e7c96b] bg-[#fffbf0]' : '')}
         />
       )}
       {hint ? <span className="block text-[11px] leading-tight text-[#8a5a00]">{hint}</span> : null}
@@ -4887,6 +4887,7 @@ function DetailsCard({
   };
   const field = ([key, label, readOnly]) => (
     <Field key={key} label={label} value={valueOf(key)} original={fieldOf(rec, key)} readOnly={readOnly} busy={busy}
+      highlight={key === 'offerPrice'}
       onChange={(v) => onEdit(key, v, fieldOf(rec, key))} hint={hintOf(key)} />
   );
   const noBarcode = !txt(rec.values?.barcode) && !('barcode' in edits);
@@ -5433,7 +5434,7 @@ function RowDetail({ row, picked, onToggle, busy, editable }) {
             <div>Item Code: {row.values.itemCode || '—'} <span className="text-inkmuted">({SOURCE_WORDS[row.sources?.itemCode] || 'as given'})</span></div>
             <div>UOM: {row.values.uom || '—'} <span className="text-inkmuted">({SOURCE_WORDS[row.sources?.uom] || 'as given'})</span></div>
             <div>Quantity: {row.values.qty || '—'} <span className="text-inkmuted">({SOURCE_WORDS[row.sources?.qty] || 'as given'})</span></div>
-            <div>Retail Price: {row.values.retailPrice || '—'} · WSP {row.values.wspPrice || '—'} · DP {row.values.dpPrice || '—'}</div>
+            <div>Retail Price: {row.values.retailPrice || '—'} · <span className="font-semibold text-[#b42318]">Offer Price: {row.values.offerPrice || '—'}</span> · WSP {row.values.wspPrice || '—'} · DP {row.values.dpPrice || '—'}</div>
             <div>Purchase Rate: {row.values.purRate || '—'} · Final Rate {row.values.finalNet || '—'} · HSN {row.values.hsn || '—'} · GST {row.values.gst ? row.values.gst + '%' : '—'}</div>
           </div>
           {row.details ? (

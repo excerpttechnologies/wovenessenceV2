@@ -14,6 +14,8 @@
 - components/PosTill.jsx (top rows spread evenly - no gap under the Cash row, layout only)
 - .gitignore (newbarcodes/, seeded_images_27-10-2026/ and .rar entries fixed - no leading spaces)
 - .env (WHATSAPP_ settings + WHATSAPP_INVOICE_TEMPLATE - not in git)
+- lib/barcodeReportImport.js (Barcode Details: Offer Price read from the second, unlabeled amount under RSP in the Price Info band)
+- components/BarcodeReportImport.jsx (Offer Price added to the Price Info card, the row summary and the editable fields, shown in red)
 
 ## 26-10-2026
 
