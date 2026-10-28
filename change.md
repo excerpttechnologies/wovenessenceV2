@@ -1,5 +1,22 @@
 # Changes
 
+## 27-10-2026
+
+### NEW
+
+- app/api/invoice-whatsapp/route.js
+
+### EXISTING
+
+- components/PosInvoiceView.jsx (merged with latest main from GitHub - teammate changes kept, direct WhatsApp added)
+- components/PosInvoiceView.jsx (WhatsApp App button hidden - SHOW_WHATSAPP_APP=false)
+- app/admin/transaction/sell/pos/print/[id]/page.jsx (direct WhatsApp PDF sending; WhatsApp Web link + App buttons hidden)
+- components/PosTill.jsx (top rows spread evenly - no gap under the Cash row, layout only)
+- .gitignore (newbarcodes/, seeded_images_27-10-2026/ and .rar entries fixed - no leading spaces)
+- .env (WHATSAPP_ settings + WHATSAPP_INVOICE_TEMPLATE - not in git)
+- lib/barcodeReportImport.js (Barcode Details: Offer Price read from the second, unlabeled amount under RSP in the Price Info band)
+- components/BarcodeReportImport.jsx (Offer Price added to the Price Info card, the row summary and the editable fields, shown in red)
+
 ## 26-10-2026
 
 ### NEW

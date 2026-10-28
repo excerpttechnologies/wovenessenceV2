@@ -3178,7 +3178,7 @@ const FAIL_REASONS = ['Image is unclear', 'Required fields could not be detected
    difference (diff field) each one is written through */
 const COMPARE = [
   ['barcode', 'Barcode'], ['itemCode', 'Item Code'], ['description', 'Description'], ['uom', 'UOM'], ['qty', 'Quantity'],
-  ['hsn', 'HSN'], ['gst', 'GST %'], ['purRate', 'Purchase Rate'], ['finalNet', 'Final Rate'], ['retailPrice', 'Retail Price (RSP)'],
+  ['hsn', 'HSN'], ['gst', 'GST %'], ['purRate', 'Purchase Rate'], ['finalNet', 'Final Rate'], ['retailPrice', 'Retail Price (RSP)'], ['offerPrice', 'Offer Price'],
   ['wspPrice', 'WSP'], ['dpPrice', 'DP'], ['supplier', 'Supplier', 'supplierId'], ['location', 'Location'], ['status', 'Stock'],
 ];
 /* one value on the page, two fields on the barcode: a Details page's WSP is
@@ -3193,7 +3193,7 @@ const ITEM_INFO = [
   ['uom', 'Unit / UOM'], ['ecomId', 'ECom ID', true], ['consignment', 'Is Consignment', true], ['supplierDescription', 'Supplier Description'],
   ['pma', 'P-M-F'], ['invoiceNo', 'Purchase Invoice'], ['grcNo', 'GRC No.'], ['description', 'Print Description'],
 ];
-const PRICE_INFO = [['purRate', 'Purchase Rate'], ['discount', 'Discount'], ['finalNet', 'Final Rate'], ['retailPrice', 'RSP'], ['wspPrice', 'WSP'], ['dpPrice', 'DP']];
+const PRICE_INFO = [['purRate', 'Purchase Rate'], ['discount', 'Discount'], ['finalNet', 'Final Rate'], ['retailPrice', 'RSP'], ['offerPrice', 'Offer Price'], ['wspPrice', 'WSP'], ['dpPrice', 'DP']];
 const SUPPLIER_INFO = [['supplier', 'Supplier'], ['taxRegion', 'Tax Region'], ['note', 'Note', true]];
 /* a field's master, for "not found - kept as text" (masters are never created) */
 const MASTER_OF = { itemName: 'Item', group: 'Group', subGroup: 'Sub Group', hsn: 'HSN', gstSlab: 'GST Slab', supplier: 'Supplier', stockLocation: 'Location', stockPoint: 'Stock Point' };
@@ -3290,8 +3290,9 @@ const defaultPicks = (row) => {
 
 export default function BarcodeReportImport({ api }) {
   const scope = useScope();
-  const { business = '', businesses = [], location: scopeLocation, finYear } = scope || {};
-  const { options: locations } = useOptions('companylocations');
+  const { business = '', location: scopeLocation, finYear } = scope || {};
+  const { options: businesses, loading: businessesLoading, error: businessesError } = useOptions('business');
+  const { options: locations, loading: locationsLoading, error: locationsError } = useOptions('companylocations');
   const [open, setOpen] = useState(false);
   /* the search button's ERP picker (ERP V1 / ERP V2), over this dialog */
   const [pickingErp, setPickingErp] = useState(false);
@@ -3321,7 +3322,7 @@ export default function BarcodeReportImport({ api }) {
   const [edits, setEdits] = useState(new Map());
   /* stock movement edits: line -> movementIndex -> { field: value } */
   const [movementEdits, setMovementEdits] = useState(new Map());
-  /* stock summary edits: line -> { company, supplierId, hsnId } */
+  /* stock summary edits: line -> { companyId, locationId, supplierId, hsnId } */
   const [stockSummaryEdits, setStockSummaryEdits] = useState(new Map());
   /* supplier picks: line -> { id: ObjectId string, name: display name }
      Kept across openReview / recheck so the auto-selected supplier survives
@@ -3875,10 +3876,32 @@ export default function BarcodeReportImport({ api }) {
           const totals = movementTotals(movements, out.details.totals?.printed);
           out = { ...out, details: { ...out.details, movements, totals } };
         }
-        /* stock summary edits */
-        const ssEdits = stockSummaryEdits.get(rec.line);
-        if (ssEdits) {
-          out = { ...out, stockSummaryEdits: ssEdits };
+        /* Stock Summary selections are sent as master IDs, including defaults
+           resolved from the barcode and its source stock/location history. */
+        const previewRow = review?.rows.find((candidate) => candidate.line === rec.line);
+        if (isDetails && previewRow && !['locked', 'invalid'].includes(previewRow.status)) {
+          const userEdits = stockSummaryEdits.get(rec.line) || {};
+          const heldLocation = previewRow?.links?.stockAt?.[0];
+          const initialCompanyId = previewRow?.existing?.companyId
+            || previewRow?.existing?.currentBusinessId
+            || previewRow?.existing?.businessId
+            || heldLocation?.businessId
+            || previewRow?.links?.originBusinessId
+            || previewRow?.links?.businessId
+            || (out.details?.company ? '' : business);
+          const initialLocationId = previewRow?.existing?.currentLocationId
+            || previewRow?.existing?.locationId
+            || heldLocation?.locationId
+            || previewRow?.links?.originLocationId
+            || '';
+          out = {
+            ...out,
+            stockSummaryEdits: {
+              companyId: userEdits.companyId !== undefined ? userEdits.companyId : initialCompanyId,
+              locationId: userEdits.locationId !== undefined ? userEdits.locationId : initialLocationId,
+              changed: userEdits.companyId !== undefined || userEdits.locationId !== undefined,
+            },
+          };
         }
         /* supplier pick: inject supplierPickedId into details so the server
            uses it directly (via resolveDetails) without a name lookup */
@@ -4190,7 +4213,7 @@ export default function BarcodeReportImport({ api }) {
               Every value below was read from the {fromImage ? 'image' : 'Barcode Report'} - correct any of them in its box, then press Check
               corrections. Nothing is saved until you press {primaryLabel === 'Nothing to import' ? 'Save' : primaryLabel} (or Confirm Replace).
               Item, quantity and UOM of a barcode already here are never changed, and no master is created or changed.
-              Stock Summary edits (Company, Supplier, HSN) are saved on Import.
+              Stock Summary edits (Company, Location, Supplier, HSN) are saved on Import. In-stock location changes are recorded as stock movements; history-only barcodes remain history-only.
             </p>
             {dirty && (
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded border border-[#e7c96b] bg-[#fff8e6] px-3 py-2 text-[12.5px]" role="status">
@@ -4253,6 +4276,11 @@ export default function BarcodeReportImport({ api }) {
                       supplierPick={supplierPicks.get(r.line) || null}
                       business={business}
                       businesses={businesses}
+                      businessesLoading={businessesLoading}
+                      businessesError={businessesError}
+                      locations={locations}
+                      locationsLoading={locationsLoading}
+                      locationsError={locationsError}
                       onSupplierPick={(pick) => {
                         console.log('💾 [Supplier Pick] Setting pick for line', r.line, ':', pick);
                         setSupplierPicks((map) => { 
@@ -4620,22 +4648,22 @@ function Section({ title, children, aside = null }) {
 }
 
 /* One value of the page: a box to correct it in (or, read-only, as read) */
-function Field({ label, value, original, onChange, readOnly = false, busy = false, hint = '', mono = false }) {
+function Field({ label, value, original, onChange, readOnly = false, busy = false, hint = '', mono = false, highlight = false }) {
   const corrected = !readOnly && txt(value) !== txt(original);
   return (
     <label className="block min-w-0">
-      <span className="block text-[11px] font-semibold uppercase tracking-wide text-inkmuted">
+      <span className={'block text-[11px] font-semibold uppercase tracking-wide ' + (highlight ? 'text-[#b42318]' : 'text-inkmuted')}>
         {label}{corrected ? <span className="ml-1 normal-case text-[#8a5a00]">(corrected)</span> : null}
       </span>
       {readOnly ? (
-        <span className={'block min-h-[30px] break-words py-1 text-[13px] text-ink ' + (mono ? 'font-mono' : '')}>{txt(value) || '—'}</span>
+        <span className={'block min-h-[30px] break-words py-1 text-[13px] ' + (highlight ? 'font-semibold text-[#b42318] ' : 'text-ink ') + (mono ? 'font-mono' : '')}>{txt(value) || '—'}</span>
       ) : (
         <input
           value={value}
           onChange={(e) => onChange(e.target.value)}
           readOnly={busy}
           aria-label={label}
-          className={'f-input h-[30px] w-full text-[13px] ' + (mono ? 'font-mono ' : '') + (corrected ? 'border-[#e7c96b] bg-[#fffbf0]' : '')}
+          className={'f-input h-[30px] w-full text-[13px] ' + (highlight ? 'border-[#f2b8b5] bg-[#fff5f5] font-semibold text-[#b42318] ' : '') + (mono ? 'font-mono ' : '') + (corrected ? 'border-[#e7c96b] bg-[#fffbf0]' : '')}
         />
       )}
       {hint ? <span className="block text-[11px] leading-tight text-[#8a5a00]">{hint}</span> : null}
@@ -4655,7 +4683,8 @@ function DetailsCard({
   qtyDecrease, qtyIncrease, onQtyDecreaseChange, onQtyIncreaseChange,
   movementEdits: mEdits, effectiveMovements: effMovements, onMovementEdit,
   stockSummaryEdits: ssEdits, onStockSummaryEdit,
-  supplierPick, onSupplierPick, business, businesses,
+  supplierPick, onSupplierPick, business, businesses, businessesLoading, businessesError,
+  locations, locationsLoading, locationsError,
 }) {
   console.log('🎨 [DetailsCard] Rendering for line', row.line);
   console.log('  - rec.details:', rec.details);
@@ -4887,6 +4916,7 @@ function DetailsCard({
   };
   const field = ([key, label, readOnly]) => (
     <Field key={key} label={label} value={valueOf(key)} original={fieldOf(rec, key)} readOnly={readOnly} busy={busy}
+      highlight={key === 'offerPrice'}
       onChange={(v) => onEdit(key, v, fieldOf(rec, key))} hint={hintOf(key)} />
   );
   const noBarcode = !txt(rec.values?.barcode) && !('barcode' in edits);
@@ -4900,6 +4930,41 @@ function DetailsCard({
   const liveD = { ...d, movements: liveMovements, totals: { ...d.totals, computed: liveTotals } };
   const summary = summaryOf(liveD);
   const held = row.links?.stockAt?.[0];
+  const summaryEdits = ssEdits?.get(rowKey) || {};
+  const initialCompanyId = row.existing?.companyId
+    || row.existing?.currentBusinessId
+    || row.existing?.businessId
+    || held?.businessId
+    || row.links?.originBusinessId
+    || row.links?.businessId
+    || (d.company ? '' : business);
+  const selectedCompanyId = summaryEdits.companyId !== undefined ? summaryEdits.companyId : initialCompanyId;
+  const scopedLocationOptions = useOptions(
+    'companylocations',
+    '',
+    Boolean(selectedCompanyId) && String(selectedCompanyId) !== String(business),
+    { business: selectedCompanyId },
+  );
+  const locationOptions = String(selectedCompanyId) === String(business)
+    ? locations
+    : scopedLocationOptions.options;
+  const locationOptionsLoading = String(selectedCompanyId) === String(business)
+    ? locationsLoading
+    : scopedLocationOptions.loading;
+  const currentLocationOptionsError = String(selectedCompanyId) === String(business) ? locationsError : scopedLocationOptions.error;
+  const requestedLocationId = summaryEdits.locationId !== undefined
+    ? summaryEdits.locationId
+    : row.existing?.currentLocationId
+      || row.existing?.locationId
+      || held?.locationId
+      || row.links?.originLocationId
+      || '';
+  const selectedLocationId = locationOptions.some((option) => String(option.value) === String(requestedLocationId))
+    ? String(requestedLocationId)
+    : '';
+  const companyOptions = (businesses || []).filter((option) => option.value && option.label);
+  const companySelectionValid = companyOptions.some((option) => String(option.value) === String(selectedCompanyId));
+  const locationSelectionValid = locationOptions.some((option) => String(option.value) === String(selectedLocationId));
   const totals = liveTotals;
   const printed = d.totals?.printed;
   const head = noBarcode ? { text: 'BARCODE REQUIRED', tone: 'bg-[#fdecec] text-danger' }
@@ -5196,34 +5261,41 @@ function DetailsCard({
         <div className="grid gap-3 sm:grid-cols-3">
           <div>
             <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-inkmuted">COMPANY</label>
-            <select
-              value={(() => {
-                const userEdit = ssEdits?.get(rowKey)?.company;
-                if (userEdit) return userEdit;
-                
-                if (held?.businessName && businesses?.length) {
-                  const foundBusiness = businesses.find(b => b.label === held.businessName);
-                  if (foundBusiness) return foundBusiness.value;
-                }
-                
-                return business || '';
-              })()}
-              onChange={(e) => onStockSummaryEdit(rowKey, 'company', e.target.value)}
-              disabled={busy}
-              className="f-input h-[30px] w-full text-[13px]"
-              aria-label="Company"
-            >
-              {(!businesses || businesses.length === 0) && (
-                <option value="">Loading companies...</option>
-              )}
-              {(businesses || []).map((b) => (
-                <option key={b.value} value={b.value}>
-                  {b.label}
-                </option>
-              ))}
-            </select>
+            <MultiSelect
+              mode="single"
+              options={companyOptions}
+              value={companySelectionValid ? String(selectedCompanyId) : ''}
+              loading={businessesLoading}
+              error={businessesError}
+              onChange={(companyId) => {
+                onStockSummaryEdit(rowKey, 'companyId', companyId);
+                onStockSummaryEdit(rowKey, 'locationId', '');
+              }}
+              disabled={busy || row.status === 'locked'}
+              placeholder="Search / Select Company"
+              emptyText="No companies found"
+            />
+            {!companySelectionValid && (selectedCompanyId || d.company) && (
+              <span className="mt-1 block text-[11px] text-[#8a5a00]">Company is unmatched; select a master record.</span>
+            )}
           </div>
-          {field(['stockLocation', 'Location'])}
+          <div>
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-inkmuted">LOCATION</label>
+            <MultiSelect
+              mode="single"
+              options={locationOptions}
+              value={locationSelectionValid ? selectedLocationId : ''}
+              loading={locationOptionsLoading}
+              error={currentLocationOptionsError}
+              onChange={(locationId) => onStockSummaryEdit(rowKey, 'locationId', locationId)}
+              disabled={busy || row.status === 'locked' || !companySelectionValid || locationOptionsLoading}
+              placeholder="Select Location"
+              emptyText="No locations for this company"
+            />
+            {!locationOptionsLoading && !currentLocationOptionsError && selectedCompanyId && !locationSelectionValid && (
+              <span className="mt-1 block text-[11px] text-[#8a5a00]">Select a valid location for this company.</span>
+            )}
+          </div>
           {field(['stockPoint', 'Stock Point'])}
         </div>
         <div className="mt-3 grid gap-3 sm:grid-cols-3">
@@ -5433,7 +5505,7 @@ function RowDetail({ row, picked, onToggle, busy, editable }) {
             <div>Item Code: {row.values.itemCode || '—'} <span className="text-inkmuted">({SOURCE_WORDS[row.sources?.itemCode] || 'as given'})</span></div>
             <div>UOM: {row.values.uom || '—'} <span className="text-inkmuted">({SOURCE_WORDS[row.sources?.uom] || 'as given'})</span></div>
             <div>Quantity: {row.values.qty || '—'} <span className="text-inkmuted">({SOURCE_WORDS[row.sources?.qty] || 'as given'})</span></div>
-            <div>Retail Price: {row.values.retailPrice || '—'} · WSP {row.values.wspPrice || '—'} · DP {row.values.dpPrice || '—'}</div>
+            <div>Retail Price: {row.values.retailPrice || '—'} · <span className="font-semibold text-[#b42318]">Offer Price: {row.values.offerPrice || '—'}</span> · WSP {row.values.wspPrice || '—'} · DP {row.values.dpPrice || '—'}</div>
             <div>Purchase Rate: {row.values.purRate || '—'} · Final Rate {row.values.finalNet || '—'} · HSN {row.values.hsn || '—'} · GST {row.values.gst ? row.values.gst + '%' : '—'}</div>
           </div>
           {row.details ? (

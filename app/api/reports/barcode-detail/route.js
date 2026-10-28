@@ -362,6 +362,7 @@ import Hsn from '@/models/Hsn';
 import Uom from '@/models/Uom';
 import Tax from '@/models/Tax';
 import CompanyLocation from '@/models/CompanyLocation';
+import Business from '@/models/Business';
 import { Supplier } from '@/lib/contacts';
 import { requireSession } from '@/lib/session';
 import { barcodeFilter, unitFor, imageUrl, withTransaction, MOVEMENT_TYPES } from '@/lib/inventory';
@@ -392,7 +393,7 @@ export const PATCH = handler(async (req) => {
   if (!session) return json({ error: 'Unauthorized' }, 401);
 
   const initial = await BarcodeLabel.findById(unitId)
-    .select('status businessId currentBusinessId currentLocationId locationId barcodeNo itemId')
+    .select('status businessId currentBusinessId companyId currentLocationId locationId barcodeNo itemId stockDate stockAge serialNo')
     .lean();
   if (!initial) return json({ error: 'That barcode no longer exists.' }, 404);
   if (body.business && String(initial.businessId || '') !== String(body.business)) {
@@ -409,6 +410,28 @@ export const PATCH = handler(async (req) => {
 
   if (initial.status !== BARCODE_STATUS.IN_STOCK) {
     return json({ error: 'Only barcodes currently in stock can be edited.' }, 409);
+  }
+
+  /* THE COMPANY (user, 27-10-2026). The Details view used to show the unit's
+     Current and Origin locations; it now shows the COMPANY it belongs to and
+     the LOCATION inside that company. companyId is what the picker writes - a
+     row saved before the picker existed answers with its owning business, so
+     nothing had to be backfilled. */
+  const currentCompanyId = String(initial.companyId || initial.currentBusinessId || initial.businessId || '');
+  let companyId = currentCompanyId;
+  if (body.companyId !== undefined && str(body.companyId) && str(body.companyId) !== currentCompanyId) {
+    const askedCompanyId = str(body.companyId);
+    if (!isValidObjectId(askedCompanyId)) return json({ error: 'Select a valid Company.' }, 422);
+    const company = await Business.findById(askedCompanyId).select('_id name').lean();
+    if (!company) return json({ error: 'The selected company does not exist.' }, 422);
+    /* moving a unit into another company is the same right as editing it in
+       the one the operator is signed in to - Barcode Report -> Update on the
+       company it is going to */
+    const deniedCompany = await screenDenial({
+      session, screen: SCREENS.BARCODE_REPORT, label: 'the barcode report', action: PERM.UPDATE, businessId: askedCompanyId,
+    });
+    if (deniedCompany) return json({ error: deniedCompany.message, code: deniedCompany.code }, 403);
+    companyId = askedCompanyId;
   }
 
   const linkedItem = initial.itemId && isValidObjectId(String(initial.itemId))
@@ -442,25 +465,45 @@ export const PATCH = handler(async (req) => {
   const currentLocationId = body.currentLocationId === undefined
     ? String(initial.currentLocationId || initial.locationId || '')
     : str(body.currentLocationId);
+  /* The origin is history - where the unit was received. The screen no longer
+     edits it, so it is written only when a caller sends it; and it is NOT
+     checked against the company once that company changes, because a unit
+     that moves to another company keeps an origin in the one it came from. */
+  const companyChanged = companyId !== currentCompanyId;
   const originLocationId = body.originLocationId === undefined
     ? String(initial.locationId || '')
     : str(body.originLocationId);
-  const locationIdsToValidate = [...new Set([currentLocationId, originLocationId].filter(Boolean))];
+  const locationIdsToValidate = [...new Set([
+    currentLocationId,
+    ...(companyChanged && body.originLocationId === undefined ? [] : [originLocationId]),
+  ].filter(Boolean))];
   const invalidLocationIds = locationIdsToValidate.filter((id) => !isValidObjectId(id));
   if (invalidLocationIds.length) {
-    return json({ error: 'Select valid Current Location and Origin Location values.' }, 422);
+    return json({ error: 'Select a valid Company and Location.' }, 422);
   }
   if (!currentLocationId) {
-    return json({ error: 'Current Location is required.' }, 422);
+    return json({ error: 'Select a Location for the selected Company.' }, 422);
   }
+  /* the account must be allowed at the location the unit is about to hold,
+     not only at the one it holds now */
+  await requirePermission(PERMISSIONS.BARCODE_GENERATE, { locationId: currentLocationId });
 
   const locationDocs = locationIdsToValidate.length
     ? await CompanyLocation.find({ _id: { $in: locationIdsToValidate } })
-      .select('_id businessId')
+      .select('_id businessId name')
       .lean()
     : [];
+  /* the names the response answers with, so the screen can show what it just
+     saved without asking for the barcode again (which, after a move to
+     another company, the top bar's business would no longer find) */
+  const savedCompany = companyId && isValidObjectId(companyId)
+    ? await Business.findById(companyId).select('name').lean()
+    : null;
   const locationById = new Map(locationDocs.map((location) => [String(location._id), location]));
-  const ownerBusinessId = String(initial.businessId || initial.currentBusinessId || '');
+  /* locations are checked against the COMPANY the save will leave the unit
+     with, not the one it had before - so a company and a location picked
+     together are judged as the pair they are */
+  const ownerBusinessId = companyId;
   for (const locationId of locationIdsToValidate) {
     const location = locationById.get(locationId);
     if (!location) return json({ error: 'A selected location does not exist.' }, 422);
@@ -469,7 +512,7 @@ export const PATCH = handler(async (req) => {
       location.businessId &&
       String(location.businessId) !== ownerBusinessId
     ) {
-      return json({ error: 'Selected locations must belong to the barcode business.' }, 422);
+      return json({ error: 'The selected Location does not belong to the selected Company.' }, 422);
     }
   }
 
@@ -502,6 +545,65 @@ export const PATCH = handler(async (req) => {
   if (body.status !== undefined && str(body.status) !== str(initial.status)) {
     errors.push('Barcode status must be changed through the stock workflow.');
   }
+  /* The company, when the picker moved the unit to another one. businessId is
+     the plain string every stock report filters on, so it moves with the
+     typed reference - one company, three spellings of it, always together. */
+  if (companyId && isValidObjectId(companyId) && String(initial.companyId || '') !== companyId) {
+    /* written even when the company did not change: a row saved before the
+       picker existed gets its company recorded the first time it is saved */
+    updates.companyId = new Types.ObjectId(companyId);
+  }
+  if (companyChanged) {
+    updates.businessId = companyId;
+    updates.currentBusinessId = new Types.ObjectId(companyId);
+  }
+
+  /* GRC DATE - the date the unit was received, which the details view shows
+     and now edits. Stored where the screen already reads it from (stockDate),
+     so every report sees the corrected date and not just this page. */
+  if (body.grcDate !== undefined) {
+    const raw = str(body.grcDate);
+    if (!raw) {
+      errors.push('Enter the GRC Date.');
+    } else {
+      const grcDate = new Date(raw);
+      if (Number.isNaN(grcDate.getTime())) {
+        errors.push('Enter a valid GRC Date.');
+      } else if (grcDate.getTime() > Date.now() + 24 * 60 * 60 * 1000) {
+        errors.push('The GRC Date cannot be in the future.');
+      } else {
+        updates.stockDate = grcDate;
+      }
+    }
+  }
+
+  /* AGE - days of stock. The screen works it out from the GRC Date unless the
+     operator typed one, and either way the number saved here is the one the
+     Master Stock Report's age filter reads. */
+  if (body.age !== undefined) {
+    const raw = str(body.age);
+    if (!raw) {
+      updates.stockAge = null;
+    } else {
+      const age = Number(raw);
+      if (!Number.isInteger(age) || age < 0) {
+        errors.push('Age must be a whole number of days, 0 or more.');
+      } else if (age > 36500) {
+        errors.push('Age must be 36500 days or fewer.');
+      } else {
+        updates.stockAge = age;
+      }
+    }
+  }
+
+  /* SERIAL NUMBER - free text on the unit; billSlNo stands in for a row that
+     has none, so the field starts from what the screen shows. */
+  if (body.serialNumber !== undefined) {
+    const serial = str(body.serialNumber);
+    if (serial.length > 60) errors.push('Serial Number must be 60 characters or fewer.');
+    else updates.serialNo = serial;
+  }
+
   const oldCurrentLocationId = String(initial.currentLocationId || initial.locationId || '');
   if (currentLocationId !== oldCurrentLocationId) {
     updates.currentLocationId = new Types.ObjectId(currentLocationId);
@@ -671,7 +773,7 @@ export const PATCH = handler(async (req) => {
 
   const result = await withTransaction(async (dbSession) => {
     let query = BarcodeLabel.findById(unitId)
-      .select('status businessId currentBusinessId currentLocationId locationId finYear itemId itemCode itemName uom batchType barcodeNo barcodeGenerated qty qtyNum retailPrice');
+      .select('status businessId currentBusinessId companyId currentLocationId locationId finYear itemId itemCode itemName uom batchType barcodeNo barcodeGenerated qty qtyNum retailPrice stockDate stockAge serialNo');
     if (dbSession) query = query.session(dbSession);
     const unit = await query.lean();
     if (!unit) return { error: json({ error: 'That barcode no longer exists.' }, 404) };
@@ -710,7 +812,10 @@ export const PATCH = handler(async (req) => {
       const fromLocationId = unit.currentLocationId || unit.locationId || null;
       const toLocationId = updates.currentLocationId;
       const quantity = Number(unit.qtyNum ?? unit.qty ?? 0);
-      const businessId = unit.currentBusinessId || unit.businessId || '';
+      /* the company the save leaves the unit with - a move between companies
+         and a move between locations in one save belong to the new one */
+      const businessId = updates.currentBusinessId || updates.businessId
+        || unit.currentBusinessId || unit.businessId || '';
       const userId = isValidObjectId(String(session.id || ''))
         ? new Types.ObjectId(String(session.id))
         : null;
@@ -761,7 +866,8 @@ export const PATCH = handler(async (req) => {
     }
 
     if (updates.locationId !== undefined) {
-      const businessId = unit.currentBusinessId || unit.businessId || '';
+      const businessId = updates.currentBusinessId || updates.businessId
+        || unit.currentBusinessId || unit.businessId || '';
       const userId = isValidObjectId(String(session.id || ''))
         ? new Types.ObjectId(String(session.id))
         : null;
@@ -796,6 +902,60 @@ export const PATCH = handler(async (req) => {
       }], options);
     }
 
+    /* THE COMPANY, GRC DATE, AGE OR SERIAL CHANGED - an audit row of its own,
+       in the company the unit now belongs to. Nothing moved physically (qty
+       0): this records WHO corrected what, exactly the way a location
+       correction is recorded. */
+    if ([
+      updates.businessId, updates.stockDate, updates.stockAge, updates.serialNo,
+    ].some((value) => value !== undefined)) {
+      const userId = isValidObjectId(String(session.id || ''))
+        ? new Types.ObjectId(String(session.id))
+        : null;
+      const auditBusinessId = updates.currentBusinessId || updates.businessId
+        || unit.currentBusinessId || unit.businessId || '';
+      await StockMovement.create([{
+        businessId: isValidObjectId(String(auditBusinessId))
+          ? new Types.ObjectId(String(auditBusinessId))
+          : null,
+        finYear: unit.finYear || '',
+        type: MOVEMENT_TYPES.ORIGIN_CORRECTION,
+        barcodeId: unit._id,
+        barcodeNo: unit.barcodeNo || unit.barcodeGenerated || '',
+        itemId: unit.itemId || null,
+        itemCode: unit.itemCode || '',
+        itemName: unit.itemName || '',
+        uom: unit.uom || '',
+        batchType: unit.batchType || '',
+        qty: 0,
+        fromLocationId: null,
+        toLocationId: updates.currentLocationId || unit.currentLocationId || null,
+        statusBefore: unit.status,
+        statusAfter: unit.status,
+        refModel: 'barcodeDetailEdit',
+        refNo: unit.barcodeNo || unit.barcodeGenerated || '',
+        reason: 'Barcode details corrected from Barcode Report',
+        notes: [
+          updates.businessId !== undefined
+            ? `Company changed from ${currentCompanyId || 'unassigned'} to ${updates.businessId}`
+            : '',
+          updates.stockDate !== undefined
+            ? `GRC Date changed from ${unit.stockDate ? new Date(unit.stockDate).toISOString() : 'unrecorded'} to ${new Date(updates.stockDate).toISOString()}`
+            : '',
+          updates.stockAge !== undefined
+            ? `Age changed from ${unit.stockAge ?? 'derived'} to ${updates.stockAge ?? 'derived'}`
+            : '',
+          updates.serialNo !== undefined
+            ? `Serial Number changed from ${unit.serialNo || 'blank'} to ${updates.serialNo || 'blank'}`
+            : '',
+        ].filter(Boolean).join('; ') + '.',
+        userId,
+        userName: session.name || '',
+        userEmail: session.email || '',
+        at: new Date(),
+      }], options);
+    }
+
     // Create stock movement if quantity changed
     if (updates.qtyNum !== undefined) {
       const oldQuantity = Number(unit.qtyNum ?? unit.qty ?? 0);
@@ -804,7 +964,8 @@ export const PATCH = handler(async (req) => {
       
       if (delta !== 0) {
         const locationId = updates.currentLocationId || unit.currentLocationId || unit.locationId || null;
-        const businessId = unit.currentBusinessId || unit.businessId || '';
+        const businessId = updates.currentBusinessId || updates.businessId
+          || unit.currentBusinessId || unit.businessId || '';
         const userId = isValidObjectId(String(session.id || '')) ? new Types.ObjectId(String(session.id)) : null;
         const movement = {
           businessId: isValidObjectId(String(businessId)) ? new Types.ObjectId(String(businessId)) : null,
@@ -835,7 +996,21 @@ export const PATCH = handler(async (req) => {
       }
     }
 
-    return { ok: true, updated: updates };
+    return {
+      ok: true,
+      updated: updates,
+      /* what the screen shows once the save is done - the company and location
+         it chose, plus the three fields it can now edit */
+      saved: {
+        companyId,
+        companyName: str(savedCompany?.name),
+        currentLocationId,
+        locationName: str(locationById.get(currentLocationId)?.name),
+        grcDate: updates.stockDate || null,
+        stockAge: updates.stockAge !== undefined ? updates.stockAge : null,
+        serialNo: updates.serialNo !== undefined ? updates.serialNo : '',
+      },
+    };
   });
 
   if (result.error) return result.error;
@@ -898,6 +1073,14 @@ export async function GET(req) {
         'businessId businessName firstName lastName contactId gstNo billingMobile billingEmail billingAddressLine1 billingAddressLine2 billingCity billingState billingZipCode'
       ).lean() : null,
   ]);
+
+  /* THE COMPANY (user, 27-10-2026). companyId when a save from this screen
+     wrote one, otherwise the business the unit was received in - so every
+     barcode, old or new, answers with a company the picker can show. */
+  const companyKey = String(unit.companyId || unit.currentBusinessId || unit.businessId || '');
+  const company = companyKey && isValidObjectId(companyKey)
+    ? await Business.findById(companyKey).select('name').lean()
+    : null;
 
   /* Item Info's Sub Group / Group / GST Slab - the item's masters (a barcode
      keeps no group of its own). The slab is the item's HSN's tax, else the
@@ -1066,6 +1249,11 @@ export async function GET(req) {
         supplier?.billingZipCode,
       ].map(str).filter(Boolean).join(', ') : '',
       supplierName,
+      /* the pair the screen calls Company and Location: the company this unit
+         belongs to, and the location it sits at inside that company */
+      companyId: companyKey,
+      companyName: str(company?.name),
+      locationId: String(unit.currentLocationId || unit.locationId || ''),
       currentLocationId: String(unit.currentLocationId || unit.locationId || ''),
       originLocationId: String(unit.locationId || ''),
       currentLocation: currentLoc?.name || '',

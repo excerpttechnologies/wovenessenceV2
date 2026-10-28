@@ -28,6 +28,14 @@ const money = (value) => String(Math.trunc(Number(value || 0)));
 /* GST is a PERCENTAGE - it keeps a real fraction (2.5), loses a pointless
    one (5, not 5.00) */
 const gstPct = (value) => String(Math.round(Number(value || 0) * 100) / 100);
+/* the old Email button (Gmail with the invoice link) - hidden for now; the
+   direct-email button replaces it (user, 27-10-2026) */
+const SHOW_GMAIL_EMAIL = false;
+/* the old WhatsApp Web link button - hidden; the WhatsApp button now sends
+   the PDF directly to a typed number (user, 27-10-2026) */
+const SHOW_WHATSAPP_WEB_LINK = false;
+/* the WhatsApp App (whatsapp://) button - hidden (user, 27-10-2026) */
+const SHOW_WHATSAPP_APP = false;
 
 /* `endpoint` (21-10-2026): where the bill is read from - the live POS bills by
    default; Archive -> POS Bills points it at /api/pos-archive/ */
@@ -39,6 +47,14 @@ export default function PosInvoiceView({ id, onBack, backLabel = 'Back', endpoin
   const [previewImage, setPreviewImage] = useState(null);
   /* what the last share button did, for one line of feedback */
   const [shareNote, setShareNote] = useState(null);   // { error } | { notice }
+  /* the last WhatsApp-app link, for an "open it" fallback link (27-10-2026) */
+  const [waAppUrl, setWaAppUrl] = useState('');
+  /* the direct Email box - customer's address, and whether it is sending (27-10-2026) */
+  const [emailBox, setEmailBox] = useState(null);     // { to, error } | null
+  const [emailSending, setEmailSending] = useState(false);
+  /* the direct WhatsApp box - customer's mobile, and whether it is sending (27-10-2026) */
+  const [waBox, setWaBox] = useState(null);           // { to, error } | null
+  const [waSending, setWaSending] = useState(false);
   /* this screen, turned into the shared PDF (23-10-2026) */
   const viewRef = useRef(null);
 
@@ -109,30 +125,93 @@ export default function PosInvoiceView({ id, onBack, backLabel = 'Back', endpoin
      note line. The window is opened inside the click so it is not blocked
      as a pop-up, then pointed at WhatsApp Web / Gmail once the link is ready;
      a phone uses the WhatsApp app / its mail app. */
+  /* this View screen as a PDF - used by the share link and the direct
+     email (27-10-2026). Parts marked data-html2canvas-ignore are left out. */
+  async function viewPdf() {
+    const html2pdf = (await import('html2pdf.js')).default;
+    const element = viewRef.current;
+    if (!element) throw new Error('Invoice not found on the page.');
+    const pxToMm = (px) => (px * 25.4) / 96;
+    const wMm = pxToMm(element.scrollWidth);
+    const hMm = pxToMm(element.scrollHeight) + 2;
+    const pdfName = 'Invoice_' + String(doc.invoiceNo || id).replace(/[^\w-]+/g, '_') + '.pdf';
+    const blob = await html2pdf().set({
+      margin: 0,
+      filename: pdfName,
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+      jsPDF: { unit: 'mm', format: [wMm, hMm], orientation: hMm >= wMm ? 'portrait' : 'landscape' },
+    }).from(element).outputPdf('blob');
+    return { blob, pdfName };
+  }
+
+  /* DIRECT EMAIL WITH THE PDF ATTACHED (user, 27-10-2026), as on the POS
+     invoice page: the box takes the customer's address and
+     app/api/invoice-email sends the PDF from the shop's Gmail in .env */
+  async function sendViewEmail() {
+    const to = String(emailBox?.to || '').trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) { setEmailBox((b) => ({ ...b, error: 'Enter a valid email address.' })); return; }
+    setEmailSending(true);
+    setEmailBox((b) => ({ ...b, error: '' }));
+    try {
+      const { blob, pdfName } = await viewPdf();
+      const form = new FormData();
+      form.append('to', to);
+      form.append('invoiceId', String(doc._id || id));
+      form.append('file', new File([blob], pdfName, { type: 'application/pdf' }));
+      const r = await fetch('/api/invoice-email', { method: 'POST', body: form });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || 'Could not send the email.');
+      setEmailBox(null);
+      setShareNote({ notice: 'Invoice emailed to ' + to + ' with the PDF attached.' });
+    } catch (e) {
+      setEmailBox((b) => (b ? { ...b, error: (e && e.message) || 'Could not send the email.' } : b));
+    } finally {
+      setEmailSending(false);
+    }
+  }
+
+  /* DIRECT WHATSAPP WITH THE PDF (user, 27-10-2026): the box takes the
+     customer's mobile and app/api/invoice-whatsapp sends the PDF from the
+     shop's WhatsApp Business number (Cloud API, settings in .env) */
+  async function sendViewWhatsApp() {
+    const raw = String(waBox?.to || '').trim();
+    const digits = raw.replace(/\D/g, '');
+    if (digits.length < 10 || digits.length > 15) { setWaBox((b) => ({ ...b, error: 'Enter a valid mobile number.' })); return; }
+    setWaSending(true);
+    setWaBox((b) => ({ ...b, error: '' }));
+    try {
+      const { blob, pdfName } = await viewPdf();
+      const form = new FormData();
+      form.append('to', raw);
+      form.append('invoiceId', String(doc._id || id));
+      form.append('file', new File([blob], pdfName, { type: 'application/pdf' }));
+      const r = await fetch('/api/invoice-whatsapp', { method: 'POST', body: form });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || 'Could not send on WhatsApp.');
+      setWaBox(null);
+      setShareNote({ notice: 'Invoice PDF sent on WhatsApp to ' + (d.to || raw) + '.' });
+    } catch (e) {
+      setWaBox((b) => (b ? { ...b, error: (e && e.message) || 'Could not send on WhatsApp.' } : b));
+    } finally {
+      setWaSending(false);
+    }
+  }
+
   async function shareViewPdf(target) {
     const isPhone = /Android|iPhone|iPad/i.test(navigator.userAgent || '');
-    const win = target === 'whatsapp' || !isPhone ? window.open('about:blank', '_blank') : null;
-    if ((target === 'whatsapp' || !isPhone) && !win) {
+    setWaAppUrl('');
+    /* the WhatsApp APP opens through whatsapp:// - no browser window needed */
+    const needsWin = target !== 'whatsapp-app' && (target === 'whatsapp' || !isPhone);
+    const win = needsWin ? window.open('about:blank', '_blank') : null;
+    if (needsWin && !win) {
       setShareNote({ error: 'The browser blocked the ' + (target === 'email' ? 'Gmail' : 'WhatsApp') + ' window. Allow pop-ups for this site and try again.' });
       return;
     }
     let link = '';
     try {
       setShareNote({ notice: 'Preparing the PDF...' });
-      const html2pdf = (await import('html2pdf.js')).default;
-      const element = viewRef.current;
-      if (!element) throw new Error('Invoice not found on the page.');
-      const pxToMm = (px) => (px * 25.4) / 96;
-      const wMm = pxToMm(element.scrollWidth);
-      const hMm = pxToMm(element.scrollHeight) + 2;
-      const pdfName = 'Invoice_' + String(doc.invoiceNo || id).replace(/[^\w-]+/g, '_') + '.pdf';
-      const blob = await html2pdf().set({
-        margin: 0,
-        filename: pdfName,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
-        jsPDF: { unit: 'mm', format: [wMm, hMm], orientation: hMm >= wMm ? 'portrait' : 'landscape' },
-      }).from(element).outputPdf('blob');
+      const { blob, pdfName } = await viewPdf();
 
       setShareNote({ notice: 'Creating the invoice link...' });
       const form = new FormData();
@@ -151,7 +230,15 @@ export default function PosInvoiceView({ id, onBack, backLabel = 'Back', endpoin
       + 'Amount: Rs ' + Math.trunc(Number(doc.totalAmount || 0)) + '\n\n'
       + 'Download your invoice: ' + link + '\n\n'
       + 'Thank you for shopping with wovenessence by TEMPLE FABRICS.';
-    if (target === 'whatsapp') {
+    if (target === 'whatsapp-app') {
+      /* WHATSAPP APP (user, 27-10-2026): whatsapp:// opens the installed
+         WhatsApp app with the message; if the browser holds the launch
+         back, the "Open WhatsApp app" link below opens it by hand */
+      const appUrl = 'whatsapp://send?text=' + encodeURIComponent(text);
+      setWaAppUrl(appUrl);
+      window.location.href = appUrl;
+      setShareNote({ notice: 'WhatsApp app opened with the invoice link - pick the person and send. Nothing opened? Use the link below, or install WhatsApp for Windows.' });
+    } else if (target === 'whatsapp') {
       try { win.opener = null; } catch { /* ignore */ }
       win.location.href = (isPhone ? 'https://wa.me/?text=' : 'https://web.whatsapp.com/send?text=') + encodeURIComponent(text);
       setShareNote({ notice: 'WhatsApp opened with the invoice link - pick the person and send.' });
@@ -178,9 +265,20 @@ export default function PosInvoiceView({ id, onBack, backLabel = 'Back', endpoin
           {/* SHARE DIRECTLY - one button per route, no panel in between */}
           <div className="flex flex-col items-end gap-1" data-html2canvas-ignore="true">
             <div className="flex items-center gap-1.5">
-              <button type="button" title="Share on WhatsApp" aria-label="Share on WhatsApp" className="flex h-9 w-9 items-center justify-center rounded bg-[#25D366] text-white hover:bg-[#1da851]" onClick={() => shareViewPdf('whatsapp')}><Icon name="whatsapp" size={18} /></button>
+              {/* the WhatsApp Web link button - HIDDEN for now (user, 27-10-2026);
+                  set SHOW_WHATSAPP_WEB_LINK to true to bring it back */}
+              {SHOW_WHATSAPP_WEB_LINK && <button type="button" title="Share on WhatsApp Web" aria-label="Share on WhatsApp Web" className="flex h-9 w-9 items-center justify-center rounded bg-[#25D366] text-white hover:bg-[#1da851]" onClick={() => shareViewPdf('whatsapp')}><Icon name="whatsapp" size={18} /></button>}
+              {/* DIRECT WHATSAPP (27-10-2026): type the customer's mobile, the PDF is sent from the shop's WhatsApp number */}
+              <button type="button" title="Send the invoice PDF on WhatsApp" aria-label="Send the invoice PDF on WhatsApp" className="flex h-9 w-9 items-center justify-center rounded bg-[#25D366] text-white hover:bg-[#1da851]" onClick={() => { setShareNote(null); setWaBox({ to: doc.customerContact || '', error: '' }); }}><Icon name="whatsapp" size={18} /></button>
+              {/* WHATSAPP APP (27-10-2026): the same link message, opened in the installed WhatsApp app.
+                  HIDDEN for now (user, 27-10-2026); set SHOW_WHATSAPP_APP to true to bring it back */}
+              {SHOW_WHATSAPP_APP && <button type="button" title="Share on WhatsApp App" aria-label="Share on WhatsApp App" className="flex h-9 items-center justify-center gap-1 rounded bg-[#128C7E] px-2 text-[11px] font-bold text-white hover:bg-[#0e6f64]" onClick={() => shareViewPdf('whatsapp-app')}><Icon name="whatsapp" size={16} /> App</button>}
               {/* Instagram button removed (user, 23-10-2026) */}
-              <button type="button" title="Share by Email" aria-label="Share by Email" className="flex h-9 w-9 items-center justify-center rounded bg-brand text-white hover:opacity-90" onClick={() => shareViewPdf('email')}><Icon name="mail" size={18} /></button>
+              {/* the Gmail-with-link Email button - HIDDEN for now (user, 27-10-2026);
+                  set SHOW_GMAIL_EMAIL to true to bring it back */}
+              {SHOW_GMAIL_EMAIL && <button type="button" title="Share by Email" aria-label="Share by Email" className="flex h-9 w-9 items-center justify-center rounded bg-brand text-white hover:opacity-90" onClick={() => shareViewPdf('email')}><Icon name="mail" size={18} /></button>}
+              {/* DIRECT EMAIL (27-10-2026): type the customer's address, the PDF is sent from the shop's account */}
+              <button type="button" title="Email the invoice PDF" aria-label="Email the invoice PDF" className="flex h-9 w-9 items-center justify-center rounded bg-brand text-white hover:opacity-90" onClick={() => { setShareNote(null); setEmailBox({ to: doc.customerEmail || '', error: '' }); }}><Icon name="mail" size={18} /></button>
               {/* an archived (deleted) bill is view-only - its print page reads live bills */}
               {doc.status !== 'ARCHIVED' && <button type="button" title="Print invoice" aria-label="Print invoice" className="flex h-9 w-9 items-center justify-center rounded bg-[#4b5563] text-white hover:bg-[#374151]" onClick={() => window.open('/admin/transaction/sell/pos/print/' + id, '_blank')}><Icon name="printer" size={18} /></button>}
             </div>
@@ -188,6 +286,10 @@ export default function PosInvoiceView({ id, onBack, backLabel = 'Back', endpoin
               <div className={'max-w-[320px] text-right text-[11px] ' + (shareNote.error ? 'text-danger' : 'text-inkmuted')}>
                 {shareNote.error || shareNote.notice}
               </div>
+            )}
+            {/* by-hand fallback when the browser did not launch the WhatsApp app */}
+            {waAppUrl && (
+              <a href={waAppUrl} className="text-[11px] font-semibold text-brand underline">Open WhatsApp app</a>
             )}
           </div>
           {onBack && <button type="button" className="btn" data-html2canvas-ignore="true" onClick={onBack}>{backLabel}</button>}
@@ -213,10 +315,65 @@ export default function PosInvoiceView({ id, onBack, backLabel = 'Back', endpoin
         <span className="rounded border border-line bg-[#eef1f7] px-2 py-1">Total Qty: <b>{totalQty}</b></span>
         <span className="rounded border border-line bg-[#eef1f7] px-2 py-1">Net Amount: <b>₹{money2(doc.totalAmount)}</b></span>
       </div>
-      <div className="mt-4 overflow-x-auto"><table className="dt"><thead><tr>{['Image', 'Barcode No', 'Item Code', 'Item Name', 'HSN', 'GST (%)', 'Quantity', 'RSP', 'Discount', 'Tax', 'Tax Amount', 'Price (Inc. Tax)', 'Subtotal'].map((x) => <th key={x}>{x}</th>)}</tr></thead><tbody>{(doc.items || []).map((item, i) => <tr key={i}><td onMouseEnter={() => item.image && setPreviewImage({ src: item.image, alt: item.itemName || item.name || item.itemCode, hover: true })} onMouseLeave={() => setPreviewImage((p) => (p && p.hover ? null : p))}><ProductImage src={item.image} alt={item.itemName || item.name || item.itemCode} size={52} onOpen={item.image ? () => setPreviewImage({ src: item.image, alt: item.itemName || item.name || item.itemCode, hover: false }) : undefined} /></td><td className="font-mono text-[12px]">{item.barcodeNo || item.barcode || '-'}</td><td>{item.code || item.itemCode || '-'}</td><td>{item.description || item.itemName || item.name || '-'}</td><td>{item.hsn || '-'}</td><td>{gstPct(item.gst)}</td><td>{item.qty || 0}</td><td>{money(item.rsp)}</td><td>{money(item.discountAmount || Number(item.rsp || 0) * Number(item.qty || 0) * Number(item.discountPct || 0) / 100)}</td><td>{money(Number(item.lineTotal || 0) * Number(item.gst || 0) / 100)}</td><td>{money2(lineTaxOf(item))}</td><td>{money2(lineNetOf(item))}</td><td>{money(item.lineTotal)}</td></tr>)}</tbody><tfoot><tr><td colSpan="12" className="text-right font-bold">Total Payable</td><td className="font-bold">{money(doc.totalAmount)}</td></tr><tr><td colSpan="12" className="text-right font-bold">Total Paid</td><td>{money(doc.paid)}</td></tr><tr><td colSpan="12" className="text-right font-bold">Cash Return</td><td>{money(changeReturn)}</td></tr><tr><td colSpan="12" className="text-right font-bold">Total Remaining</td><td>{money(doc.sellDue)}</td></tr></tfoot></table></div>
+      <div className="mt-4 overflow-x-auto"><table className="dt"><thead><tr>{['Image', 'Barcode No / Item Name', 'Item Code', 'HSN', 'GST (%)', 'Quantity', 'RSP', 'Discount', 'Tax', 'Tax Amount', 'Price (Inc. Tax)', 'Subtotal'].map((x) => <th key={x}>{x === 'Barcode No / Item Name' ? <>Barcode No<br />/ Item Name</> : x}</th>)}</tr></thead><tbody>{(doc.items || []).map((item, i) => <tr key={i}><td onMouseEnter={() => item.image && setPreviewImage({ src: item.image, alt: item.itemName || item.name || item.itemCode, hover: true })} onMouseLeave={() => setPreviewImage((p) => (p && p.hover ? null : p))}><ProductImage src={item.image} alt={item.itemName || item.name || item.itemCode} size={52} onOpen={item.image ? () => setPreviewImage({ src: item.image, alt: item.itemName || item.name || item.itemCode, hover: false }) : undefined} /></td>{/* Barcode No and Item Name in ONE column, the name under the barcode (user, 27-10-2026); Item Name = the item's own name, not its print description */}<td><div className="font-mono text-[12px]">{item.barcodeNo || item.barcode || '-'}</div><div className="text-[12px] text-inkmuted">{item.itemName || item.name || item.description || '-'}</div></td><td>{item.code || item.itemCode || '-'}</td><td>{item.hsn || '-'}</td><td>{gstPct(item.gst)}</td><td>{item.qty || 0}</td><td>{money(item.rsp)}</td><td>{money(item.discountAmount || Number(item.rsp || 0) * Number(item.qty || 0) * Number(item.discountPct || 0) / 100)}</td><td>{money(Number(item.lineTotal || 0) * Number(item.gst || 0) / 100)}</td><td>{money2(lineTaxOf(item))}</td><td>{money2(lineNetOf(item))}</td><td>{money(item.lineTotal)}</td></tr>)}</tbody><tfoot><tr><td colSpan="11" className="text-right font-bold">Total Payable</td><td className="font-bold">{money(doc.totalAmount)}</td></tr><tr><td colSpan="11" className="text-right font-bold">Total Paid</td><td>{money(doc.paid)}</td></tr><tr><td colSpan="11" className="text-right font-bold">Cash Return</td><td>{money(changeReturn)}</td></tr><tr><td colSpan="11" className="text-right font-bold">Total Remaining</td><td>{money(doc.sellDue)}</td></tr></tfoot></table></div>
       <div className="mt-5 grid gap-4 lg:grid-cols-2"><div className="overflow-x-auto"><h2 className="mb-2 flex items-center justify-between font-semibold">Payment Methods<span className="rounded border border-line bg-[#eef1f7] px-2 py-0.5 text-[11px] font-semibold">{displayedPayments.length} Entr{displayedPayments.length === 1 ? 'y' : 'ies'}</span></h2><table className="dt"><thead><tr>{['Date', 'Amount', 'Payment Method', 'Payment Note'].map((x) => <th key={x}>{x}</th>)}</tr></thead><tbody>{displayedPayments.length ? displayedPayments.map((payment, i) => <tr key={i}><td>{doc.date ? new Date(doc.date).toLocaleDateString('en-GB') : '-'}</td><td>{money(payment.amount)}</td><td>{payment.method || '-'}</td><td>{payment.note || '-'}</td></tr>) : <tr><td colSpan="4" className="dt-empty">No payments recorded.</td></tr>}</tbody>{displayedPayments.length > 0 && <tfoot><tr><td className="text-right font-bold">Total Paid</td><td className="font-bold">{money2(paymentsTotal)}</td><td colSpan="2" /></tr></tfoot>}</table></div>{/* Tax & Amount Summary (26-10-2026) */}<div><h2 className="mb-2 flex items-center justify-between font-semibold">Tax &amp; Amount Summary<span className="rounded border border-line bg-[#eef1f7] px-2 py-0.5 text-[11px] font-semibold">{doc.invoiceNo || '-'}</span></h2><table className="dt"><tbody><tr><td>Sub Total</td><td className="text-right">₹{money2(itemsSubTotal)}</td></tr>{shippingAmount > 0 && <tr><td>Shipping</td><td className="text-right">₹{money2(shippingAmount)}</td></tr>}<tr><td>Taxable Amount</td><td className="text-right">₹{money2(taxableAmount)}</td></tr><tr><td>Tax (CGST + SGST)</td><td className="text-right">₹{money2(taxTotal)}</td></tr><tr><td>Round Off</td><td className="text-right">₹{money2(roundOff)}</td></tr><tr><td>Total Paid</td><td className="text-right">₹{money2(doc.paid)}</td></tr><tr className="bg-[#e7f6ec]"><td className="font-bold">Net Amount</td><td className="text-right font-bold">₹{money2(doc.totalAmount)}</td></tr></tbody></table></div></div>
       {/* on screen only - not in the shared PDF (user, 23-10-2026) */}
       <div className="mt-4 grid gap-2 text-[13px] md:grid-cols-2" data-html2canvas-ignore="true"><div><b>Sell note:</b> {doc.sellNote || '-'}</div><div><b>Staff note:</b> {doc.staffNote || '-'}</div></div>
+      {/* DIRECT WHATSAPP BOX (27-10-2026) - never part of the PDF */}
+      {waBox && (
+        <div data-html2canvas-ignore="true" className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4" onClick={() => { if (!waSending) setWaBox(null); }}>
+          <div className="w-full max-w-md rounded-lg bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-1 text-[15px] font-bold">Send invoice {doc.invoiceNo || ''} on WhatsApp</div>
+            <div className="mb-3 text-[12px] text-inkmuted">The invoice PDF is sent straight to this WhatsApp number.</div>
+            <label className="f-label">Customer mobile number</label>
+            <input
+              type="tel"
+              className="f-input w-full"
+              placeholder="9876543210"
+              autoFocus
+              value={waBox.to}
+              disabled={waSending}
+              onChange={(e) => setWaBox((b) => ({ ...b, to: e.target.value, error: '' }))}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); sendViewWhatsApp(); } }}
+            />
+            <div className="mt-1 text-[11px] text-inkmuted">10-digit number, or with country code (91 is added automatically).</div>
+            {waBox.error && <div className="f-err mt-1">{waBox.error}</div>}
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" className="btn" disabled={waSending} onClick={() => setWaBox(null)}>Cancel</button>
+              <button type="button" className="btn btn-primary" disabled={waSending} onClick={sendViewWhatsApp}>
+                {waSending ? 'Sending...' : <><Icon name="whatsapp" size={14} /> Send</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* DIRECT EMAIL BOX (27-10-2026) - never part of the PDF */}
+      {emailBox && (
+        <div data-html2canvas-ignore="true" className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4" onClick={() => { if (!emailSending) setEmailBox(null); }}>
+          <div className="w-full max-w-md rounded-lg bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-1 text-[15px] font-bold">Email invoice {doc.invoiceNo || ''}</div>
+            <div className="mb-3 text-[12px] text-inkmuted">The invoice PDF is sent straight to this address as an attachment.</div>
+            <label className="f-label">Customer email</label>
+            <input
+              type="email"
+              className="f-input w-full"
+              placeholder="customer@example.com"
+              autoFocus
+              value={emailBox.to}
+              disabled={emailSending}
+              onChange={(e) => setEmailBox((b) => ({ ...b, to: e.target.value, error: '' }))}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); sendViewEmail(); } }}
+            />
+            {emailBox.error && <div className="f-err mt-1">{emailBox.error}</div>}
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" className="btn" disabled={emailSending} onClick={() => setEmailBox(null)}>Cancel</button>
+              <button type="button" className="btn btn-primary" disabled={emailSending} onClick={sendViewEmail}>
+                {emailSending ? 'Sending...' : <><Icon name="mail" size={14} /> Send</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {previewImage && (
         /* centred over everything, including the View popup (z-50). A hover
            preview is click-through (pointer-events-none) so it cannot sit

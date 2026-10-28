@@ -534,31 +534,49 @@ const money = (v) => (v === null || v === undefined || v === '' ? '-' : Number(v
 const text = (v) => (v === null || v === undefined || String(v).trim() === '' ? '-' : String(v));
 const when = (v) => (v ? new Date(v).toLocaleString('en-GB') : '-');
 
-/* Calculate age in days from a date to today. Returns formatted string like
-   "0 DAYS", "1 DAY", "365 DAYS", or "-" if the date is invalid. Normalizes
-   dates to start of day to avoid timezone/hour issues affecting the count. */
-function calculateAgeInDays(dateValue) {
-  if (!dateValue) return '-';
+/* Calculate age in days from a date to today. Returns the NUMBER of days, or
+   null if the date is invalid. Normalizes dates to start of day to avoid
+   timezone/hour issues affecting the count. The editable Age field starts
+   from this and the read-only display formats it. */
+function ageInDays(dateValue) {
+  if (!dateValue) return null;
   try {
     const grcDate = new Date(dateValue);
-    if (isNaN(grcDate.getTime())) return '-';
-    
+    if (isNaN(grcDate.getTime())) return null;
+
     // Normalize both dates to start of day (midnight) to compare calendar dates only
     const startOfGrcDay = new Date(grcDate.getFullYear(), grcDate.getMonth(), grcDate.getDate());
     const today = new Date();
     const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    
+
     // Calculate difference in milliseconds and convert to days
     const diffMs = startOfToday - startOfGrcDay;
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    
+
     // Handle negative days (future dates) - show as 0
-    const days = Math.max(0, diffDays);
-    
-    return days === 1 ? '1 DAY' : `${days} DAYS`;
+    return Math.max(0, diffDays);
   } catch (err) {
-    return '-';
+    return null;
   }
+}
+
+/* "0 DAYS", "1 DAY", "365 DAYS", or "-" when there is no usable date. */
+function calculateAgeInDays(dateValue) {
+  const days = ageInDays(dateValue);
+  if (days === null) return '-';
+  return days === 1 ? '1 DAY' : `${days} DAYS`;
+}
+
+/* The value a <input type="datetime-local"> wants (YYYY-MM-DDTHH:mm:ss), in
+   the operator's own clock - the GRC Date is shown and typed in local time,
+   and saved as the instant it names. */
+function dateTimeLocalValue(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (isNaN(date.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+    + `T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
 function displayAge(stockAge, dateValue) {
@@ -571,7 +589,7 @@ function displayAge(stockAge, dateValue) {
 
 /* One labelled value. The label sits above its value so a long branch name
    does not push the column out of shape. */
-function Cell({ label, value, wide = false, editing = false, type = 'text', onChange, bold = false, dropdown = false, dropdownValue, dropdownOptions = [] }) {
+function Cell({ label, value, wide = false, editing = false, type = 'text', onChange, bold = false, dropdown = false, dropdownValue, dropdownOptions = [], suffix = '' }) {
   return (
     <div className={'px-4 py-3 ' + (wide ? 'sm:col-span-2' : '')}>
       <div className="text-[11px] uppercase tracking-wide text-inkmuted">{label}</div>
@@ -585,15 +603,18 @@ function Cell({ label, value, wide = false, editing = false, type = 'text', onCh
           className="mt-1"
         />
       ) : editing ? (
-        <input
-          aria-label={label}
-          type={type}
-          min={type === 'number' ? '0' : undefined}
-          step={type === 'number' ? 'any' : undefined}
-          className="f-input mt-1 !h-[30px] max-w-[180px]"
-          value={value ?? ''}
-          onChange={(event) => onChange(event.target.value)}
-        />
+        <div className="mt-1 flex items-center gap-1.5">
+          <input
+            aria-label={label}
+            type={type}
+            min={type === 'number' ? '0' : undefined}
+            step={type === 'number' ? '1' : undefined}
+            className="f-input !h-[30px] max-w-[180px]"
+            value={value ?? ''}
+            onChange={(event) => onChange(event.target.value)}
+          />
+          {suffix && <span className="text-[12px] font-semibold text-inkmuted">{suffix}</span>}
+        </div>
       ) : (
         <div className={'mt-0.5 text-[13.5px] text-ink' + (bold ? ' font-semibold' : '')}>{value}</div>
       )}
@@ -602,8 +623,8 @@ function Cell({ label, value, wide = false, editing = false, type = 'text', onCh
 }
 
 /* Dropdown cell that fetches options from API using useOptions */
-function DropdownCell({ label, value, editing, optionsRef, selectedId, onChange, bold = false }) {
-  const { options, loading } = useOptions(optionsRef, '', editing);
+function DropdownCell({ label, value, editing, optionsRef, selectedId, onChange, bold = false, params = null, emptyText = '' }) {
+  const { options, loading, error } = useOptions(optionsRef, '', editing, params);
   
   // Find the matching option to ensure the selectedId is valid
   const validSelectedId = selectedId && options.length > 0 
@@ -614,15 +635,21 @@ function DropdownCell({ label, value, editing, optionsRef, selectedId, onChange,
     <div className="px-4 py-3">
       <div className="text-[11px] uppercase tracking-wide text-inkmuted">{label}</div>
       {editing ? (
-        <MultiSelect
-          aria-label={label}
-          mode="single"
-          options={options}
-          value={validSelectedId}
-          onChange={onChange}
-          loading={loading}
-          className="mt-1"
-        />
+        <>
+          <MultiSelect
+            aria-label={label}
+            mode="single"
+            options={options}
+            value={validSelectedId}
+            onChange={onChange}
+            loading={loading}
+            className="mt-1"
+          />
+          {!loading && !error && options.length === 0 && emptyText && (
+            <div className="mt-1 text-xs text-inkmuted">{emptyText}</div>
+          )}
+          {!loading && error && <div className="mt-1 text-xs text-red-700" role="alert">{error}</div>}
+        </>
       ) : (
         <div className={'mt-0.5 text-[13.5px] text-ink' + (bold ? ' font-semibold' : '')}>{value}</div>
       )}
@@ -811,8 +838,14 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
   const [editWsp, setEditWsp] = useState('');
   const [editDp, setEditDp] = useState('');
   const [editDesignNo, setEditDesignNo] = useState('');
+  const [editCompanyId, setEditCompanyId] = useState('');
   const [editCurrentLocationId, setEditCurrentLocationId] = useState('');
-  const [editOriginLocationId, setEditOriginLocationId] = useState('');
+  const [editGrcDate, setEditGrcDate] = useState('');
+  const [editAge, setEditAge] = useState('');
+  /* true once the operator has typed an Age of their own: from then on a new
+     GRC Date must not overwrite it (user, 27-10-2026) */
+  const [editAgeTouched, setEditAgeTouched] = useState(false);
+  const [editSerialNo, setEditSerialNo] = useState('');
   const [editSupplierId, setEditSupplierId] = useState('');
   const [editSupplier, setEditSupplier] = useState(null);
   const [editTaxRegion, setEditTaxRegion] = useState('');
@@ -880,8 +913,13 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
         setEditWsp(String(detail.wsp ?? ''));
         setEditDp(String(detail.dp ?? ''));
         setEditDesignNo(String(detail.designNo ?? detail.description ?? ''));
+        setEditCompanyId(String(detail.companyId ?? ''));
         setEditCurrentLocationId(String(detail.currentLocationId ?? ''));
-        setEditOriginLocationId(String(detail.originLocationId ?? ''));
+        setEditGrcDate(dateTimeLocalValue(detail.grcDate));
+        /* the stored age when there is one, else the days since the GRC Date */
+        setEditAge(String(detail.stockAge ?? ageInDays(detail.grcDate) ?? ''));
+        setEditAgeTouched(false);
+        setEditSerialNo(String(detail.serialNo ?? ''));
         setEditSupplierId(String(detail.supplierId ?? ''));
         setEditSupplier(supplierForEdit(detail));
         setEditTaxRegion(String(detail.taxRegion ?? ''));
@@ -944,8 +982,12 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
     setEditWsp(String(detail.wsp ?? ''));
     setEditDp(String(detail.dp ?? ''));
     setEditDesignNo(String(detail.designNo ?? detail.description ?? ''));
+    setEditCompanyId(String(detail.companyId ?? ''));
     setEditCurrentLocationId(String(detail.currentLocationId ?? ''));
-    setEditOriginLocationId(String(detail.originLocationId ?? ''));
+    setEditGrcDate(dateTimeLocalValue(detail.grcDate));
+    setEditAge(String(detail.stockAge ?? ageInDays(detail.grcDate) ?? ''));
+    setEditAgeTouched(false);
+    setEditSerialNo(String(detail.serialNo ?? ''));
     setEditSupplierId(String(detail.supplierId ?? ''));
     setEditSupplier(supplierForEdit(detail));
     setEditTaxRegion(String(detail.taxRegion ?? ''));
@@ -981,8 +1023,12 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
     setEditWsp(String(detail.wsp ?? ''));
     setEditDp(String(detail.dp ?? ''));
     setEditDesignNo(String(detail.designNo ?? detail.description ?? ''));
+    setEditCompanyId(String(detail.companyId ?? ''));
     setEditCurrentLocationId(String(detail.currentLocationId ?? ''));
-    setEditOriginLocationId(String(detail.originLocationId ?? ''));
+    setEditGrcDate(dateTimeLocalValue(detail.grcDate));
+    setEditAge(String(detail.stockAge ?? ageInDays(detail.grcDate) ?? ''));
+    setEditAgeTouched(false);
+    setEditSerialNo(String(detail.serialNo ?? ''));
     setEditSupplierId(String(detail.supplierId ?? ''));
     setEditSupplier(supplierForEdit(detail));
     setEditTaxRegion(String(detail.taxRegion ?? ''));
@@ -998,6 +1044,50 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
     }
     if (d.supplierId && !editSupplierId) {
       setSaveError('Select a supplier from the results before saving.');
+      return;
+    }
+    /* Company and Location are a pair: the location is chosen from the
+       company's own list, so neither can be saved without the other */
+    if (!editCompanyId) {
+      setSaveError('Select a Company.');
+      return;
+    }
+    if (!editCurrentLocationId) {
+      setSaveError('Select a Location for the selected Company.');
+      return;
+    }
+    /* GRC Date - required, and never in the future (the same two rules the
+       API applies, said here first so the operator does not wait for a round
+       trip to be told) */
+    if (!editGrcDate) {
+      setSaveError('Enter the GRC Date.');
+      return;
+    }
+    const grcDate = new Date(editGrcDate);
+    if (Number.isNaN(grcDate.getTime())) {
+      setSaveError('Enter a valid GRC Date.');
+      return;
+    }
+    if (grcDate.getTime() > Date.now() + 24 * 60 * 60 * 1000) {
+      setSaveError('The GRC Date cannot be in the future.');
+      return;
+    }
+    /* Age - whole days, 0 or more; blank is allowed and stores no age, which
+       every report then works out from the GRC Date */
+    const ageText = String(editAge).trim();
+    if (ageText !== '') {
+      const ageNumber = Number(ageText);
+      if (!Number.isInteger(ageNumber) || ageNumber < 0) {
+        setSaveError('Age must be a whole number of days, 0 or more.');
+        return;
+      }
+      if (ageNumber > 36500) {
+        setSaveError('Age must be 36500 days or fewer.');
+        return;
+      }
+    }
+    if (String(editSerialNo).trim().length > 60) {
+      setSaveError('Serial Number must be 60 characters or fewer.');
       return;
     }
 
@@ -1030,8 +1120,14 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
         wsp: editWsp,
         dp: editDp,
         designNo: editDesignNo,
+        /* Company and Location (user, 27-10-2026) - the company the unit
+           belongs to and the location it sits at inside it */
+        companyId: editCompanyId,
         currentLocationId: editCurrentLocationId,
-        originLocationId: editOriginLocationId,
+        /* the three fields this screen now edits */
+        grcDate: grcDate.toISOString(),
+        age: ageText,
+        serialNumber: editSerialNo,
         supplierId: editSupplierId,
         taxRegion: editTaxRegion,
       };
@@ -1043,10 +1139,37 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || 'Could not save barcode details.');
-      
+
+      const saved = result.saved || {};
+      const companyMoved = Boolean(saved.companyId)
+        && String(saved.companyId) !== String(d.companyId || '');
       setEditing(false);
-      setSaveSuccess('Barcode details saved successfully.');
-      setReloadCount((count) => count + 1);
+      if (companyMoved) {
+        /* The unit left the business in the top bar, so asking for it again
+           would only be told it is not there. Show what was just saved - the
+           company, its location and the edited fields - and say where it is
+           now. */
+        setData((cur) => (cur ? {
+          ...cur,
+          detail: {
+            ...cur.detail,
+            companyId: String(saved.companyId),
+            companyName: saved.companyName || cur.detail.companyName,
+            locationId: saved.currentLocationId || cur.detail.locationId,
+            currentLocationId: saved.currentLocationId || cur.detail.currentLocationId,
+            currentLocation: saved.locationName || cur.detail.currentLocation,
+            grcDate: saved.grcDate || cur.detail.grcDate,
+            stockAge: saved.stockAge ?? cur.detail.stockAge,
+            serialNo: saved.serialNo ?? cur.detail.serialNo,
+          },
+        } : cur));
+        setSaveSuccess('Saved. This barcode now belongs to '
+          + (saved.companyName || 'another company')
+          + ' - choose that company in the top bar to carry on working on it.');
+      } else {
+        setSaveSuccess('Barcode details saved successfully.');
+        setReloadCount((count) => count + 1);
+      }
     } catch (saveErr) {
       setSaveError(saveErr.message || 'Could not save barcode details.');
     } finally {
@@ -1299,26 +1422,65 @@ export default function BarcodeDetailView({ barcodeNo, onBack, onSearch }) {
                   type="text"
                   onChange={setEditTaxRegion}
                 />
+                {/* COMPANY / LOCATION (user, 27-10-2026) - these two were
+                    Current Location and Origin Location. Company lists every
+                    company in the master; Location lists the locations of the
+                    company just chosen, so the pair can never disagree. */}
                 <DropdownCell
-                  label="Current Location"
-                  value={text(d.currentLocation)}
+                  label="Company"
+                  value={text(d.companyName)}
+                  editing={editing}
+                  optionsRef="business"
+                  selectedId={editCompanyId}
+                  onChange={(value) => {
+                    setEditCompanyId(value);
+                    /* the location belonged to the old company */
+                    setEditCurrentLocationId('');
+                  }}
+                />
+                <DropdownCell
+                  label="Location"
+                  value={text(d.currentLocation || d.originLocation)}
                   editing={editing}
                   optionsRef="companylocations"
+                  params={editCompanyId ? { business: editCompanyId } : null}
                   selectedId={editCurrentLocationId}
                   onChange={setEditCurrentLocationId}
-                />
-                <DropdownCell
-                  label="Origin Location"
-                  value={text(d.originLocation)}
-                  editing={editing}
-                  optionsRef="companylocations"
-                  selectedId={editOriginLocationId}
-                  onChange={setEditOriginLocationId}
+                  emptyText={editCompanyId ? 'No location is set up for this company.' : 'Choose a Company first.'}
                 />
                 <Cell label="GRC Number" value={text(d.grcNo)} bold />
-                <Cell label="GRC Date" value={when(d.grcDate)} bold />
-                <Cell label="Age" value={displayAge(d.stockAge, d.grcDate)} bold />
-                <Cell label="Serial Number" value={text(d.serialNo)} />
+                <Cell
+                  label="GRC Date"
+                  value={editing ? editGrcDate : when(d.grcDate)}
+                  editing={editing}
+                  type="datetime-local"
+                  bold
+                  onChange={(value) => {
+                    setEditGrcDate(value);
+                    /* Age follows the GRC Date until the operator types one
+                       of their own (user, 27-10-2026) */
+                    if (!editAgeTouched) setEditAge(String(ageInDays(value) ?? ''));
+                  }}
+                />
+                <Cell
+                  label="Age"
+                  value={editing ? editAge : displayAge(d.stockAge, d.grcDate)}
+                  editing={editing}
+                  type="number"
+                  suffix="DAYS"
+                  bold
+                  onChange={(value) => {
+                    setEditAge(value);
+                    setEditAgeTouched(true);
+                  }}
+                />
+                <Cell
+                  label="Serial Number"
+                  value={editing ? editSerialNo : text(d.serialNo)}
+                  editing={editing}
+                  type="text"
+                  onChange={setEditSerialNo}
+                />
                 <Cell label="Batch Number" value={text(d.batchNo)} />
                 <Cell label="Transfer Number" value={text(d.transferNo)} />
                 <Cell label="Billing Number" value={text(d.billingNo)} />

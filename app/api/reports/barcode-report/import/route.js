@@ -119,6 +119,8 @@ import { requirePermission, canUseLocation, PERMISSIONS } from '@/lib/rbac';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import Business from '@/models/Business';
 import CompanyLocation from '@/models/CompanyLocation';
+import { BarcodeLabel } from '@/lib/barcodeLabel';
+import { barcodeFilter } from '@/lib/inventory';
 import { barcodeKey } from '@/lib/barcodeValue';
 import { IMPORT_LIMIT } from '@/lib/barcodeReportImport';
 import { checkImport, applyImport } from '@/lib/barcodeReportImportService';
@@ -213,6 +215,57 @@ export const POST = handler(async (req) => {
     return json({ error: 'Confirm that you compared every barcode and quantity with the image first.' }, 422);
   }
   const keys = (list) => new Set((Array.isArray(list) ? list : []).map((code) => barcodeKey(code)).filter(Boolean));
+  const skippedKeys = keys(body?.skip);
+  const summaryRecords = records.filter((record) =>
+    record?.details && record?.stockSummaryEdits && !record?.lookupOnly
+      && !skippedKeys.has(barcodeKey(record?.values?.barcode))
+  );
+  const summaryBarcodes = [...new Set(summaryRecords.map((record) => String(record?.values?.barcode || '').trim()).filter(Boolean))];
+  const existingSummaryUnits = summaryBarcodes.length
+    ? await BarcodeLabel.find(barcodeFilter(summaryBarcodes))
+      .select('barcodeNo barcodeGenerated oldBarcode businessId currentBusinessId')
+      .lean()
+    : [];
+  for (const record of records) {
+    if (!record?.details || !record?.stockSummaryEdits || record?.lookupOnly || skippedKeys.has(barcodeKey(record?.values?.barcode))) continue;
+    const companyId = String(record?.stockSummaryEdits?.companyId || '').trim();
+    const selectedLocationId = String(record?.stockSummaryEdits?.locationId || '').trim();
+    if (!isValidObjectId(companyId) || !isValidObjectId(selectedLocationId)) {
+      return json({ error: `Select a valid Company and Location for barcode ${record?.values?.barcode || ''}.` }, 422);
+    }
+    const [companyMaster, selectedLocation] = await Promise.all([
+      Business.findById(companyId).select('_id').lean(),
+      CompanyLocation.findById(selectedLocationId).select('_id businessId').lean(),
+    ]);
+    if (!companyMaster || !selectedLocation) {
+      return json({ error: `The Company or Location selected for barcode ${record?.values?.barcode || ''} no longer exists.` }, 422);
+    }
+    if (String(selectedLocation.businessId || '') !== companyId) {
+      return json({ error: `The selected Location does not belong to the selected Company for barcode ${record?.values?.barcode || ''}.` }, 422);
+    }
+    const changed = record.stockSummaryEdits.changed === true;
+    if (changed && !canUseLocation(session, selectedLocationId)) {
+      return json({ error: `You do not have access to the selected Location for barcode ${record?.values?.barcode || ''}.` }, 403);
+    }
+    if (changed && selectedLocationId !== locationId) {
+      await requirePermission(PERMISSIONS.BARCODE_GENERATE, { locationId: selectedLocationId });
+    }
+    const code = barcodeKey(record?.values?.barcode);
+    const existingHere = existingSummaryUnits.some((unit) =>
+      [unit.barcodeNo, unit.barcodeGenerated, unit.oldBarcode].some((value) => barcodeKey(value) === code)
+      && (String(unit.businessId || '') === businessId || String(unit.currentBusinessId || '') === businessId)
+    );
+    const requiredCompanyAction = changed
+      ? (existingHere ? PERM.UPDATE : PERM.CREATE)
+      : (!existingHere && companyId !== businessId ? PERM.CREATE : '');
+    if (requiredCompanyAction) {
+      const companyDenied = await screenDenial({
+        session, screen: SCREENS.BARCODE_REPORT, label: 'the barcode report',
+        action: requiredCompanyAction, businessId: companyId,
+      });
+      if (companyDenied) return json({ error: companyDenied.message, code: companyDenied.code }, 403);
+    }
+  }
   const approved = new Map();
   (Array.isArray(body?.update) ? body.update : []).slice(0, IMPORT_LIMIT).forEach((u) => {
     if (typeof u === 'string') { if (barcodeKey(u)) approved.set(barcodeKey(u), { all: true }); return; }
@@ -242,6 +295,6 @@ export const POST = handler(async (req) => {
       replace: entry?.replace === true,
     });
   }
-  const result = await applyImport(records, scope, { approved, skipNew: keys(body?.skip), user: session, canUse, images });
+  const result = await applyImport(records, scope, { approved, skipNew: skippedKeys, user: session, canUse, images });
   return json({ ok: true, location: location.name || '', ...result });
 });

@@ -1,52 +1,362 @@
-// // import SignInForm from '@/components/SignInForm';
+// // // import SignInForm from '@/components/SignInForm';
 
-// // export const metadata = { title: 'Sign in | GROO ERP' };
+// // // export const metadata = { title: 'Sign in | GROO ERP' };
 
-// // /* Split sign-in screen: pitch panel on the left, credentials card on the right.
-// //    Rendered outside the admin shell - no sidebar, no top bar. */
+// // // /* Split sign-in screen: pitch panel on the left, credentials card on the right.
+// // //    Rendered outside the admin shell - no sidebar, no top bar. */
+// // // export default function LoginPage() {
+// // //   return (
+// // //     <div className="grid min-h-screen grid-cols-1 bg-[#0b1017] lg:grid-cols-2">
+// // //       {/* ---------------------------------------------------- left panel -- */}
+// // //       <div className="relative flex flex-col justify-between overflow-hidden border-r border-white/5 bg-gradient-to-br from-[#101b2a] via-[#0d1622] to-[#0b1017] px-10 py-12 lg:px-16">
+// // //         <div className="flex items-center gap-3">
+// // //           <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#c8a24a]/20 text-[10px] font-bold text-[#d8b563]">
+// // //             OT
+// // //           </span>
+// // //           <span className="text-[22px] font-bold text-white">GROO ERP</span>
+// // //         </div>
+
+// // //         <div className="max-w-[560px]">
+// // //           <span className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/[.04] px-3 py-2 font-mono text-[12.5px] tracking-wide text-[#5b9bf8]">
+// // //             <span aria-hidden="true">&#9776;</span> 184,208 SKUS TRACKED LIVE
+// // //           </span>
+
+// // //           <h2 className="mt-8 text-[30px] font-bold leading-tight text-white">
+// // //             Every SKU, sale and shelf &mdash; tracked in real time.
+// // //           </h2>
+
+// // //           <p className="mt-5 max-w-[520px] text-[16px] leading-relaxed text-[#8c9ab0]">
+// // //             Inventory, POS, CRM and finance running on one live operational
+// // //             picture of your retail business.
+// // //           </p>
+
+// // //           <ul className="mt-9 space-y-3.5">
+// // //             {['Live sync across every register',
+// // //               'One source of truth, every store',
+// // //               'Role-based access, built in'].map((t) => (
+// // //               <li key={t} className="flex items-center gap-3 text-[15.5px] text-[#dbe3ee]">
+// // //                 <span className="text-[#3b82f6]" aria-hidden="true">&#10003;</span> {t}
+// // //               </li>
+// // //             ))}
+// // //           </ul>
+// // //         </div>
+
+// // //         <p className="font-mono text-[13px] text-[#5d6a7e]">v1.0.0 &middot; Enterprise Retail Platform</p>
+// // //       </div>
+
+// // //       {/* --------------------------------------------------- right panel -- */}
+// // //       <div className="flex items-center justify-center bg-[#0c1219] px-6 py-16">
+// // //         <SignInForm />
+// // //       </div>
+// // //     </div>
+// // //   );
+// // // }
+
+
+
+
+
+
+
+
+
+
+
+
+// // import SignInForm from "@/components/SignInForm";
+
+// // export const metadata = { title: "Sign in | GROO ERP" };
+
 // // export default function LoginPage() {
 // //   return (
-// //     <div className="grid min-h-screen grid-cols-1 bg-[#0b1017] lg:grid-cols-2">
+// //     <div className="grid min-h-screen grid-cols-1 bg-white lg:grid-cols-2">
 // //       {/* ---------------------------------------------------- left panel -- */}
-// //       <div className="relative flex flex-col justify-between overflow-hidden border-r border-white/5 bg-gradient-to-br from-[#101b2a] via-[#0d1622] to-[#0b1017] px-10 py-12 lg:px-16">
-// //         <div className="flex items-center gap-3">
-// //           <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#c8a24a]/20 text-[10px] font-bold text-[#d8b563]">
-// //             OT
-// //           </span>
-// //           <span className="text-[22px] font-bold text-white">GROO ERP</span>
-// //         </div>
+// //       <div className="relative flex flex-col justify-between overflow-hidden bg-gradient-to-br from-[#fcfcff] via-[#faf9ff] to-[#f5f3ff] px-8 py-10 lg:px-14">
+// //         {/* Animated gradient orbs */}
+// //         <div className="animate-float absolute -right-32 -top-32 h-96 w-96 rounded-full bg-purple-200/20 blur-3xl" />
+// //         <div className="animate-float-delayed absolute -bottom-32 -left-32 h-96 w-96 rounded-full bg-indigo-200/15 blur-3xl" />
+// //         <div className="animate-pulse-slow absolute left-1/3 top-1/2 h-64 w-64 -translate-y-1/2 rounded-full bg-purple-100/15 blur-3xl" />
 
-// //         <div className="max-w-[560px]">
-// //           <span className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/[.04] px-3 py-2 font-mono text-[12.5px] tracking-wide text-[#5b9bf8]">
-// //             <span aria-hidden="true">&#9776;</span> 184,208 SKUS TRACKED LIVE
-// //           </span>
+// //         {/* Animated dot pattern */}
+// //         <div
+// //           className="absolute inset-0 opacity-[0.06] animate-pattern"
+// //           style={{
+// //             backgroundImage:
+// //               "radial-gradient(circle, #7c3aed 1px, transparent 1px)",
+// //             backgroundSize: "24px 24px",
+// //           }}
+// //         />
 
-// //           <h2 className="mt-8 text-[30px] font-bold leading-tight text-white">
-// //             Every SKU, sale and shelf &mdash; tracked in real time.
+// //         {/* Content - positioned above dashboard preview */}
+// //         <div className="relative z-10 flex-1">
+// //           {/* Logo with hover effect */}
+// //           <div className="group flex items-center gap-3">
+// //             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-purple-600 to-indigo-600 shadow-lg shadow-purple-500/25 transition-all duration-300 group-hover:scale-110 group-hover:shadow-purple-500/40">
+// //               <svg
+// //                 viewBox="0 0 24 24"
+// //                 className="h-5 w-5 text-white transition-transform duration-300 group-hover:rotate-12"
+// //                 fill="none"
+// //               >
+// //                 <path
+// //                   d="M12 3a9 9 0 1 0 9 9"
+// //                   stroke="currentColor"
+// //                   strokeWidth="2.4"
+// //                   strokeLinecap="round"
+// //                 />
+// //                 <path d="M17 3.5 15 7l3.9-.6z" fill="currentColor" />
+// //               </svg>
+// //             </div>
+// //             <span className="text-2xl font-bold text-slate-900 tracking-tight">
+// //               GROO{" "}
+// //               <span className="bg-gradient-to-r from-purple-600 to-indigo-600 bg-clip-text text-transparent">
+// //                 ERP
+// //               </span>
+// //             </span>
+// //           </div>
+
+// //           {/* Status badge with pulse animation */}
+// //           <div className="group mt-8">
+// //             <span className="inline-flex items-center gap-2.5 rounded-full border border-emerald-100 bg-white/80 px-4 py-1.5 text-xs font-medium tracking-wide text-emerald-700 shadow-sm backdrop-blur-sm transition-all duration-300 hover:shadow-emerald-500/20 hover:border-emerald-200">
+// //               <span className="relative flex h-2 w-2">
+// //                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+// //                 <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+// //               </span>
+// //               184,208 SKUS TRACKED LIVE
+// //             </span>
+// //           </div>
+
+// //           {/* Hero heading with animated gradient */}
+// //           <h2 className="mt-7 uppercase mb-3 max-w-[520px] text-4xl font-bold leading-[1.1] whitespace-nowrap tracking-tight text-slate-900 lg:text-5xl">
+// //             Every SKU, sale <br /> and shelf
+// //             <br />
+// //             <span className="bg-gradient-to-r from-violet-600 via-indigo-500 to-blue-500 bg-clip-text text-transparent animate-gradient bg-[length:200%_auto] ">
+// //               tracked in real time.
+// //             </span>
 // //           </h2>
 
-// //           <p className="mt-5 max-w-[520px] text-[16px] leading-relaxed text-[#8c9ab0]">
+// //           {/* Description with fade-in animation */}
+// //           <p className="mt-5 max-w-[480px] text-base leading-relaxed text-slate-500 animate-fade-in">
 // //             Inventory, POS, CRM and finance running on one live operational
 // //             picture of your retail business.
 // //           </p>
 
-// //           <ul className="mt-9 space-y-3.5">
-// //             {['Live sync across every register',
-// //               'One source of truth, every store',
-// //               'Role-based access, built in'].map((t) => (
-// //               <li key={t} className="flex items-center gap-3 text-[15.5px] text-[#dbe3ee]">
-// //                 <span className="text-[#3b82f6]" aria-hidden="true">&#10003;</span> {t}
+// //           {/* Feature points with staggered animation */}
+// //           <ul className="mt-8 space-y-3">
+// //             {[
+// //               "Live sync across every register",
+// //               "One source of truth, every store",
+// //               "Role-based access, built in",
+// //             ].map((text, index) => (
+// //               <li
+// //                 key={text}
+// //                 className="group flex items-center gap-3 text-sm text-slate-700 transition-all duration-300 hover:translate-x-1"
+// //                 style={{ animationDelay: `${index * 150}ms` }}
+// //               >
+// //                 <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-purple-100 text-purple-600 transition-all duration-300 group-hover:scale-110 group-hover:bg-purple-200">
+// //                   <svg
+// //                     className="h-3.5 w-3.5"
+// //                     fill="none"
+// //                     viewBox="0 0 24 24"
+// //                     stroke="currentColor"
+// //                     strokeWidth={2.5}
+// //                   >
+// //                     <path
+// //                       strokeLinecap="round"
+// //                       strokeLinejoin="round"
+// //                       d="M4.5 12.75l6 6 9-13.5"
+// //                     />
+// //                   </svg>
+// //                 </span>
+// //                 {text}
 // //               </li>
 // //             ))}
 // //           </ul>
 // //         </div>
 
-// //         <p className="font-mono text-[13px] text-[#5d6a7e]">v1.0.0 &middot; Enterprise Retail Platform</p>
+// //         {/* Dashboard preview with enhanced hover effects */}
+// //         <div className="relative z-10 mt-8 w-full max-w-2xl group/preview">
+// //           <div className="rounded-2xl border border-slate-200/60 bg-white/95 p-5 shadow-xl shadow-purple-500/5 backdrop-blur-sm rotate-[-2deg] hover:rotate-0 transition-all duration-700 group-hover/preview:shadow-2xl group-hover/preview:shadow-purple-500/10 group-hover/preview:scale-[1.02]">
+// //             {/* Dashboard header */}
+// //             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+// //               <div className="flex items-center gap-2">
+// //                 <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-purple-100 transition-colors group-hover/preview:bg-purple-200">
+// //                   <div className="h-3 w-3 rounded-full bg-purple-600" />
+// //                 </div>
+// //                 <span className="text-xs font-semibold text-slate-700">
+// //                   Dashboard
+// //                 </span>
+// //               </div>
+// //               <div className="flex gap-1">
+// //                 <div className="h-1.5 w-1.5 rounded-full bg-slate-300 transition-all hover:bg-slate-400" />
+// //                 <div className="h-1.5 w-1.5 rounded-full bg-slate-300 transition-all hover:bg-slate-400" />
+// //                 <div className="h-1.5 w-1.5 rounded-full bg-slate-300 transition-all hover:bg-slate-400" />
+// //               </div>
+// //             </div>
+
+// //             {/* Stats cards with hover effects */}
+// //             <div className="mt-3 grid grid-cols-3 gap-2">
+// //               {[
+// //                 { label: "Total Sales", value: "₹ 8,62,325", change: "+12.5%" },
+// //                 { label: "Orders", value: "2,450", change: "+8.2%" },
+// //                 { label: "Low Stock", value: "128", change: "-5.4%" },
+// //               ].map((stat) => (
+// //                 <div
+// //                   key={stat.label}
+// //                   className="rounded-lg border border-slate-100 bg-white p-2.5 transition-all duration-300 hover:shadow-md hover:border-purple-200 hover:bg-purple-50/30"
+// //                 >
+// //                   <p className="text-[9px] font-medium uppercase tracking-wider text-slate-400">
+// //                     {stat.label}
+// //                   </p>
+// //                   <p className="text-sm font-bold text-slate-900">
+// //                     {stat.value}
+// //                   </p>
+// //                   <p
+// //                     className={`text-[9px] font-medium ${
+// //                       stat.change.startsWith("+")
+// //                         ? "text-emerald-600"
+// //                         : "text-red-500"
+// //                     }`}
+// //                   >
+// //                     {stat.change}
+// //                   </p>
+// //                 </div>
+// //               ))}
+// //             </div>
+
+// //             {/* Charts area with animated bars */}
+// //             <div className="mt-2.5 grid grid-cols-3 gap-2">
+// //               <div className="col-span-2 rounded-lg border border-slate-100 bg-white p-2.5 transition-all hover:shadow-md hover:border-purple-200">
+// //                 <p className="text-[9px] font-medium uppercase tracking-wider text-slate-400">
+// //                   Sales Overview
+// //                 </p>
+// //                 <div className="mt-1.5 flex items-end gap-0.5 h-8">
+// //                   {[30, 45, 35, 55, 40, 60, 50, 45, 65, 55, 70, 60].map(
+// //                     (height, i) => (
+// //                       <div
+// //                         key={i}
+// //                         className="flex-1 rounded-sm bg-gradient-to-t from-purple-400 to-indigo-400 transition-all duration-500 hover:opacity-80"
+// //                         style={{
+// //                           height: `${height}%`,
+// //                           animationDelay: `${i * 50}ms`,
+// //                         }}
+// //                       />
+// //                     ),
+// //                   )}
+// //                 </div>
+// //               </div>
+// //               <div className="rounded-lg border border-slate-100 bg-white p-2.5 transition-all hover:shadow-md hover:border-purple-200">
+// //                 <p className="text-[9px] font-medium uppercase tracking-wider text-slate-400">
+// //                   Categories
+// //                 </p>
+// //                 <div className="mt-1.5 flex items-center justify-center h-8">
+// //                   <div className="relative h-8 w-8">
+// //                     <svg
+// //                       viewBox="0 0 32 32"
+// //                       className="h-8 w-8 -rotate-90 transition-transform hover:rotate-0 duration-500"
+// //                     >
+// //                       <circle
+// //                         cx="16"
+// //                         cy="16"
+// //                         r="12"
+// //                         fill="none"
+// //                         stroke="#7c3aed"
+// //                         strokeWidth="3"
+// //                         strokeDasharray="25 50"
+// //                         className="transition-all hover:stroke-purple-500"
+// //                       />
+// //                       <circle
+// //                         cx="16"
+// //                         cy="16"
+// //                         r="12"
+// //                         fill="none"
+// //                         stroke="#6366f1"
+// //                         strokeWidth="3"
+// //                         strokeDasharray="15 50"
+// //                         strokeDashoffset="-25"
+// //                         className="transition-all hover:stroke-indigo-500"
+// //                       />
+// //                       <circle
+// //                         cx="16"
+// //                         cy="16"
+// //                         r="12"
+// //                         fill="none"
+// //                         stroke="#8b5cf6"
+// //                         strokeWidth="3"
+// //                         strokeDasharray="10 50"
+// //                         strokeDashoffset="-40"
+// //                         className="transition-all hover:stroke-purple-400"
+// //                       />
+// //                     </svg>
+// //                   </div>
+// //                 </div>
+// //               </div>
+// //             </div>
+
+// //             {/* Bottom nav with hover effects */}
+// //             <div className="mt-2.5 flex items-center gap-3 border-t border-slate-100 pt-2.5">
+// //               {["Home", "Sales", "Inventory", "Analytics"].map((item) => (
+// //                 <span
+// //                   key={item}
+// //                   className="text-[8px] font-medium uppercase tracking-wider text-slate-400 transition-all hover:text-purple-600 hover:scale-110 cursor-pointer"
+// //                 >
+// //                   {item}
+// //                 </span>
+// //               ))}
+// //             </div>
+// //           </div>
+// //         </div>
+
+// //         {/* Version with subtle animation */}
+// //         <p className="relative z-10 mt-4 font-mono text-[11px] text-slate-400 animate-pulse-slow">
+// //           v1.0.0 · Enterprise Retail Platform
+// //         </p>
 // //       </div>
 
 // //       {/* --------------------------------------------------- right panel -- */}
-// //       <div className="flex items-center justify-center bg-[#0c1219] px-6 py-16">
-// //         <SignInForm />
+// //       <div className="relative flex items-center justify-center bg-white px-6 py-16">
+// //         {/* Subtle background pattern with animation */}
+// //         <div
+// //           className="absolute inset-0 opacity-[0.03] animate-pattern-slow"
+// //           style={{
+// //             backgroundImage:
+// //               "radial-gradient(circle, #7c3aed 1px, transparent 1px)",
+// //             backgroundSize: "32px 32px",
+// //           }}
+// //         />
+
+// //         <div className="relative z-10 w-full max-w-md">
+// //           <div className="rounded-3xl border border-slate-200/60 bg-white/95 p-8 shadow-[0_20px_60px_-20px_rgba(79,70,229,0.15)] backdrop-blur-sm transition-all duration-500 hover:shadow-[0_30px_80px_-20px_rgba(79,70,229,0.25)] lg:p-10">
+// //             {/* Card header with animation */}
+// //             <div className="mb-8 text-center">
+// //               <div className="group mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-purple-100 to-indigo-50 shadow-sm shadow-purple-500/10 transition-all duration-300 hover:scale-110 hover:shadow-purple-500/20">
+// //                 <svg
+// //                   viewBox="0 0 24 24"
+// //                   className="h-7 w-7 text-purple-600 transition-transform duration-300 group-hover:rotate-12"
+// //                   fill="none"
+// //                 >
+// //                   <path
+// //                     d="M12 3a9 9 0 1 0 9 9"
+// //                     stroke="currentColor"
+// //                     strokeWidth="2.4"
+// //                     strokeLinecap="round"
+// //                   />
+// //                   <path d="M17 3.5 15 7l3.9-.6z" fill="currentColor" />
+// //                 </svg>
+// //               </div>
+// //               <h1 className="text-2xl font-bold text-slate-900">
+// //                 Welcome back
+// //               </h1>
+// //               <p className="mt-1.5 text-sm text-slate-500 transition-all hover:text-slate-600">
+// //                 Sign in to your account to continue
+// //               </p>
+// //             </div>
+
+// //             {/* Enhanced SignInForm with animation */}
+// //             <div className="animate-slide-up">
+// //               <SignInForm />
+// //             </div>
+// //           </div>
+// //         </div>
 // //       </div>
 // //     </div>
 // //   );
@@ -63,296 +373,178 @@
 
 
 
+
+
+
+
 // import SignInForm from "@/components/SignInForm";
+// import BrandMark from "@/components/BrandMark";
+// import heroBg from "@/erpIMG/hero-bg.jpg.jpeg";
+// import {
+//   ShieldCheck,
+//   Zap,
+//   Clock,
+//   Users,
+//   Package,
+//   IndianRupee,
+//   TrendingUp,
+// } from "lucide-react";
 
 // export const metadata = { title: "Sign in | GROO ERP" };
 
+// /* The figures in the left panel are a product illustration, the same way the
+//    landing page's dashboard preview is. Nothing is signed in yet, so there is
+//    no account whose numbers could be shown here - these are the brochure, not
+//    a readout. */
+// const STATS = [
+//   { icon: Users, value: "12.5K", label: "Total Clients", delta: "+8.2%", line: "M0 20 L14 16 L28 18 L42 9 L56 12 L70 4" },
+//   { icon: Package, value: "8.2K", label: "Total Products", delta: "+3.1%", line: "M0 18 L14 19 L28 13 L42 15 L56 8 L70 6" },
+//   { icon: IndianRupee, value: "98.6K", label: "Revenue", delta: "+12.5%", line: "M0 22 L14 17 L28 19 L42 11 L56 9 L70 3" },
+//   { icon: TrendingUp, value: "24.5%", label: "Growth", delta: "+6.2%", line: "M0 19 L14 21 L28 14 L42 16 L56 7 L70 5" },
+// ];
+
+// const PROOF = [
+//   { icon: ShieldCheck, title: "Secure", note: "Bank-level security" },
+//   { icon: Zap, title: "Fast", note: "Optimized performance" },
+//   { icon: Clock, title: "Always On", note: "24/7 access" },
+// ];
+
 // export default function LoginPage() {
 //   return (
-//     <div className="grid min-h-screen grid-cols-1 bg-white lg:grid-cols-2">
-//       {/* ---------------------------------------------------- left panel -- */}
-//       <div className="relative flex flex-col justify-between overflow-hidden bg-gradient-to-br from-[#fcfcff] via-[#faf9ff] to-[#f5f3ff] px-8 py-10 lg:px-14">
-//         {/* Animated gradient orbs */}
-//         <div className="animate-float absolute -right-32 -top-32 h-96 w-96 rounded-full bg-purple-200/20 blur-3xl" />
-//         <div className="animate-float-delayed absolute -bottom-32 -left-32 h-96 w-96 rounded-full bg-indigo-200/15 blur-3xl" />
-//         <div className="animate-pulse-slow absolute left-1/3 top-1/2 h-64 w-64 -translate-y-1/2 rounded-full bg-purple-100/15 blur-3xl" />
+//     <div className="public-page flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 via-emerald-50/50 to-teal-50/40 p-4 sm:p-6">
+//       <div className="grid w-full max-w-5xl overflow-hidden rounded-3xl bg-white shadow-[0_30px_90px_-30px_rgba(6,60,40,0.35)] lg:grid-cols-2">
+//         {/* ------------------------------------------------- left panel -- */}
+//         {/* The photograph is a background layer, so the panel is sized by the
+//             form beside it rather than by the picture's own proportions. */}
+//         <div className="relative isolate overflow-hidden p-7 sm:p-8">
+//           <div
+//             className="absolute inset-0 -z-20 bg-cover bg-center"
+//             style={{ backgroundImage: `url(${heroBg.src})` }}
+//           />
+//           <div className="absolute inset-0 -z-10 bg-gradient-to-br from-[#04221a]/95 via-[#07372a]/90 to-[#0a4733]/85" />
 
-//         {/* Animated dot pattern */}
-//         <div
-//           className="absolute inset-0 opacity-[0.06] animate-pattern"
-//           style={{
-//             backgroundImage:
-//               "radial-gradient(circle, #7c3aed 1px, transparent 1px)",
-//             backgroundSize: "24px 24px",
-//           }}
-//         />
-
-//         {/* Content - positioned above dashboard preview */}
-//         <div className="relative z-10 flex-1">
-//           {/* Logo with hover effect */}
-//           <div className="group flex items-center gap-3">
-//             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-purple-600 to-indigo-600 shadow-lg shadow-purple-500/25 transition-all duration-300 group-hover:scale-110 group-hover:shadow-purple-500/40">
-//               <svg
-//                 viewBox="0 0 24 24"
-//                 className="h-5 w-5 text-white transition-transform duration-300 group-hover:rotate-12"
-//                 fill="none"
-//               >
-//                 <path
-//                   d="M12 3a9 9 0 1 0 9 9"
-//                   stroke="currentColor"
-//                   strokeWidth="2.4"
-//                   strokeLinecap="round"
-//                 />
-//                 <path d="M17 3.5 15 7l3.9-.6z" fill="currentColor" />
-//               </svg>
-//             </div>
-//             <span className="text-2xl font-bold text-slate-900 tracking-tight">
-//               GROO{" "}
-//               <span className="bg-gradient-to-r from-purple-600 to-indigo-600 bg-clip-text text-transparent">
-//                 ERP
+//           <div className="flex h-full flex-col">
+//             <div className="flex items-center gap-3">
+//               <span className="grid h-11 w-11 place-items-center rounded-2xl bg-white/10 ring-1 ring-white/15 backdrop-blur-sm">
+//                 <BrandMark size={30} />
 //               </span>
-//             </span>
-//           </div>
-
-//           {/* Status badge with pulse animation */}
-//           <div className="group mt-8">
-//             <span className="inline-flex items-center gap-2.5 rounded-full border border-emerald-100 bg-white/80 px-4 py-1.5 text-xs font-medium tracking-wide text-emerald-700 shadow-sm backdrop-blur-sm transition-all duration-300 hover:shadow-emerald-500/20 hover:border-emerald-200">
-//               <span className="relative flex h-2 w-2">
-//                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-//                 <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+//               <span className="min-w-0">
+//                 <span className="block text-[15px] font-extrabold leading-tight text-white">
+//                   RETAIL ERP
+//                 </span>
+//                 <span className="block text-[9.5px] font-semibold uppercase leading-tight tracking-[0.14em] text-emerald-200/80">
+//                   Enterprise Resource Planning
+//                 </span>
 //               </span>
-//               184,208 SKUS TRACKED LIVE
-//             </span>
-//           </div>
-
-//           {/* Hero heading with animated gradient */}
-//           <h2 className="mt-7 uppercase mb-3 max-w-[520px] text-4xl font-bold leading-[1.1] whitespace-nowrap tracking-tight text-slate-900 lg:text-5xl">
-//             Every SKU, sale <br /> and shelf
-//             <br />
-//             <span className="bg-gradient-to-r from-violet-600 via-indigo-500 to-blue-500 bg-clip-text text-transparent animate-gradient bg-[length:200%_auto] ">
-//               tracked in real time.
-//             </span>
-//           </h2>
-
-//           {/* Description with fade-in animation */}
-//           <p className="mt-5 max-w-[480px] text-base leading-relaxed text-slate-500 animate-fade-in">
-//             Inventory, POS, CRM and finance running on one live operational
-//             picture of your retail business.
-//           </p>
-
-//           {/* Feature points with staggered animation */}
-//           <ul className="mt-8 space-y-3">
-//             {[
-//               "Live sync across every register",
-//               "One source of truth, every store",
-//               "Role-based access, built in",
-//             ].map((text, index) => (
-//               <li
-//                 key={text}
-//                 className="group flex items-center gap-3 text-sm text-slate-700 transition-all duration-300 hover:translate-x-1"
-//                 style={{ animationDelay: `${index * 150}ms` }}
-//               >
-//                 <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-purple-100 text-purple-600 transition-all duration-300 group-hover:scale-110 group-hover:bg-purple-200">
-//                   <svg
-//                     className="h-3.5 w-3.5"
-//                     fill="none"
-//                     viewBox="0 0 24 24"
-//                     stroke="currentColor"
-//                     strokeWidth={2.5}
-//                   >
-//                     <path
-//                       strokeLinecap="round"
-//                       strokeLinejoin="round"
-//                       d="M4.5 12.75l6 6 9-13.5"
-//                     />
-//                   </svg>
-//                 </span>
-//                 {text}
-//               </li>
-//             ))}
-//           </ul>
-//         </div>
-
-//         {/* Dashboard preview with enhanced hover effects */}
-//         <div className="relative z-10 mt-8 w-full max-w-2xl group/preview">
-//           <div className="rounded-2xl border border-slate-200/60 bg-white/95 p-5 shadow-xl shadow-purple-500/5 backdrop-blur-sm rotate-[-2deg] hover:rotate-0 transition-all duration-700 group-hover/preview:shadow-2xl group-hover/preview:shadow-purple-500/10 group-hover/preview:scale-[1.02]">
-//             {/* Dashboard header */}
-//             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-//               <div className="flex items-center gap-2">
-//                 <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-purple-100 transition-colors group-hover/preview:bg-purple-200">
-//                   <div className="h-3 w-3 rounded-full bg-purple-600" />
-//                 </div>
-//                 <span className="text-xs font-semibold text-slate-700">
-//                   Dashboard
-//                 </span>
-//               </div>
-//               <div className="flex gap-1">
-//                 <div className="h-1.5 w-1.5 rounded-full bg-slate-300 transition-all hover:bg-slate-400" />
-//                 <div className="h-1.5 w-1.5 rounded-full bg-slate-300 transition-all hover:bg-slate-400" />
-//                 <div className="h-1.5 w-1.5 rounded-full bg-slate-300 transition-all hover:bg-slate-400" />
-//               </div>
 //             </div>
 
-//             {/* Stats cards with hover effects */}
-//             <div className="mt-3 grid grid-cols-3 gap-2">
-//               {[
-//                 { label: "Total Sales", value: "₹ 8,62,325", change: "+12.5%" },
-//                 { label: "Orders", value: "2,450", change: "+8.2%" },
-//                 { label: "Low Stock", value: "128", change: "-5.4%" },
-//               ].map((stat) => (
+//             <span className="mt-5 block h-1 w-10 rounded-full bg-gradient-to-r from-emerald-400 to-teal-300" />
+
+//             <h1 className="mt-4 text-[25px] font-extrabold leading-[1.15] tracking-tight text-white sm:text-[28px]">
+//               Smarter Business
+//               <br />
+//               <span className="bg-gradient-to-r from-emerald-300 to-teal-200 bg-clip-text text-transparent">
+//                 Starts
+//               </span>{" "}
+//               Here
+//             </h1>
+
+//             <p className="mt-2.5 max-w-[360px] text-[12.5px] leading-relaxed text-emerald-50/70">
+//               Streamline operations, boost productivity, and drive growth with
+//               our comprehensive ERP platform.
+//             </p>
+
+//             {/* stat cards */}
+//             <div className="mt-6 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+//               {STATS.map((s) => (
 //                 <div
-//                   key={stat.label}
-//                   className="rounded-lg border border-slate-100 bg-white p-2.5 transition-all duration-300 hover:shadow-md hover:border-purple-200 hover:bg-purple-50/30"
+//                   key={s.label}
+//                   className="group rounded-xl border border-white/10 bg-white/[0.07] p-3.5 backdrop-blur-sm transition-colors duration-300 hover:border-emerald-300/30 hover:bg-white/[0.11]"
 //                 >
-//                   <p className="text-[9px] font-medium uppercase tracking-wider text-slate-400">
-//                     {stat.label}
-//                   </p>
-//                   <p className="text-sm font-bold text-slate-900">
-//                     {stat.value}
-//                   </p>
-//                   <p
-//                     className={`text-[9px] font-medium ${
-//                       stat.change.startsWith("+")
-//                         ? "text-emerald-600"
-//                         : "text-red-500"
-//                     }`}
-//                   >
-//                     {stat.change}
-//                   </p>
-//                 </div>
-//               ))}
-//             </div>
+//                   <div className="flex items-start justify-between gap-3">
+//                     <span className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-emerald-400/90 to-teal-500/90 text-white">
+//                       <s.icon className="h-4 w-4" />
+//                     </span>
 
-//             {/* Charts area with animated bars */}
-//             <div className="mt-2.5 grid grid-cols-3 gap-2">
-//               <div className="col-span-2 rounded-lg border border-slate-100 bg-white p-2.5 transition-all hover:shadow-md hover:border-purple-200">
-//                 <p className="text-[9px] font-medium uppercase tracking-wider text-slate-400">
-//                   Sales Overview
-//                 </p>
-//                 <div className="mt-1.5 flex items-end gap-0.5 h-8">
-//                   {[30, 45, 35, 55, 40, 60, 50, 45, 65, 55, 70, 60].map(
-//                     (height, i) => (
-//                       <div
-//                         key={i}
-//                         className="flex-1 rounded-sm bg-gradient-to-t from-purple-400 to-indigo-400 transition-all duration-500 hover:opacity-80"
-//                         style={{
-//                           height: `${height}%`,
-//                           animationDelay: `${i * 50}ms`,
-//                         }}
-//                       />
-//                     ),
-//                   )}
-//                 </div>
-//               </div>
-//               <div className="rounded-lg border border-slate-100 bg-white p-2.5 transition-all hover:shadow-md hover:border-purple-200">
-//                 <p className="text-[9px] font-medium uppercase tracking-wider text-slate-400">
-//                   Categories
-//                 </p>
-//                 <div className="mt-1.5 flex items-center justify-center h-8">
-//                   <div className="relative h-8 w-8">
 //                     <svg
-//                       viewBox="0 0 32 32"
-//                       className="h-8 w-8 -rotate-90 transition-transform hover:rotate-0 duration-500"
+//                       viewBox="0 0 70 26"
+//                       className="h-6 w-16 overflow-visible"
+//                       fill="none"
+//                       aria-hidden="true"
 //                     >
-//                       <circle
-//                         cx="16"
-//                         cy="16"
-//                         r="12"
-//                         fill="none"
-//                         stroke="#7c3aed"
-//                         strokeWidth="3"
-//                         strokeDasharray="25 50"
-//                         className="transition-all hover:stroke-purple-500"
-//                       />
-//                       <circle
-//                         cx="16"
-//                         cy="16"
-//                         r="12"
-//                         fill="none"
-//                         stroke="#6366f1"
-//                         strokeWidth="3"
-//                         strokeDasharray="15 50"
-//                         strokeDashoffset="-25"
-//                         className="transition-all hover:stroke-indigo-500"
-//                       />
-//                       <circle
-//                         cx="16"
-//                         cy="16"
-//                         r="12"
-//                         fill="none"
-//                         stroke="#8b5cf6"
-//                         strokeWidth="3"
-//                         strokeDasharray="10 50"
-//                         strokeDashoffset="-40"
-//                         className="transition-all hover:stroke-purple-400"
+//                       <path
+//                         d={s.line}
+//                         stroke="url(#loginSpark)"
+//                         strokeWidth="2"
+//                         strokeLinecap="round"
+//                         strokeLinejoin="round"
 //                       />
 //                     </svg>
 //                   </div>
+
+//                   <p className="mt-2.5 text-[19px] font-extrabold leading-none text-white">
+//                     {s.value}
+//                   </p>
+//                   <p className="mt-1 text-[11.5px] text-emerald-50/60">{s.label}</p>
+//                   <p className="mt-1 text-[11px] font-bold text-emerald-300">
+//                     &#8599; {s.delta}
+//                   </p>
 //                 </div>
-//               </div>
+//               ))}
 //             </div>
 
-//             {/* Bottom nav with hover effects */}
-//             <div className="mt-2.5 flex items-center gap-3 border-t border-slate-100 pt-2.5">
-//               {["Home", "Sales", "Inventory", "Analytics"].map((item) => (
-//                 <span
-//                   key={item}
-//                   className="text-[8px] font-medium uppercase tracking-wider text-slate-400 transition-all hover:text-purple-600 hover:scale-110 cursor-pointer"
-//                 >
-//                   {item}
-//                 </span>
+//             {/* one gradient shared by every sparkline above */}
+//             <svg width="0" height="0" aria-hidden="true">
+//               <defs>
+//                 <linearGradient id="loginSpark" x1="0" y1="0" x2="1" y2="0">
+//                   <stop offset="0" stopColor="#6ee7b7" />
+//                   <stop offset="1" stopColor="#5eead4" />
+//                 </linearGradient>
+//               </defs>
+//             </svg>
+
+//             <div className="mt-auto grid grid-cols-3 gap-3 pt-6">
+//               {PROOF.map((p) => (
+//                 <div key={p.title} className="flex items-center gap-2">
+//                   <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-white/10 text-emerald-300 ring-1 ring-white/10">
+//                     <p.icon className="h-4 w-4" />
+//                   </span>
+//                   <span className="min-w-0">
+//                     <span className="block truncate text-[11.5px] font-bold text-white">
+//                       {p.title}
+//                     </span>
+//                     <span className="block truncate text-[10px] text-emerald-50/55">
+//                       {p.note}
+//                     </span>
+//                   </span>
+//                 </div>
 //               ))}
 //             </div>
 //           </div>
 //         </div>
 
-//         {/* Version with subtle animation */}
-//         <p className="relative z-10 mt-4 font-mono text-[11px] text-slate-400 animate-pulse-slow">
-//           v1.0.0 · Enterprise Retail Platform
-//         </p>
-//       </div>
+//         {/* ------------------------------------------------ right panel -- */}
+//         <div className="flex items-center justify-center bg-white px-6 py-10 sm:px-9">
+//           <div className="w-full max-w-[380px]">
+//             <div className="text-center">
+//               <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-[10.5px] font-bold uppercase tracking-wider text-emerald-700">
+//                 <ShieldCheck className="h-3.5 w-3.5" />
+//                 Secure login
+//               </span>
 
-//       {/* --------------------------------------------------- right panel -- */}
-//       <div className="relative flex items-center justify-center bg-white px-6 py-16">
-//         {/* Subtle background pattern with animation */}
-//         <div
-//           className="absolute inset-0 opacity-[0.03] animate-pattern-slow"
-//           style={{
-//             backgroundImage:
-//               "radial-gradient(circle, #7c3aed 1px, transparent 1px)",
-//             backgroundSize: "32px 32px",
-//           }}
-//         />
+//               <h2 className="mt-3.5 text-[24px] font-extrabold tracking-tight text-slate-900">
+//                 Welcome{" "}
+//                 <span className="bg-gradient-to-r from-emerald-600 to-teal-500 bg-clip-text text-transparent">
+//                   back
+//                 </span>
+//               </h2>
 
-//         <div className="relative z-10 w-full max-w-md">
-//           <div className="rounded-3xl border border-slate-200/60 bg-white/95 p-8 shadow-[0_20px_60px_-20px_rgba(79,70,229,0.15)] backdrop-blur-sm transition-all duration-500 hover:shadow-[0_30px_80px_-20px_rgba(79,70,229,0.25)] lg:p-10">
-//             {/* Card header with animation */}
-//             <div className="mb-8 text-center">
-//               <div className="group mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-purple-100 to-indigo-50 shadow-sm shadow-purple-500/10 transition-all duration-300 hover:scale-110 hover:shadow-purple-500/20">
-//                 <svg
-//                   viewBox="0 0 24 24"
-//                   className="h-7 w-7 text-purple-600 transition-transform duration-300 group-hover:rotate-12"
-//                   fill="none"
-//                 >
-//                   <path
-//                     d="M12 3a9 9 0 1 0 9 9"
-//                     stroke="currentColor"
-//                     strokeWidth="2.4"
-//                     strokeLinecap="round"
-//                   />
-//                   <path d="M17 3.5 15 7l3.9-.6z" fill="currentColor" />
-//                 </svg>
-//               </div>
-//               <h1 className="text-2xl font-bold text-slate-900">
-//                 Welcome back
-//               </h1>
-//               <p className="mt-1.5 text-sm text-slate-500 transition-all hover:text-slate-600">
+//               <p className="mt-1.5 text-[13.5px] text-slate-500">
 //                 Sign in to your account to continue
 //               </p>
 //             </div>
 
-//             {/* Enhanced SignInForm with animation */}
-//             <div className="animate-slide-up">
+//             <div className="mt-6">
 //               <SignInForm />
 //             </div>
 //           </div>
@@ -375,177 +567,177 @@
 
 
 
-
-
 import SignInForm from "@/components/SignInForm";
 import BrandMark from "@/components/BrandMark";
-import heroBg from "@/erpIMG/hero-bg.jpg.jpeg";
-import {
-  ShieldCheck,
-  Zap,
-  Clock,
-  Users,
-  Package,
-  IndianRupee,
-  TrendingUp,
-} from "lucide-react";
+import panelBg from "@/erpIMG/login-panel.png";
+import office from "@/erpIMG/login-office.png";
+import { ShieldCheck, BarChart3, TrendingUp, Layers } from "lucide-react";
 
-export const metadata = { title: "Sign in | GROO ERP" };
+/* The sign-in screen is where every navigational search lands - "wovenessence
+   login", "groo erp login", "wovenessence admin panel" - so it stays crawlable
+   and carries its own title, description and canonical. Nothing on it is
+   account-specific, so there is nothing here to leak. */
+export const metadata = {
+  /* absolute, so the root layout's "| GROO ERP - Woven Essence" template
+     doesn't repeat the brand twice in one title. */
+  title: { absolute: "Login - GROO ERP Admin Panel | Woven Essence ERP" },
+  description:
+    "Sign in to the GROO ERP admin panel at erp.wovenessence.in - the Woven Essence ERP control panel for sales, inventory, purchase, GST billing, POS and live reports.",
+  keywords: [
+    "wovenessence login",
+    "wovenessence erp login",
+    "wovenessence admin panel",
+    "wovenessence control panel",
+    "GROO ERP login",
+    "Groo Retail ERP login",
+    "ERP admin panel login",
+    "erp.wovenessence.in login",
+  ],
+  alternates: { canonical: "/login" },
+  openGraph: {
+    type: "website",
+    url: "/login",
+    title: "Login - GROO ERP Admin Panel | Woven Essence ERP",
+    description:
+      "Sign in to the Woven Essence ERP control panel - sales, inventory, purchase, billing, POS and reports in one place.",
+    images: ["/images/hero-graphic.png"],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Login - GROO ERP Admin Panel",
+    description: "Sign in to the Woven Essence ERP control panel.",
+    images: ["/images/hero-graphic.png"],
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: { index: true, follow: true, "max-image-preview": "large", "max-snippet": -1 },
+  },
+};
 
-/* The figures in the left panel are a product illustration, the same way the
-   landing page's dashboard preview is. Nothing is signed in yet, so there is
-   no account whose numbers could be shown here - these are the brochure, not
-   a readout. */
-const STATS = [
-  { icon: Users, value: "12.5K", label: "Total Clients", delta: "+8.2%", line: "M0 20 L14 16 L28 18 L42 9 L56 12 L70 4" },
-  { icon: Package, value: "8.2K", label: "Total Products", delta: "+3.1%", line: "M0 18 L14 19 L28 13 L42 15 L56 8 L70 6" },
-  { icon: IndianRupee, value: "98.6K", label: "Revenue", delta: "+12.5%", line: "M0 22 L14 17 L28 19 L42 11 L56 9 L70 3" },
-  { icon: TrendingUp, value: "24.5%", label: "Growth", delta: "+6.2%", line: "M0 19 L14 21 L28 14 L42 16 L56 7 L70 5" },
+const POINTS = [
+  { icon: BarChart3, title: "Manage Everything in One Place", note: "Sales, purchase, inventory, accounts and more." },
+  { icon: TrendingUp, title: "Real-Time Insights", note: "Make better decisions with powerful reports." },
+  { icon: Layers, title: "Built for All Business Sizes", note: "Flexible, scalable and easy to use." },
 ];
 
-const PROOF = [
-  { icon: ShieldCheck, title: "Secure", note: "Bank-level security" },
-  { icon: Zap, title: "Fast", note: "Optimized performance" },
-  { icon: Clock, title: "Always On", note: "24/7 access" },
-];
+function Brand({ dark }) {
+  return (
+    <div className="flex items-center gap-3.5">
+      <span className="grid h-12 w-12 place-items-center rounded-xl bg-[#07140f] ring-1 ring-white/15">
+        <BrandMark size={30} />
+      </span>
+      <span className="min-w-0">
+        <span className={`block text-[15px] font-extrabold leading-tight ${dark ? "text-white" : "text-slate-900"}`}>
+          GROO Retail ERP
+        </span>
+        <span className={`block text-[9px] font-semibold uppercase leading-tight tracking-[0.16em] ${dark ? "text-emerald-100/65" : "text-slate-500"}`}>
+          Enterprise Resource Planning
+        </span>
+      </span>
+    </div>
+  );
+}
 
+/* Marble backdrop with one framed card: a dark showcase panel on the left
+   (hidden below lg) and the white sign-in panel on the right. */
 export default function LoginPage() {
   return (
-    <div className="public-page flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 via-emerald-50/50 to-teal-50/40 p-4 sm:p-6">
-      <div className="grid w-full max-w-5xl overflow-hidden rounded-3xl bg-white shadow-[0_30px_90px_-30px_rgba(6,60,40,0.35)] lg:grid-cols-2">
+    <div className="public-page relative isolate flex min-h-screen items-center justify-center overflow-hidden bg-[#02100c] p-4 sm:p-8">
+      {/* photo backdrop, with a light scrim so the card stays the focus */}
+      <div
+        className="absolute inset-0 -z-20 scale-105 bg-cover bg-center blur-[3px]"
+        style={{ backgroundImage: `url(${office.src})` }}
+      />
+      <div className="absolute inset-0 -z-10 bg-black/30" />
+      <style>{`
+        @keyframes lp-rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+        .lp-rise { opacity: 0; animation: lp-rise .7s cubic-bezier(.2,.7,.2,1) forwards; }
+        @media (prefers-reduced-motion: reduce) { .lp-rise { animation: none; opacity: 1; } }
+      `}</style>
+
+      <div className="lp-rise grid w-full max-w-[960px] overflow-hidden rounded-2xl bg-white p-1.5 shadow-[0_30px_90px_-10px_rgba(0,0,0,.7)] lg:min-h-[530px] lg:grid-cols-2">
         {/* ------------------------------------------------- left panel -- */}
-        {/* The photograph is a background layer, so the panel is sized by the
-            form beside it rather than by the picture's own proportions. */}
-        <div className="relative isolate overflow-hidden p-7 sm:p-8">
-          <div
-            className="absolute inset-0 -z-20 bg-cover bg-center"
-            style={{ backgroundImage: `url(${heroBg.src})` }}
-          />
-          <div className="absolute inset-0 -z-10 bg-gradient-to-br from-[#04221a]/95 via-[#07372a]/90 to-[#0a4733]/85" />
+        <div
+          className="relative isolate hidden overflow-hidden rounded-xl bg-[#02100c] bg-cover bg-center lg:block"
+          style={{ backgroundImage: `url(${panelBg.src})` }}
+        >
+          <div className="absolute inset-0 -z-10 bg-gradient-to-b from-black/65 via-black/50 to-black/65" />
 
-          <div className="flex h-full flex-col">
-            <div className="flex items-center gap-3">
-              <span className="grid h-11 w-11 place-items-center rounded-2xl bg-white/10 ring-1 ring-white/15 backdrop-blur-sm">
-                <BrandMark size={30} />
-              </span>
-              <span className="min-w-0">
-                <span className="block text-[15px] font-extrabold leading-tight text-white">
-                  RETAIL ERP
-                </span>
-                <span className="block text-[9.5px] font-semibold uppercase leading-tight tracking-[0.14em] text-emerald-200/80">
-                  Enterprise Resource Planning
-                </span>
-              </span>
+          <div className="flex h-full flex-col justify-between gap-6 p-8">
+            <div className="lp-rise" style={{ animationDelay: "100ms" }}>
+              <Brand dark />
             </div>
 
-            <span className="mt-5 block h-1 w-10 rounded-full bg-gradient-to-r from-emerald-400 to-teal-300" />
+            <div>
+              <h1
+                className="lp-rise text-[32px] font-extrabold uppercase leading-[1.05] tracking-tight text-white xl:text-[35px]"
+                style={{ animationDelay: "180ms" }}
+              >
+                Smarter
+                <br />
+                <span className="text-teal-300">Business</span>
+                <br />
+                Starts here!
+              </h1>
+              <p
+                className="lp-rise mt-4 max-w-[360px] text-[13px] leading-relaxed text-emerald-50/80"
+                style={{ animationDelay: "260ms" }}
+              >
+                Streamline operations, boost productivity, and drive growth with
+                our comprehensive ERP platform.
+              </p>
+            </div>
 
-            <h1 className="mt-4 text-[25px] font-extrabold leading-[1.15] tracking-tight text-white sm:text-[28px]">
-              Smarter Business
-              <br />
-              <span className="bg-gradient-to-r from-emerald-300 to-teal-200 bg-clip-text text-transparent">
-                Starts
-              </span>{" "}
-              Here
-            </h1>
-
-            <p className="mt-2.5 max-w-[360px] text-[12.5px] leading-relaxed text-emerald-50/70">
-              Streamline operations, boost productivity, and drive growth with
-              our comprehensive ERP platform.
-            </p>
-
-            {/* stat cards */}
-            <div className="mt-6 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-              {STATS.map((s) => (
-                <div
-                  key={s.label}
-                  className="group rounded-xl border border-white/10 bg-white/[0.07] p-3.5 backdrop-blur-sm transition-colors duration-300 hover:border-emerald-300/30 hover:bg-white/[0.11]"
+            <ul className="space-y-1">
+              {POINTS.map((pt, i) => (
+                <li
+                  key={pt.title}
+                  className="lp-rise group -ml-2 flex cursor-default items-center gap-4 rounded-xl p-2 transition-colors duration-300 hover:bg-white/[0.07]"
+                  style={{ animationDelay: `${340 + i * 110}ms` }}
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <span className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-emerald-400/90 to-teal-500/90 text-white">
-                      <s.icon className="h-4 w-4" />
-                    </span>
-
-                    <svg
-                      viewBox="0 0 70 26"
-                      className="h-6 w-16 overflow-visible"
-                      fill="none"
-                      aria-hidden="true"
-                    >
-                      <path
-                        d={s.line}
-                        stroke="url(#loginSpark)"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  </div>
-
-                  <p className="mt-2.5 text-[19px] font-extrabold leading-none text-white">
-                    {s.value}
-                  </p>
-                  <p className="mt-1 text-[11.5px] text-emerald-50/60">{s.label}</p>
-                  <p className="mt-1 text-[11px] font-bold text-emerald-300">
-                    &#8599; {s.delta}
-                  </p>
-                </div>
-              ))}
-            </div>
-
-            {/* one gradient shared by every sparkline above */}
-            <svg width="0" height="0" aria-hidden="true">
-              <defs>
-                <linearGradient id="loginSpark" x1="0" y1="0" x2="1" y2="0">
-                  <stop offset="0" stopColor="#6ee7b7" />
-                  <stop offset="1" stopColor="#5eead4" />
-                </linearGradient>
-              </defs>
-            </svg>
-
-            <div className="mt-auto grid grid-cols-3 gap-3 pt-6">
-              {PROOF.map((p) => (
-                <div key={p.title} className="flex items-center gap-2">
-                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-white/10 text-emerald-300 ring-1 ring-white/10">
-                    <p.icon className="h-4 w-4" />
+                  <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-emerald-400/25 bg-emerald-500/15 text-emerald-300 transition-all duration-300 group-hover:scale-105 group-hover:bg-emerald-500 group-hover:text-white">
+                    <pt.icon className="h-5 w-5" />
                   </span>
-                  <span className="min-w-0">
-                    <span className="block truncate text-[11.5px] font-bold text-white">
-                      {p.title}
-                    </span>
-                    <span className="block truncate text-[10px] text-emerald-50/55">
-                      {p.note}
-                    </span>
+                  <span>
+                    <span className="block text-[13px] font-bold text-white">{pt.title}</span>
+                    <span className="block text-[11.5px] text-emerald-50/70">{pt.note}</span>
                   </span>
-                </div>
+                </li>
               ))}
-            </div>
+            </ul>
           </div>
         </div>
 
         {/* ------------------------------------------------ right panel -- */}
-        <div className="flex items-center justify-center bg-white px-6 py-10 sm:px-9">
-          <div className="w-full max-w-[380px]">
+        <div className="flex items-center justify-center px-6 py-9 sm:px-9">
+          <div className="w-full max-w-[360px]">
+            <div className="mb-6 lg:hidden">
+              <Brand />
+            </div>
+
             <div className="text-center">
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-[10.5px] font-bold uppercase tracking-wider text-emerald-700">
-                <ShieldCheck className="h-3.5 w-3.5" />
-                Secure login
-              </span>
-
-              <h2 className="mt-3.5 text-[24px] font-extrabold tracking-tight text-slate-900">
-                Welcome{" "}
-                <span className="bg-gradient-to-r from-emerald-600 to-teal-500 bg-clip-text text-transparent">
-                  back
-                </span>
+              <h2 className="text-[32px] font-extrabold uppercase tracking-tight text-slate-900">
+                Welcome <span className="text-emerald-700">back</span>
               </h2>
-
-              <p className="mt-1.5 text-[13.5px] text-slate-500">
-                Sign in to your account to continue
+              <p className="mt-1.5 text-[15px] text-slate-500">
+                Sign in to your account to continue.
               </p>
             </div>
 
             <div className="mt-6">
               <SignInForm />
+            </div>
+
+            <div className="mt-5 border-t border-slate-200 pt-4 text-center">
+              <span className="inline-flex items-center gap-2 text-[13.5px] font-bold text-slate-800">
+                <ShieldCheck className="h-[18px] w-[18px] text-emerald-700" />
+                Secure Login
+              </span>
+              <p className="mt-1.5 text-[12.5px] leading-relaxed text-slate-500">
+                Your data is protected with industry-standard security and
+                encrypted connection.
+              </p>
             </div>
           </div>
         </div>
@@ -553,4 +745,3 @@ export default function LoginPage() {
     </div>
   );
 }
-

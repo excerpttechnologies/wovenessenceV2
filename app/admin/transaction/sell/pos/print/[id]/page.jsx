@@ -113,6 +113,11 @@ const FOOTER_NOTE = 'TUESDAY HOLIDAY';
 /* the old Email button (Gmail with the invoice link) - hidden for now; the
    direct-email button replaces it (user, 26-10-2026) */
 const SHOW_GMAIL_EMAIL = false;
+/* the old WhatsApp Web link button and the WhatsApp App (whatsapp://) button -
+   hidden; the WhatsApp button now sends the PDF directly to a typed number,
+   as on View POS (user, 27-10-2026) */
+const SHOW_WHATSAPP_WEB_LINK = false;
+const SHOW_WHATSAPP_APP = false;
 
 /* Indian grouping, two places - 18,485.00 */
 const inr = (v) => Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -198,6 +203,9 @@ export default function PrintPosPage() {
   /* the direct Email box - the customer's address, and whether it is sending (26-10-2026) */
   const [emailBox, setEmailBox] = useState(null);     // { to, error } | null
   const [emailSending, setEmailSending] = useState(false);
+  /* the direct WhatsApp box - customer's mobile, and whether it is sending (27-10-2026) */
+  const [waBox, setWaBox] = useState(null);           // { to, error } | null
+  const [waSending, setWaSending] = useState(false);
   /* the last WhatsApp-app link, for an "open it" fallback link (26-10-2026) */
   const [waAppUrl, setWaAppUrl] = useState('');
   useEffect(() => {
@@ -347,6 +355,34 @@ export default function PrintPosPage() {
       setEmailBox((b) => (b ? { ...b, error: (e && e.message) || 'Could not send the email.' } : b));
     } finally {
       setEmailSending(false);
+    }
+  }
+
+  /* DIRECT WHATSAPP WITH THE PDF (user, 27-10-2026): the box takes the
+     customer's mobile and app/api/invoice-whatsapp sends the PDF from the
+     shop's WhatsApp Business number (Cloud API, settings in .env) - same as
+     View POS (components/PosInvoiceView.jsx) */
+  async function sendInvoiceWhatsApp() {
+    const raw = String(waBox?.to || '').trim();
+    const digits = raw.replace(/\D/g, '');
+    if (digits.length < 10 || digits.length > 15) { setWaBox((b) => ({ ...b, error: 'Enter a valid mobile number.' })); return; }
+    setWaSending(true);
+    setWaBox((b) => ({ ...b, error: '' }));
+    try {
+      const blob = await invoicePdfBlob();
+      const form = new FormData();
+      form.append('to', raw);
+      form.append('invoiceId', String(doc._id || id));
+      form.append('file', new File([blob], pdfName, { type: 'application/pdf' }));
+      const r = await fetch('/api/invoice-whatsapp', { method: 'POST', body: form });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || 'Could not send on WhatsApp.');
+      setWaBox(null);
+      setShareNote({ notice: 'Invoice PDF sent on WhatsApp to ' + (d.to || raw) + '.' });
+    } catch (e) {
+      setWaBox((b) => (b ? { ...b, error: (e && e.message) || 'Could not send on WhatsApp.' } : b));
+    } finally {
+      setWaSending(false);
     }
   }
 
@@ -514,9 +550,14 @@ export default function PrintPosPage() {
           {/* SHARE (user, 21-10-2026) - the same three buttons and the same
               message as the View POS screen (components/PosInvoiceView.jsx);
               screen-only, the printed bill is unchanged */}
-          <button type="button" title="Share on WhatsApp Web" aria-label="Share on WhatsApp Web" className="flex h-9 w-9 items-center justify-center rounded bg-[#25D366] text-white hover:bg-[#1da851]" onClick={() => sharePdf('whatsapp')}><Icon name="whatsapp" size={18} /></button>
-          {/* WHATSAPP APP (26-10-2026): the same link message, opened in the installed WhatsApp app */}
-          <button type="button" title="Share on WhatsApp App" aria-label="Share on WhatsApp App" className="flex h-9 items-center justify-center gap-1 rounded bg-[#128C7E] px-2 text-[11px] font-bold text-white hover:bg-[#0e6f64]" onClick={() => sharePdf('whatsapp-app')}><Icon name="whatsapp" size={16} /> App</button>
+          {/* the WhatsApp Web link button - HIDDEN (user, 27-10-2026);
+              set SHOW_WHATSAPP_WEB_LINK to true to bring it back */}
+          {SHOW_WHATSAPP_WEB_LINK && <button type="button" title="Share on WhatsApp Web" aria-label="Share on WhatsApp Web" className="flex h-9 w-9 items-center justify-center rounded bg-[#25D366] text-white hover:bg-[#1da851]" onClick={() => sharePdf('whatsapp')}><Icon name="whatsapp" size={18} /></button>}
+          {/* DIRECT WHATSAPP (27-10-2026): type the customer's mobile, the PDF is sent from the shop's WhatsApp number */}
+          <button type="button" title="Send the invoice PDF on WhatsApp" aria-label="Send the invoice PDF on WhatsApp" className="flex h-9 w-9 items-center justify-center rounded bg-[#25D366] text-white hover:bg-[#1da851]" onClick={() => { setShareNote(null); setWaBox({ to: doc.customerContact || '', error: '' }); }}><Icon name="whatsapp" size={18} /></button>
+          {/* WHATSAPP APP (26-10-2026): the same link message, opened in the installed WhatsApp app.
+              HIDDEN (user, 27-10-2026); set SHOW_WHATSAPP_APP to true to bring it back */}
+          {SHOW_WHATSAPP_APP && <button type="button" title="Share on WhatsApp App" aria-label="Share on WhatsApp App" className="flex h-9 items-center justify-center gap-1 rounded bg-[#128C7E] px-2 text-[11px] font-bold text-white hover:bg-[#0e6f64]" onClick={() => sharePdf('whatsapp-app')}><Icon name="whatsapp" size={16} /> App</button>}
           {/* Instagram button removed (user, 22-10-2026) */}
           {/* the Gmail-with-link Email button - HIDDEN for now (user, 26-10-2026);
               set SHOW_GMAIL_EMAIL to true to bring it back */}
@@ -544,6 +585,35 @@ export default function PrintPosPage() {
           </div>
         )}
       </div>
+
+      {/* DIRECT WHATSAPP BOX (27-10-2026) - screen only, never printed */}
+      {waBox && (
+        <div className="no-print fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4" onClick={() => { if (!waSending) setWaBox(null); }}>
+          <div className="w-full max-w-md rounded-lg bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-1 text-[15px] font-bold">Send invoice {doc.invoiceNo || ''} on WhatsApp</div>
+            <div className="mb-3 text-[12px] text-inkmuted">The invoice PDF is sent straight to this WhatsApp number.</div>
+            <label className="f-label">Customer mobile number</label>
+            <input
+              type="tel"
+              className="f-input w-full"
+              placeholder="9876543210"
+              autoFocus
+              value={waBox.to}
+              disabled={waSending}
+              onChange={(e) => setWaBox((b) => ({ ...b, to: e.target.value, error: '' }))}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); sendInvoiceWhatsApp(); } }}
+            />
+            <div className="mt-1 text-[11px] text-inkmuted">10-digit number, or with country code (91 is added automatically).</div>
+            {waBox.error && <div className="f-err mt-1">{waBox.error}</div>}
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" className="btn" disabled={waSending} onClick={() => setWaBox(null)}>Cancel</button>
+              <button type="button" className="btn btn-primary" disabled={waSending} onClick={sendInvoiceWhatsApp}>
+                {waSending ? 'Sending...' : <><Icon name="whatsapp" size={14} /> Send</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* DIRECT EMAIL BOX (26-10-2026) - screen only, never printed */}
       {emailBox && (

@@ -1,6 +1,6 @@
 import './globals.css';
-import Script from 'next/script';
 import { ToastProvider } from '@/components/ToastContext';
+import GoogleAnalytics from '@/components/analytics/GoogleAnalytics';
 
 export const metadata = {
   title: 'Woven Essence',
@@ -8,28 +8,20 @@ export const metadata = {
     'Shop handloom sarees, plain fabrics, dupattas and new arrivals from Woven Essence by Temple Fabrics, Bangalore.',
 };
 
-const GA_ID = process.env.NEXT_PUBLIC_GA_ID;
+/* The storefront already publishes GA4_MEASUREMENT_ID through
+   /api/website-analytics/config. NEXT_PUBLIC_GA_ID is kept as an override for
+   deployments that want a separate property for the ERP application. A
+   measurement ID is public by design; the service-account credentials stay
+   server-side. */
+const GA_ID = process.env.NEXT_PUBLIC_GA_ID || process.env.GA4_MEASUREMENT_ID;
+const VALID_GA_ID = /^G-[A-Z0-9]{4,}$/i.test(String(GA_ID || '')) ? GA_ID : '';
 
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body className="bg-page font-sans text-ink antialiased">
         <ToastProvider>{children}</ToastProvider>
-
-        {GA_ID && (
-          <>
-            <Script
-              src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`}
-              strategy="afterInteractive"
-            />
-            <Script id="ga4" strategy="afterInteractive">
-              {`window.dataLayer = window.dataLayer || [];
-                function gtag(){dataLayer.push(arguments);}
-                gtag('js', new Date());
-                gtag('config', '${GA_ID}');`}
-            </Script>
-          </>
-        )}
+        <GoogleAnalytics measurementId={VALID_GA_ID} />
       </body>
     </html>
   );
