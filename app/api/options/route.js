@@ -5736,8 +5736,8 @@ const REFS = {
      flagged `isDefault`, so a picker can preselect one instead of falling back
      to whatever happens to be first alphabetically. Business uses it to make
      the main branch the default selection. */
-  business:                  { load: () => import('@/models/Business'), scoped: false, defaultField: 'isMainBranch' },
-  companylocations:          { load: () => import('@/models/CompanyLocation') },
+  business:                  { load: () => import('@/models/Business'), scoped: false, defaultField: 'isMainBranch', nameFallback: ['businessPrintName'], includeAll: true },
+  companylocations:          { load: () => import('@/models/CompanyLocation'), includeAll: true },
   ledgergroups:              { load: () => import('@/models/LedgerGroup') },
   ledger:                    { load: () => import('@/models/Ledger') },
   docsetup:                  { load: () => import('@/models/DocSetup') },
