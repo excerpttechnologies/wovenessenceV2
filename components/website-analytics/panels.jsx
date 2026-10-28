@@ -86,30 +86,23 @@ function formatKpiPrevious(card) {
 export function KpiGrid({ cards = [] }) {
   return (
     <section className={styles.kpiGrid} aria-label="Website key metrics">
-      {cards.map((card) => {
-        /* Two different nulls: a metric the tracker has never measured, and a
-           metric with a source but no denominator in this period (0 orders over
-           0 sessions). Only the first one is "not tracked". */
-        const notTracked = Boolean(card.unavailable);
-        const noFigure = !notTracked && (card.value === null || card.value === undefined);
-        const unavailable = notTracked || noFigure;
+      {cards.filter((card) => !card.unavailable).map((card) => {
+        const noFigure = card.value === null || card.value === undefined;
         return (
           <article
             key={card.key}
-            className={`${styles.kpiCard} ${unavailable ? styles.kpiCardMuted : ''}`}
+            className={`${styles.kpiCard} ${noFigure ? styles.kpiCardMuted : ''}`}
             title={card.note}
           >
             <div className={styles.kpiTop}>
               <span className={styles.kpiIcon}><Glyph name={KPI_ICONS[card.key] || 'chart'} size={15} /></span>
               <span className={styles.kpiLabel}>{card.label}</span>
             </div>
-            <p className={`${styles.kpiValue} ${unavailable ? styles.kpiValueMuted : ''}`}>
-              {notTracked ? 'Not tracked' : noFigure ? '—' : formatKpi(card)}
+            <p className={`${styles.kpiValue} ${noFigure ? styles.kpiValueMuted : ''}`}>
+              {noFigure ? '—' : formatKpi(card)}
             </p>
             <div className={styles.kpiDeltaRow}>
-              {notTracked ? (
-                <span className={`${styles.delta} ${styles.deltaNa}`}>{card.unavailableReason || 'Awaiting tracker'}</span>
-              ) : noFigure ? (
+              {noFigure ? (
                 <span className={`${styles.delta} ${styles.deltaNa}`}>Nothing to measure in this period</span>
               ) : (
                 <>
@@ -696,32 +689,155 @@ export function CartsPanel({ carts }) {
 /* -------------------------------------------------------------- realtime --- */
 
 export function RealtimePanel({ realtime }) {
-  const values = [
-    { key: 'activeVisitors', label: 'Visitors active in the last 5 min' },
-    { key: 'events', label: 'Events in the last 5 min' },
-    { key: 'productViews', label: 'Product views' },
-    { key: 'addToCart', label: 'Add-to-cart events' },
-  ];
+  if (!realtime?.available) {
+    return (
+      <Panel title="Live activity" icon="clock" subtitle="GA4 Realtime API — refreshed every minute." badge="realtime">
+        <EmptyState icon="clock" title="Realtime data unavailable" message={realtime?.error?.message || 'The GA4 Realtime API could not be reached.'} />
+      </Panel>
+    );
+  }
+
+  const sparkline = realtime.minuteSparkline || [];
+  const topPages = realtime.topPages || [];
+  const topCountries = realtime.topCountries || [];
+  const topSources = realtime.topSources || [];
+  const topEvents = realtime.topEvents || [];
+
+  /* SVG sparkline — 30 minutes, 280×48 px viewBox */
+  const W = 280, H = 48, pad = 4;
+  const maxVal = Math.max(...sparkline.map((p) => p.activeUsers), 1);
+  const pts = Array.from({ length: 30 }, (_, i) => {
+    const found = sparkline.find((p) => p.minute === i);
+    return found ? found.activeUsers : 0;
+  });
+  const sx = (i) => pad + (i * (W - 2 * pad)) / 29;
+  const sy = (v) => H - pad - ((v / maxVal) * (H - 2 * pad));
+  const linePath = pts.map((v, i) => `${i === 0 ? 'M' : 'L'}${sx(i).toFixed(1)} ${sy(v).toFixed(1)}`).join(' ');
+  const areaPath = pts.length
+    ? `${linePath} L${sx(29).toFixed(1)} ${(H - pad).toFixed(1)} L${sx(0).toFixed(1)} ${(H - pad).toFixed(1)} Z`
+    : '';
+  const hasSparkline = pts.some((v) => v > 0);
 
   return (
     <Panel
       title="Live activity"
       icon="clock"
-      subtitle="Read from the tracker feed; refreshed with the dashboard every minute."
-      badge="5 min"
+      subtitle="GA4 Realtime — active users in the last 30 minutes. Refreshed every minute."
+      badge="realtime"
     >
-      {realtime?.activeVisitors === null || realtime?.activeVisitors === undefined ? (
-        <EmptyState icon="clock" title="Live activity needs the tracker" message="Until events arrive there is nothing real to show, so no activity figure is displayed." />
-      ) : (
-        <div className={styles.rtRow}>
-          {values.map((value) => (
-            <div key={value.key} className={styles.rtTile}>
-              <p className={styles.rtValue}>{count(realtime[value.key])}</p>
-              <p className={styles.rtLabel}>{value.label}</p>
-            </div>
-          ))}
+      {/* Hero: total active users */}
+      <div className={styles.rtHero}>
+        <span className={styles.rtHeroValue}>{count(realtime.activeUsers)}</span>
+        <span className={styles.rtHeroLabel}>active users right now</span>
+      </div>
+
+      {/* 30-minute sparkline */}
+      {hasSparkline ? (
+        <div className={styles.rtSparkWrap}>
+          <svg viewBox={`0 0 ${W} ${H}`} className={styles.rtSparkSvg} aria-label="Users per minute — last 30 minutes" role="img">
+            <defs>
+              <linearGradient id="rtArea" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#2c9c6a" stopOpacity="0.25" />
+                <stop offset="100%" stopColor="#2c9c6a" stopOpacity="0.02" />
+              </linearGradient>
+            </defs>
+            <path d={areaPath} fill="url(#rtArea)" />
+            <path d={linePath} fill="none" stroke="#2c9c6a" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+          </svg>
+          <div className={styles.rtSparkLabels}>
+            <span>30 min ago</span>
+            <span>now</span>
+          </div>
         </div>
-      )}
+      ) : null}
+
+      {/* Top active pages */}
+      {topPages.length > 0 ? (
+        <div className={styles.rtSection}>
+          <p className={styles.rtSectionTitle}>Active pages</p>
+          <div className={styles.barList}>
+            {topPages.map((row) => {
+              const maxPg = Math.max(...topPages.map((r) => r.activeUsers), 1);
+              return (
+                <div key={row.pagePath} className={styles.barRow}>
+                  <span className={styles.barLabel} title={row.pagePath}>{row.pagePath}</span>
+                  <span className={styles.barValue}>{count(row.activeUsers)}</span>
+                  <span className={styles.barTrack}>
+                    <span className={styles.barFill} style={{ width: `${Math.max(2, (row.activeUsers / maxPg) * 100)}%` }} />
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
+      {/* Top countries */}
+      {topCountries.length > 0 ? (
+        <div className={styles.rtSection}>
+          <p className={styles.rtSectionTitle}>Top countries</p>
+          <div className={styles.barList}>
+            {topCountries.map((row) => {
+              const maxCo = Math.max(...topCountries.map((r) => r.activeUsers), 1);
+              return (
+                <div key={row.country} className={styles.barRow}>
+                  <span className={styles.barLabel}>{row.country}</span>
+                  <span className={styles.barValue}>{count(row.activeUsers)}</span>
+                  <span className={styles.barTrack}>
+                    <span className={styles.barFill} style={{ width: `${Math.max(2, (row.activeUsers / maxCo) * 100)}%` }} />
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
+      {/* Top traffic sources */}
+      {topSources.length > 0 ? (
+        <div className={styles.rtSection}>
+          <p className={styles.rtSectionTitle}>Traffic sources</p>
+          <div className={styles.barList}>
+            {topSources.map((row) => {
+              const maxSrc = Math.max(...topSources.map((r) => r.activeUsers), 1);
+              return (
+                <div key={row.channel} className={styles.barRow}>
+                  <span className={styles.barLabel}>{row.channel}</span>
+                  <span className={styles.barValue}>{count(row.activeUsers)}</span>
+                  <span className={styles.barTrack}>
+                    <span className={styles.barFill} style={{ width: `${Math.max(2, (row.activeUsers / maxSrc) * 100)}%` }} />
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
+      {/* Top events */}
+      {topEvents.length > 0 ? (
+        <div className={styles.rtSection}>
+          <p className={styles.rtSectionTitle}>Top events</p>
+          <div className={styles.barList}>
+            {topEvents.map((row) => {
+              const maxEv = Math.max(...topEvents.map((r) => r.events), 1);
+              return (
+                <div key={row.eventName} className={styles.barRow}>
+                  <span className={styles.barLabel}>{row.eventName}</span>
+                  <span className={styles.barValue}>{count(row.events)}</span>
+                  <span className={styles.barTrack}>
+                    <span className={styles.barFill} style={{ width: `${Math.max(2, (row.events / maxEv) * 100)}%` }} />
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
+      {topPages.length === 0 && topCountries.length === 0 && topSources.length === 0 && topEvents.length === 0 ? (
+        <p className={styles.funnelNote} style={{marginTop: 8}}>No realtime activity recorded yet. Data appears once visitors are active on the site.</p>
+      ) : null}
     </Panel>
   );
 }

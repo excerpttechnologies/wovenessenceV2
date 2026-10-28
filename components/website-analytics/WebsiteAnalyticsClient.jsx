@@ -234,8 +234,8 @@ export default function WebsiteAnalyticsClient() {
             Visitor behaviour, customer engagement and e-commerce performance for the storefront.
             Every figure is read from the storefront collections that share this database.
           </p>
-          <a className={styles.siteLink} href="https://wovenessence.in/" target="_blank" rel="noopener noreferrer">
-            wovenessence.in <Glyph name="external" size={12} />
+          <a className={styles.siteLink} href="https://ecom.wovenessence.in/" target="_blank" rel="noopener noreferrer">
+            ecom.wovenessence.in <Glyph name="external" size={12} />
           </a>
 
           <div className={styles.statusRow}>

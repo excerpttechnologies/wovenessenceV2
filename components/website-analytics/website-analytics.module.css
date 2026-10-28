@@ -689,3 +689,52 @@
   .topActions { width: 100%; justify-content: flex-start; }
   .kpiValue { font-size: 20px; }
 }
+
+/* ---------------------------------------------------------------- realtime hero */
+.rtHero {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 12px 0 8px;
+}
+.rtHeroValue {
+  font-size: 2.2rem;
+  font-weight: 700;
+  color: var(--color-text, #111);
+  line-height: 1;
+}
+.rtHeroLabel {
+  font-size: 0.82rem;
+  color: var(--color-text-muted, #666);
+}
+
+/* ---------------------------------------------------------------- realtime sparkline */
+.rtSparkWrap {
+  margin: 4px 0 12px;
+}
+.rtSparkSvg {
+  width: 100%;
+  height: 48px;
+  display: block;
+  overflow: visible;
+}
+.rtSparkLabels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  color: var(--color-text-muted, #999);
+  margin-top: 2px;
+}
+
+/* ---------------------------------------------------------------- realtime sub-section */
+.rtSection {
+  margin-top: 16px;
+}
+.rtSectionTitle {
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted, #888);
+  margin: 0 0 6px;
+}
