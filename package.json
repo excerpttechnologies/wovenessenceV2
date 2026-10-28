@@ -95,7 +95,8 @@
     "ic:receive-pending:apply": "node --env-file=.env --import ./scripts/aliasRegister.mjs scripts/receivePendingIcChallans.mjs --apply",
     "hsr:sync": "node --env-file=.env --import ./scripts/aliasRegister.mjs scripts/seedHsrOpening.mjs --sync",
     "hsr:sync:apply": "node --env-file=.env --import ./scripts/aliasRegister.mjs scripts/seedHsrOpening.mjs --sync --apply",
-    "test:barcode-import": "node --max-old-space-size=4096 --env-file=.env --import ./scripts/aliasRegister.mjs scripts/testBarcodeMasterImport.mjs"
+    "test:barcode-import": "node --max-old-space-size=4096 --env-file=.env --import ./scripts/aliasRegister.mjs scripts/testBarcodeMasterImport.mjs",
+    "test:ai-assistant": "node --env-file=.env --import ./scripts/aliasRegister.mjs scripts/testAiAssistant.mjs"
   },
   "dependencies": {
     "dotenv": "^18.0.7",
@@ -118,8 +119,11 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@types/node": "26.6.5",
+    "@types/react": "19.3.0",
     "autoprefixer": "10.4.20",
     "postcss": "8.4.49",
-    "tailwindcss": "3.4.17"
+    "tailwindcss": "3.4.17",
+    "typescript": "7.0.2"
   }
 }

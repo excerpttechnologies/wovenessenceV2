@@ -44,7 +44,7 @@ let lastSweep = 0;
 function allowedOrigin(origin) {
   if (!origin) return '';
   const configured = String(process.env.WEBSITE_ANALYTICS_ORIGINS
-    || 'https://wovenessence.in,https://www.wovenessence.in,https://wovenessence.etpl.ai')
+    || 'https://ecom.wovenessence.in,https://www.ecom.wovenessence.in,https://wovenessence.in,https://www.wovenessence.in,https://wovenessence.etpl.ai')
     .split(',')
     .map((value) => value.trim())
     .filter(Boolean);

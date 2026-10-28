@@ -59,6 +59,25 @@ export async function GET(req) {
   const l = sp.get('location'); if (l && isValidObjectId(l)) filter.locationId = l;
   const y = sp.get('finYear'); if (y) filter.finYear = y;
 
+  /* Date range — mirrors the pattern in /api/sell-pos. Falls back to
+     createdAt when date is null so legacy returns are not silently excluded. */
+  const from = sp.get('startDate');
+  const to = sp.get('endDate');
+  if (from || to) {
+    const dateFilter = {};
+    if (from) dateFilter.$gte = new Date(from);
+    if (to) dateFilter.$lte = new Date(`${to}T23:59:59`);
+    filter.$or = [
+      { date: dateFilter },
+      {
+        $and: [
+          { $or: [{ date: null }, { date: { $exists: false } }] },
+          { createdAt: dateFilter },
+        ],
+      },
+    ];
+  }
+
 
   /* "unconverted" upstream documents: a GRC with no purchase invoice yet, a
      GRT with no debit note yet. $eq: null matches missing AND null - passing
