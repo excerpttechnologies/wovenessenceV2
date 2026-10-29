@@ -1,5 +1,5 @@
 import { requirePermission, PERMISSIONS } from '@/lib/rbac';
-import { buildWebsiteAnalytics } from '@/lib/website-analytics/service';
+import { loadGa4Realtime } from '@/lib/website-analytics/ga4';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,20 +15,26 @@ function fail(err) {
       { status: err.status, headers: PRIVATE_HEADERS }
     );
   }
-  console.error('[website-analytics/overview]', err);
+  console.error('[website-analytics/overview]', err?.code || 'ERROR');
   return Response.json(
     { error: 'Could not load website analytics. Please retry.', code: 'INTERNAL' },
     { status: 500, headers: PRIVATE_HEADERS }
   );
 }
 
-/* One request, one response: every panel on the screen reads this payload, so
-   the page cannot show two panels computed from different ranges. */
+/* One request, one response. Every panel on the screen reads this payload, so
+   the cards and the tables can never show two different reporting windows.
+
+   This route reads GA4 realtime only (properties/:id:runRealtimeReport). No ERP
+   or storefront collection is queried and no standard runReport is used: the
+   page covers the last 30 minutes and nothing older.
+
+   Authentication and the reports.view permission are unchanged. */
 export async function GET(req) {
   try {
-    const session = await requirePermission(PERMISSIONS.REPORTS_VIEW);
-    const sp = new URL(req.url).searchParams;
-    const data = await buildWebsiteAnalytics(session, sp);
+    await requirePermission(PERMISSIONS.REPORTS_VIEW);
+    const force = new URL(req.url).searchParams.get('refresh') === '1';
+    const data = await loadGa4Realtime({ force });
     return Response.json(data, { headers: PRIVATE_HEADERS });
   } catch (err) {
     return fail(err);

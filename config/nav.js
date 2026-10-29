@@ -65,6 +65,7 @@ import {
   LuPackageCheck,
   LuPackageMinus,
   LuArchive,
+  LuSparkles,
 } from 'react-icons/lu';
 
 /* Archive menu on/off - see the Archive entry near the end (23-10-2026) */
@@ -76,6 +77,16 @@ export const NAV = [
     label: 'Dashboard',
     icon: LuGauge,
     href: '/admin',
+  },
+
+  /* The AI Business Assistant sits directly under the dashboard: it is the
+     other place an operator starts their day. Its API is gated by the
+     existing reports.view permission, so no new permission key is invented
+     for it. */
+  {
+    label: 'AI Business Assistant',
+    icon: LuSparkles,
+    href: '/admin/ai-assistant',
   },
  
   {

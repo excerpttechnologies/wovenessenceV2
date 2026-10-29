@@ -1,15 +1,18 @@
 'use client';
 
-import WebsiteAnalyticsClient from '@/components/website-analytics/WebsiteAnalyticsClient';
+import RealtimeDashboard from '@/components/website-analytics/RealtimeDashboard';
 
 /* E-commerce → Website Analytics.
 
-   Read-only. The figures come from the storefront collections that share this
-   database (visits, orders, customers, carts) and, once installed, from the
-   first-party tracker feed. Nothing here writes to a storefront or ERP record.
-   Access is enforced by the overview/export APIs through the existing
-   reports.view permission. */
+   Read-only, GA4 only. Two reports share the screen:
+
+     - Active Users: runReport for a date range the operator chooses
+     - Realtime overview / Realtime pages: runRealtimeReport for the last 30
+       minutes, served by one overview response
+
+   Both routes enforce the existing reports.view permission. Nothing here reads
+   an ERP or storefront collection, and nothing is written back to GA4. */
 
 export default function WebsiteAnalyticsPage() {
-  return <WebsiteAnalyticsClient />;
+  return <RealtimeDashboard />;
 }

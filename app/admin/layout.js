@@ -42,6 +42,7 @@ import { usePathname } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Topbar from '@/components/Topbar';
 import ChatBot, { ChatBotProvider } from '@/components/ChatBot';
+import FloatingAssistant from '@/components/ai-assistant/FloatingAssistant';
 import { ScopeProvider } from '@/components/ScopeContext';
 import { disableSelectScroll } from '@/lib/disableSelectScroll';
 
@@ -101,6 +102,11 @@ export default function AdminLayout({ children }) {
           stays off the marketing landing page and /login. Mounted here rather
           than per-page so its transcript survives navigation between screens. */}
       <ChatBot />
+
+      {/* The business assistant's launcher is separate from the help bot: one
+          answers "how do I use this screen", the other answers "what are my
+          sales this month". Both stay off printed documents. */}
+      <FloatingAssistant />
      </ChatBotProvider>
     </ScopeProvider>
   );
