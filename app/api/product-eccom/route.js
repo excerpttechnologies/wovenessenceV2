@@ -3426,8 +3426,7 @@ import { requireSession } from '@/lib/session';
 import { escapeRegex } from '@/lib/validate';
 import ProductImage from '@/models/ProductImage';
 import { barcodeFilter as inventoryBarcodeFilter, imageUrl, unitFor } from '@/lib/inventory';
-import ProductClassificationOption from '@/models/ProductClassificationOption';
-import { DUPATTA_FABRIC_OPTIONS } from '@/lib/productClassificationConstants';
+import { classificationOptionsById, listClassificationOptions } from '@/lib/classificationCollections';
 
 /* /api/product-eccom - list only, read-only (19-10-2026).
 
@@ -3441,9 +3440,11 @@ import { DUPATTA_FABRIC_OPTIONS } from '@/lib/productClassificationConstants';
    product-eccom page can build one column per field and a field added on the
    e-commerce side shows up without a change here.
 
-   ?classifications=1 answers the business's productclassificationoption
-   rows grouped by type (byColour, byCraft, byFabric, byOccasion, byWeave) -
-   the choices the Add form offers for those lists.
+   ?classifications=1 answers the business's classification names grouped by
+   type (byColour, byCraft, byFabric, byOccasion, byWeave) - the choices the
+   Add form offers for those lists. Since 29-10-2026 they come from byweave /
+   byfabric / bycraft / byoccasion / bycolour (lib/classificationCollections.js);
+   productclassificationoption is no longer used.
 
    ?barcodeOptions=1 returns a bounded, business-scoped barcode search for
    the Add form's barcode picker.
@@ -3464,9 +3465,10 @@ const normalizedFabricText = (value) => String(value || '')
   .replace(/[^a-z0-9]+/g, ' ')
   .trim();
 
-function matchDupattaFabric(values) {
+/* the first of `names` (the Dupatta group's By Fabric names) that the text mentions */
+function matchDupattaFabric(values, names) {
   const sourceText = values.map(normalizedFabricText).filter(Boolean).join(' ');
-  return DUPATTA_FABRIC_OPTIONS.find((name) => {
+  return names.find((name) => {
     const normalizedName = normalizedFabricText(name);
     const distinctiveName = normalizedName.replace(/\b(silk|dupatta)\b/g, '').trim();
     return sourceText.includes(normalizedName)
@@ -3698,16 +3700,9 @@ async function listAllErpBarcodes({ businessId, search, page, perPage, sortBy, s
       .flatMap((key) => Array.isArray(row[key]) ? row[key] : [])
       .map((value) => String(value || ''))
       .filter(isValidObjectId)
-  ))].map((id) => new Types.ObjectId(id));
-  const classificationOptions = classificationIds.length
-    ? await database.collection('productclassificationoption')
-      .find({ _id: { $in: classificationIds } }, { projection: { name: 1 } })
-      .toArray()
-    : [];
-  const classificationNameById = new Map(classificationOptions.map((option) => [
-    String(option._id),
-    option.name || '',
-  ]));
+  ))];
+  const classificationNameById = new Map([...(await classificationOptionsById(classificationIds))]
+    .map(([id, option]) => [id, option.name]));
   const businessRecord = await database.collection('business').findOne(
     { _id: new Types.ObjectId(businessId) },
     { projection: { name: 1, businessPrintName: 1 } },
@@ -3960,10 +3955,7 @@ export async function GET(req) {
         .find({ businessId: { $in: [b, new Types.ObjectId(b)] }, isActive: { $ne: false } })
         .project({ value: 1, label: 1 })
         .toArray(),
-      mongoose.connection.db.collection('productclassificationoption')
-        .find({ businessId: idMatch(b), isActive: { $ne: false } })
-        .project({ type: 1, name: 1 })
-        .toArray(),
+      listClassificationOptions(b),
     ]);
     const barcodeImageCodes = [...new Set([
       barcodeRow.barcodeGenerated,
@@ -3986,7 +3978,9 @@ export async function GET(req) {
         || '',
       ...barcodeImageCodes,
     );
-    const groupTypeCandidates = [group?.name, barcodeRow.groupId]
+    /* the label's own group name (SAREES, FABRICS...) also sets the type - its groupId can point
+       to a deleted product group (29-10-2026) */
+    const groupTypeCandidates = [barcodeRow.customFields?.groupName, group?.name, barcodeRow.groupId]
       .map((value) => String(value || '').trim().toLowerCase())
       .filter(Boolean);
     const itemTypeCandidate = String(item.itemType || '').trim().toLowerCase();
@@ -4043,23 +4037,12 @@ export async function GET(req) {
             : classificationByName.get(`${field}:${text.toLowerCase()}`);
           return option && option.type === field ? String(option._id) : '';
         }).filter(Boolean);
-        if (field === 'byFabric' && String(productType).trim().toUpperCase() === 'DUPATTA') {
-          const savedFabricNames = values
-            .map((value) => {
-              const text = value && typeof value === 'object'
-                ? String(value.name || value.label || '').trim()
-                : String(value || '').trim();
-              return DUPATTA_FABRIC_OPTIONS.find((name) =>
-                name.toLowerCase() === text.toLowerCase()
-              ) || '';
-            })
-            .filter(Boolean);
-          const optionFabricNames = selected
-            .map((id) => classificationById.get(id)?.name || '')
-            .filter((name) => DUPATTA_FABRIC_OPTIONS.some((option) =>
-              option.toLowerCase() === name.toLowerCase()
-            ));
-          const matchedFabric = savedFabricNames[0] || optionFabricNames[0] || matchDupattaFabric([
+        /* Dupatta with no fabric yet: suggest the Dupatta group's By Fabric name
+           that the descriptions mention (29-10-2026 - names from byfabric) */
+        if (field === 'byFabric' && !selected.length && String(productType).trim().toUpperCase() === 'DUPATTA') {
+          const dupattaFabrics = classificationOptions.filter((option) =>
+            option.type === 'byFabric' && option.productType === 'DUPATTA');
+          const matchedFabric = matchDupattaFabric([
             barcodeRow.printDescription,
             barcodeRow.supplierDescription,
             barcodeRow.itemName,
@@ -4070,8 +4053,9 @@ export async function GET(req) {
             item.itemCode,
             item.description,
             ...classificationTextValues(item),
-          ]);
-          if (matchedFabric) return [field, [matchedFabric]];
+          ], dupattaFabrics.map((option) => option.name));
+          const matched = dupattaFabrics.find((option) => option.name === matchedFabric);
+          if (matched) return [field, [String(matched._id)]];
         }
         return [field, [...new Set(selected)]];
       })
@@ -4086,7 +4070,10 @@ export async function GET(req) {
         itemCode,
         name: item.name || barcodeRow.itemName || '',
         itemType: item.itemType || '',
-        group: group?.name || barcodeRow.groupId || '',
+        /* a name, never an id: a groupId whose product group is gone falls back to the
+           label's own group name (29-10-2026) */
+        group: group?.name || barcodeRow.customFields?.groupName
+          || (isValidObjectId(String(barcodeRow.groupId || '')) ? '' : barcodeRow.groupId) || '',
         hsnCode: hsn?.code || barcodeRow.hsn || '',
       },
       data: {
@@ -4107,12 +4094,9 @@ export async function GET(req) {
     });
   }
 
-  /* the by* choices for the Add form, from productclassificationoption */
+  /* the by* choices for the Add form, from byweave / byfabric / ... (29-10-2026) */
   if (sp.get('classifications') === '1') {
-    const opts = await mongoose.connection.db.collection('productclassificationoption')
-      .find({ ...filter, isActive: { $ne: false } })
-      .sort({ type: 1, displayOrder: 1, name: 1 })
-      .toArray();
+    const opts = b && isValidObjectId(b) ? await listClassificationOptions(b) : [];
     const byType = {};
     opts.forEach((o) => { (byType[o.type] ||= []).push({ value: String(o._id), label: o.name || '' }); });
     return json({ classifications: byType });
@@ -4177,16 +4161,9 @@ export async function GET(req) {
       .flatMap((key) => Array.isArray(row[key]) ? row[key] : [])
       .map((value) => String(value || ''))
       .filter(isValidObjectId)
-  ))].map((id) => new Types.ObjectId(id));
-  const classificationOptions = classificationIds.length
-    ? await mongoose.connection.db.collection('productclassificationoption')
-      .find({ _id: { $in: classificationIds } }, { projection: { name: 1 } })
-      .toArray()
-    : [];
-  const classificationNameById = new Map(classificationOptions.map((option) => [
-    String(option._id),
-    option.name || '',
-  ]));
+  ))];
+  const classificationNameById = new Map([...(await classificationOptionsById(classificationIds))]
+    .map(([id, option]) => [id, option.name]));
 
   const itemIds = [...new Set(rows
     .map((row) => String(row.itemId || ''))
@@ -4458,7 +4435,7 @@ export async function GET(req) {
    know about are passed through as text, so a field added on the e-commerce
    side can be filled in here too. */
 const NUMBER_FIELDS = new Set(['barcodePriceOverride', 'barcodeQtyOverride', 'ecommOffPercent', 'salesCount']);
-const BOOL_FIELDS = new Set(['isActive', 'isFeatured', 'isPublished']);
+const BOOL_FIELDS = new Set(['isActive', 'isFeatured', 'isPublished', 'isBestBuy']);
 const ID_LIST_FIELDS = new Set(['byColour', 'byCraft', 'byFabric', 'byOccasion', 'byWeave']);
 const SYSTEM = new Set(['_id', '__v', 'businessId', 'itemId', 'createdAt', 'updatedAt']);
 
@@ -4489,36 +4466,8 @@ export async function POST(req) {
     else if (Array.isArray(v)) doc[k] = v;
     else doc[k] = v === null || v === undefined ? '' : String(v);
   });
-  if (String(data.productType || '').trim().toUpperCase() === 'DUPATTA' && Array.isArray(data.byFabric)) {
-    const fabricNames = data.byFabric
-      .map((value) => String(value || '').trim())
-      .filter((name) => DUPATTA_FABRIC_OPTIONS.includes(name));
-    const fabricOptions = await Promise.all(fabricNames.map((name) =>
-      ProductClassificationOption.findOneAndUpdate(
-        {
-          businessId: new Types.ObjectId(business),
-          type: 'byFabric',
-          name: { $regex: `^${escapeRegex(name)}$`, $options: 'i' },
-        },
-        {
-          $setOnInsert: {
-            businessId: new Types.ObjectId(business),
-            type: 'byFabric',
-            name,
-            displayOrder: 100 + DUPATTA_FABRIC_OPTIONS.indexOf(name),
-            isActive: true,
-          },
-        },
-        { upsert: true, new: true }
-      ).select('_id').lean()
-    ));
-    doc.byFabric = [
-      ...new Set([
-        ...doc.byFabric.map(String),
-        ...fabricOptions.map((option) => String(option._id)),
-      ]),
-    ].map((id) => new Types.ObjectId(id));
-  }
+  /* (29-10-2026) the Dupatta By Fabric names are no longer created here - the
+     form sends the ids of names made on E-commerce -> By Fabric -> Dupatta */
   /* the shape the e-commerce project writes when a field is left empty */
   ID_LIST_FIELDS.forEach((k) => { if (!doc[k]) doc[k] = []; });
   if (!doc.additionalImages) doc.additionalImages = [];

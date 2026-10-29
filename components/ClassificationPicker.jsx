@@ -355,6 +355,8 @@ export default function ClassificationPicker({
   const [search, setSearch] = useState('');
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
+  /* the add request in flight - `creating` only means the name box is open (29-10-2026) */
+  const [saving, setSaving] = useState(false);
   const dropdownRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -365,6 +367,13 @@ export default function ClassificationPicker({
   useEffect(() => {
     if (!businessId || !type) {
       setOptions([]);
+      return;
+    }
+    /* 29-10-2026: the names belong to a group (the Product Type) - nothing to
+       offer until the product has one */
+    if (!productType) {
+      setOptions([]);
+      setLoadError('Choose the Product Type first.');
       return;
     }
     
@@ -434,9 +443,9 @@ export default function ClassificationPicker({
   };
 
   const handleCreate = async () => {
-    if (!newName.trim() || !businessId || creating) return;
-    
-    setCreating(true);
+    if (!newName.trim() || !businessId || saving) return;
+
+    setSaving(true);
     try {
       const res = await fetch('/api/v1/admin/product-classification-options', {
         method: 'POST',
@@ -444,6 +453,7 @@ export default function ClassificationPicker({
         body: JSON.stringify({
           business: businessId,
           type,
+          productType,
           name: newName.trim(),
         }),
       });
@@ -466,7 +476,7 @@ export default function ClassificationPicker({
       console.error('Failed to create option:', err);
       alert('Failed to create option');
     } finally {
-      setCreating(false);
+      setSaving(false);
     }
   };
 
@@ -585,7 +595,7 @@ export default function ClassificationPicker({
                   <button
                     type="button"
                     onClick={handleCreate}
-                    disabled={!newName.trim() || creating}
+                    disabled={!newName.trim() || saving}
                     className="btn btn-primary btn-sm"
                     title="Add"
                   >

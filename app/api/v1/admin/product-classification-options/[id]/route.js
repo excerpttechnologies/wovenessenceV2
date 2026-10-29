@@ -1,52 +1,43 @@
-import { isValidObjectId } from 'mongoose';
+import mongoose, { isValidObjectId, Types } from 'mongoose';
 import dbConnect from '@/lib/db';
-import ProductClassificationOption from '@/models/ProductClassificationOption';
-import Item from '@/models/Item';
 import { requireSession } from '@/lib/session';
+import { CLASSIFICATION_FIELDS, businessMatch, classificationCollection } from '@/lib/classificationCollections';
 
 const json = (d, s = 200) => Response.json(d, { status: s });
 
-/* /api/v1/admin/product-classification-options/[id]
-   
-   DELETE: Soft delete a classification option (sets isActive: false)
-           Only allowed if no items are using it */
+/* /api/v1/admin/product-classification-options/[id] (rewritten 29-10-2026)
+
+   DELETE removes the name from its own collection (byweave / byfabric / ...)
+   and takes it off every e-commerce product of that business that had it
+   ticked, so the website stops showing it straight away.
+   productclassificationoption is no longer used. */
 
 export async function DELETE(req, { params }) {
   const session = await requireSession();
   if (!session) return json({ error: 'Unauthorized' }, 401);
 
   const { id } = await params;
-  await dbConnect();
-
   if (!isValidObjectId(id)) {
     return json({ error: 'Invalid ID' }, 422);
   }
 
-  const option = await ProductClassificationOption.findById(id).lean();
+  await dbConnect();
+  const _id = new Types.ObjectId(id);
+  let type = null;
+  let option = null;
+  for (const t of CLASSIFICATION_FIELDS) {
+    option = await classificationCollection(t).findOne({ _id });
+    if (option) { type = t; break; }
+  }
   if (!option) {
     return json({ error: 'Classification option not found' }, 404);
   }
 
-  // Check if any items are using this classification
-  const classificationFields = ['byWeave', 'byFabric', 'byCraft', 'byOccasion', 'byColour'];
-  const usageChecks = await Promise.all(
-    classificationFields.map(field =>
-      Item.countDocuments({ [field]: id }).limit(1)
-    )
+  await classificationCollection(type).deleteOne({ _id });
+  const products = await mongoose.connection.db.collection('ecommerceproduct').updateMany(
+    { businessId: businessMatch(option.businessId), [type]: { $in: [_id, id] } },
+    { $pull: { [type]: { $in: [_id, id] } }, $set: { updatedAt: new Date() } },
   );
 
-  const isUsed = usageChecks.some(count => count > 0);
-
-  if (isUsed) {
-    return json({ 
-      error: `Cannot delete "${option.name}" because it is assigned to one or more products. Remove it from products first.` 
-    }, 422);
-  }
-
-  // Soft delete
-  await ProductClassificationOption.findByIdAndUpdate(id, { 
-    isActive: false 
-  });
-
-  return json({ ok: true });
+  return json({ ok: true, productsUpdated: products.modifiedCount });
 }

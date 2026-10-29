@@ -724,6 +724,15 @@ export const NAV = [
       { label: 'Products', icon: LuTag, href: '/admin/ecommerce/product' },
       /* a test copy of Products, same data (19-10-2026) */
       { label: 'product-eccom', icon: LuTag, href: '/admin/ecommerce/product-eccom' },
+      /* the five classification lists (28-10-2026) - a name added here shows
+         in the same picker on product-eccom/add */
+      /* new product types for the Product Type dropdown on product-eccom/add (29-10-2026) */
+      { label: 'Product Type', icon: LuTag, href: '/admin/ecommerce/product-type' },
+      { label: 'By Weave', icon: LuTag, href: '/admin/ecommerce/by-weave' },
+      { label: 'By Fabric', icon: LuTag, href: '/admin/ecommerce/by-fabric' },
+      { label: 'By Craft', icon: LuTag, href: '/admin/ecommerce/by-craft' },
+      { label: 'By Occasion', icon: LuTag, href: '/admin/ecommerce/by-occasion' },
+      { label: 'By Colour', icon: LuTag, href: '/admin/ecommerce/by-colour' },
       /* The same transfer engine as Stock Transfers, raised from the
          e-commerce side - not a separate inventory path. */
       { label: 'Direct Stock Transfer', icon: LuShuffle,

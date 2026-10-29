@@ -557,7 +557,6 @@ import MultiSelect from '@/components/MultiSelect';
 import ClassificationPicker from '@/components/ClassificationPicker';
 import { useScope } from '@/components/ScopeContext';
 import {
-  DUPATTA_FABRIC_OPTIONS,
   PRODUCT_TYPE_CLASSIFICATIONS,
   PRODUCT_TYPES,
 } from '@/lib/productClassificationConstants';
@@ -579,6 +578,8 @@ import {
 const KNOWN = {
   displayName: 'text', ecommItemCode: 'text', productType: 'text', status: 'text', slug: 'text',
   isActive: 'boolean', isPublished: 'boolean', isFeatured: 'boolean',
+  /* listed in the website's Best Buy section (29-10-2026) */
+  isBestBuy: 'boolean',
   ecommOffPercent: 'number', barcodePriceOverride: 'number', barcodeQtyOverride: 'number', salesCount: 'number',
   barcodeStatusOverride: 'text', printDescriptionOverride: 'text', image: 'text',
   seoTitle: 'text', seoDescription: 'textarea',
@@ -592,7 +593,7 @@ const FIRST = [
   'printDescriptionOverride',
   'displayName', 'image', 'productType', 'byWeave', 'byFabric', 'byCraft', 'byOccasion', 'byColour',
   'status', 'isActive', 'ecommItemCode', 'itemId',
-  'slug', 'isPublished', 'isFeatured', 'salesCount',
+  'slug', 'isPublished', 'isBestBuy', 'isFeatured', 'salesCount',
 ];
 const SKIP = new Set([
   /* only Is Published decides what the website shows; Active is not edited here
@@ -606,7 +607,7 @@ const SKIP = new Set([
   'ecommOffPercent', 'barcodePriceOverride', 'barcodeQtyOverride',
 ]);
 
-const DEFAULT_DATA = { status: 'active', isActive: true, isPublished: false, isFeatured: false };
+const DEFAULT_DATA = { status: 'active', isActive: true, isPublished: false, isFeatured: false, isBestBuy: false };
 
 const labelOf = (k) => k.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/^./, (c) => c.toUpperCase());
 const fieldLabel = (k) => ({
@@ -819,6 +820,8 @@ export default function ProductEccomAddPage() {
     const wasEmpty = barcodeInput.trim() === '';
     const isEmptyNow = value.trim() === '';
     setBarcodeInput(value);
+    /* typing in the box that is still focused after a pick shows the list again (29-10-2026) */
+    setBarcodePickerOpen(true);
     setItemDetails(null);
     setResolvedBarcode('');
     setBarcodeError('');
@@ -904,7 +907,11 @@ export default function ProductEccomAddPage() {
           value={v || ''}
           disabled={locked}
           title={locked ? 'Set from the barcode\'s item group' : undefined}
-          onChange={(event) => set(k, event.target.value)}
+          onChange={(event) => {
+            set(k, event.target.value);
+            /* the by* names belong to a Product Type group - a new type starts them empty (29-10-2026) */
+            setData((d) => ({ ...d, byWeave: [], byFabric: [], byCraft: [], byOccasion: [], byColour: [] }));
+          }}
         >
           {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </select>
@@ -934,7 +941,7 @@ export default function ProductEccomAddPage() {
       }
       return (
         <label className="flex h-[38px] cursor-pointer items-center gap-2">
-          <input type="checkbox" className="h-4 w-4" checked={Boolean(v)} onChange={(e) => set(k, e.target.checked)} /> {labelOf(k)}
+          <input type="checkbox" className="h-4 w-4" checked={Boolean(v)} onChange={(e) => set(k, e.target.checked)} /> {k === 'isBestBuy' ? 'Best Buy' : labelOf(k)}
         </label>
       );
     }
@@ -948,23 +955,17 @@ export default function ProductEccomAddPage() {
       return <textarea className="f-input min-h-[70px]" placeholder="One per line" value={Array.isArray(v) ? v.join('\n') : (v ?? '')} onChange={(e) => set(k, e.target.value.split('\n'))} />;
     }
     if (kind === 'classification') {
+      /* 29-10-2026: the names of the product's own group (E-commerce -> By Weave /
+         By Fabric / ... -> Group); "Add New By ..." adds to that group */
       const productType = String(data.productType || '').trim().toUpperCase();
-      const isPlainFabric = productType === 'PLAIN FABRICS';
-      const isFabric = productType === 'FABRICS';
       return (
         <ClassificationPicker
           type={k}
           value={Array.isArray(v) ? v.map(String) : []}
           onChange={(value) => set(k, value)}
           businessId={business}
-          productType={isPlainFabric || isFabric ? productType : undefined}
-          allowCreate={!(
-            (k === 'byFabric' && productType === 'DUPATTA')
-            || ((isPlainFabric || isFabric) && ['byFabric', 'byColour'].includes(k))
-          )}
-          optionsOverride={k === 'byFabric' && String(data.productType || '').trim().toUpperCase() === 'DUPATTA'
-            ? DUPATTA_FABRIC_OPTIONS.map((name) => ({ _id: name, name }))
-            : undefined}
+          productType={productType || undefined}
+          allowCreate={Boolean(productType)}
         />
       );
     }
@@ -998,6 +999,7 @@ export default function ProductEccomAddPage() {
                     value={barcodeInput}
                     placeholder="Search, scan or enter barcode"
                     onFocus={() => setBarcodePickerOpen(true)}
+                    onClick={() => setBarcodePickerOpen(true)}
                     onBlur={() => setTimeout(() => setBarcodePickerOpen(false), 150)}
                     onChange={onBarcodeChange}
                     role="combobox"

@@ -2,7 +2,8 @@ import { isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
 import EcommerceProduct from '@/models/EcommerceProduct';
 import Item from '@/models/Item';
-import ProductClassificationOption, { CLASSIFICATION_TYPES } from '@/models/ProductClassificationOption';
+import { CLASSIFICATION_TYPES } from '@/models/ProductClassificationOption';
+import { classificationOptionsById } from '@/lib/classificationCollections';
 import { requireSession } from '@/lib/session';
 import { escapeRegex } from '@/lib/validate';
 
@@ -79,9 +80,12 @@ export async function PATCH(req) {
       if (!Array.isArray(value) || value.some((id) => !isValidObjectId(String(id)))) {
         return json({ error: `${field} must be an array of valid classification IDs.` }, 422);
       }
-      const count = value.length ? await ProductClassificationOption.countDocuments({
-        _id: { $in: value }, businessId: business, type: CLASSIFICATION_FIELDS[field], isActive: true,
-      }) : 0;
+      /* checked against byweave / byfabric / ... (29-10-2026) */
+      const found = value.length ? await classificationOptionsById(value) : new Map();
+      const count = value.filter((id) => {
+        const option = found.get(String(id));
+        return option && option.isActive && option.type === CLASSIFICATION_FIELDS[field];
+      }).length;
       if (count !== value.length) return json({ error: `${field} contains an invalid or inactive classification.` }, 422);
       updateDoc[field] = value;
       continue;

@@ -3,7 +3,7 @@ import { isValidObjectId, Types } from 'mongoose';
 import dbConnect from '@/lib/db';
 import EcommerceProduct from '@/models/EcommerceProduct';
 import Item from '@/models/Item';
-import ProductClassificationOption from '@/models/ProductClassificationOption';
+import { classificationOptionsById } from '@/lib/classificationCollections';
 import { BarcodeLabel, BARCODE_STATUS } from '@/lib/barcodeLabel';
 
 const json = (data, status = 200) => Response.json(data, { status });
@@ -103,10 +103,10 @@ export async function GET(req) {
   const classificationIds = [...new Set(products.flatMap((product) =>
     ['byWeave', 'byFabric', 'byCraft', 'byOccasion', 'byColour'].flatMap((field) => product[field] || [])
   ).map(String))];
-  const classifications = classificationIds.length
-    ? await ProductClassificationOption.find({ _id: { $in: classificationIds }, businessId, isActive: true }).select('name type').lean()
-    : [];
-  const classificationById = new Map(classifications.map((option) => [String(option._id), { id: String(option._id), name: option.name, type: option.type }]));
+  /* names from byweave / byfabric / ... (29-10-2026; productclassificationoption no longer used) */
+  const classificationById = new Map([...(await classificationOptionsById(classificationIds))]
+    .filter(([, option]) => option.isActive)
+    .map(([id, option]) => [id, { id, name: option.name, type: option.type }]));
 
   const rows = products.flatMap((product) => {
     const item = itemById.get(String(product.itemId));
