@@ -5464,6 +5464,23 @@ function billSlNoOfItem(rows, itemId, itemCode) {
   return found;
 }
 
+/* Returns the next Bill SL No. to use: one more than the highest Bill SL No.
+   across all existing rows. Falls back to initialBillSlNo if no rows exist. */
+function nextBillSlNo(rows, initialBillSlNo = 1) {
+  let maxBillSlNo = 0;
+  console.log('nextBillSlNo called with rows:', rows?.length || 0, 'rows');
+  for (const row of rows || []) {
+    const billSlNo = Number(String(row?.billSlNo ?? "").trim());
+    console.log('Checking row billSlNo:', row?.billSlNo, '→ parsed as:', billSlNo);
+    if (!isNaN(billSlNo) && billSlNo > maxBillSlNo) {
+      maxBillSlNo = billSlNo;
+    }
+  }
+  const result = maxBillSlNo > 0 ? maxBillSlNo + 1 : initialBillSlNo;
+  console.log('nextBillSlNo result: maxBillSlNo =', maxBillSlNo, ', returning:', result);
+  return result;
+}
+
 function AddItemModal({ open, onClose, onSubmit, onSubmitAndPrint, barcodeFormat, business = "", markupDefaults = {}, priceSetup = null, rateCodeMapping = null, grcId = null, initialBillSlNo = 1, itemSummaryRows = NO_ROWS }) {
   /* The form's starting prices: the GRC supplier's Price Calculation Setup
      when the screen has it, otherwise the three markups it has always been
@@ -5522,7 +5539,7 @@ function AddItemModal({ open, onClose, onSubmit, onSubmitAndPrint, barcodeFormat
     dpOfferPct: 0,
     dpOfferPrice: "0.00",
     offerApplicable: false,
-    serialNo: initialBillSlNo,
+    serialNo: nextBillSlNo(itemSummaryRows, initialBillSlNo),
     ...overrides,
   });
 
@@ -5548,11 +5565,10 @@ function AddItemModal({ open, onClose, onSubmit, onSubmitAndPrint, barcodeFormat
     ? <p className="text-[11px] font-medium text-red-600" role="alert">{fieldErrors[key]}</p>
     : null);
   /* BOTH Serial No. boxes show the BILL SL NO. - the bill line the selected
-     item was received on, as its Item Summary row carries it (form.serialNo).
-     They no longer show a serial counter: the barcode's own running number
-     within the line is assigned by the save route (lib/barcodeValue.js), and
-     a counter read from lastSerialByBill, the previous barcode or the last
-     generated serial must never stand in for this line's Bill Sl No. */
+     item was received on, which auto-increments from the highest existing
+     Bill SL No. The barcode's own running number within the line (4th part)
+     is assigned by the save route (lib/barcodeValue.js). */
+  
   /* the reservation round trip - the Add buttons are disabled while it runs
      so a double-click cannot burn a second block of numbers */
   const [reserving, setReserving] = useState(false);
@@ -5588,7 +5604,18 @@ function AddItemModal({ open, onClose, onSubmit, onSubmitAndPrint, barcodeFormat
   const itemTimerRef = useRef(null);
   const hsnTimerRef = useRef(null);
   const itemDetailRef = useRef(0);
-
+  
+  /* Reset Serial No. when modal opens or when initialBillSlNo changes
+     (i.e., when rows are added/removed from the GRC) */
+  useEffect(() => {
+    if (open) {
+      setForm((current) => ({
+        ...current,
+        serialNo: nextBillSlNo(itemSummaryRows, initialBillSlNo),
+      }));
+    }
+  }, [open, initialBillSlNo, itemSummaryRows]);
+  
   /* ── Second HSN field (Row 3) — independent state so it can be changed
      without touching the first HSN field (Row 1) and vice-versa. */
   const [hsn2Options, setHsn2Options] = useState([]);
@@ -6043,7 +6070,7 @@ function AddItemModal({ open, onClose, onSubmit, onSubmitAndPrint, barcodeFormat
       setForm((current) => ({
         ...current,
         oldBarcode: code,
-        serialNo: scannedBillSlNo || billSlNoOfItem(itemSummaryRows, unit.itemId, unit.itemCode || unit.itemName) || initialBillSlNo,
+        serialNo: scannedBillSlNo || nextBillSlNo(itemSummaryRows, initialBillSlNo),
         itemId: unit.itemId ? String(unit.itemId) : "",
         itemCode: unit.itemCode || "",
         itemName: unit.itemName || "",
@@ -6125,7 +6152,7 @@ function AddItemModal({ open, onClose, onSubmit, onSubmitAndPrint, barcodeFormat
       setForm((current) => withFormPrices(withItemOffers({
         ...current,
         itemId: "", itemName: "", itemCode: "", subGroupName: "", groupName: "", printDescription: "",
-        serialNo: initialBillSlNo,
+        serialNo: nextBillSlNo(itemSummaryRows, initialBillSlNo),
         hsnId: "", hsn: "", hsn2Id: "", hsn2: "", gst: "0",
         ...supplierMarkups,
       }, null)));
@@ -6144,9 +6171,9 @@ function AddItemModal({ open, onClose, onSubmit, onSubmitAndPrint, barcodeFormat
       itemId: opt.value,
       itemCode,
       itemName,
-      /* the bill line this item carries in the GRC's Item Summary - not the
-         previous item's, and not a serial counter */
-      serialNo: billSlNoOfItem(itemSummaryRows, opt.value, itemCode) || initialBillSlNo,
+      /* the bill line this item carries in the GRC's Item Summary - now
+         automatically incremented from the highest existing Bill SL No. */
+      serialNo: nextBillSlNo(itemSummaryRows, initialBillSlNo),
       printDescription: opt.description || "",
       hsnId: "",
       hsn: "",
@@ -7668,6 +7695,7 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
   const [printRows, setPrintRows] = useState([]);
   const [showAddItem, setShowAddItem] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingProgress, setSavingProgress] = useState({ show: false, stage: '', completed: 0, total: 0 });
   const [importMessage, setImportMessage] = useState("");
   /* why the last save was refused, in the server's own words */
   const [saveError, setSaveError] = useState("");
@@ -8069,11 +8097,22 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
     savingRef.current = true;
     setSaving(true);
     setSaveError("");
+    
     /* Strip the UI-only fields before sending to the API, and leave out the
        empty rows the ITEMS sheet keeps for typing into */
     rowsToSave = rowsToSave.filter((row) => !isBlankRow(row)).map(({ _importStatus, _edited, ...rest }) => rest);
     /* saved rows removed on the grid - deleted by this Submit, by id */
     const deleteIds = pendingDeletes.map((entry) => entry.row._id).filter(Boolean);
+    
+    // Show progress overlay immediately
+    const totalBarcodes = rowsToSave.filter((row) => !row._id).length + rowsToSave.filter((row) => row._id).length;
+    setSavingProgress({ 
+      show: true, 
+      stage: 'Validating form...', 
+      completed: 0, 
+      total: totalBarcodes 
+    });
+    
     try {
       /* The ITEMS sheet's own rules (lib/itemsSheet.js), over every row that
          is new or was edited, before anything is sent. A refusal names the
@@ -8081,6 +8120,7 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
       const problems = sheetProblems(rows, sheetColumns(additionalFields));
       if (problems.length > 0) {
         setShowSaveConfirm(false);
+        setSavingProgress({ show: false, stage: '', completed: 0, total: 0 });
         setActiveTab("items");
         setSheetFocus({ rowId: problems[0].rowId, key: problems[0].key, at: Date.now() });
         setSaveError(
@@ -8092,6 +8132,7 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
       }
       if (rowsToSave.length === 0 && deleteIds.length === 0) {
         setShowSaveConfirm(false);
+        setSavingProgress({ show: false, stage: '', completed: 0, total: 0 });
         setSaveError("There is nothing to save.");
         return false;
       }
@@ -8113,6 +8154,7 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
         /* the confirm dialog sits over the banner - as on the API-error path
            below, it has to go or the operator never sees why */
         setShowSaveConfirm(false);
+        setSavingProgress({ show: false, stage: '', completed: 0, total: 0 });
         setSaveError(`${priceErrors[0].problem} Check: ${shown}${more}`);
         return false;
       }
@@ -8130,6 +8172,7 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
         const shown = pmfErrors.slice(0, 3).join(', ');
         const more = pmfErrors.length > 3 ? ` and ${pmfErrors.length - 3} more` : '';
         setShowSaveConfirm(false);
+        setSavingProgress({ show: false, stage: '', completed: 0, total: 0 });
         setSaveError(`${PMF_REQUIRED_MESSAGE} Check: ${shown}${more}`);
         return false;
       }
@@ -8140,8 +8183,23 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
          than inserted again. */
       /* the same arithmetic as the totals bar (lib/grcMoney.js), so what the
          save is told agrees to the paisa with what the operator confirmed */
+      setSavingProgress({ 
+        show: true, 
+        stage: 'Preparing barcode records...', 
+        completed: 0, 
+        total: totalBarcodes 
+      });
+      
       const sending = grcTotals(rowsToSave);
       const saveTotals = { count: sending.totalQuantity, value: sending.netAmount };
+      
+      setSavingProgress({ 
+        show: true, 
+        stage: 'Generating barcodes...', 
+        completed: 0, 
+        total: totalBarcodes 
+      });
+      
       const response = await fetch("/api/barcode-generation", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -8159,6 +8217,13 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
           },
         }),
       });
+      
+      setSavingProgress({ 
+        show: true, 
+        stage: 'Saving barcode records...', 
+        completed: Math.floor(totalBarcodes * 0.8), 
+        total: totalBarcodes 
+      });
       /* The API answers a failure as { error, code } (lib/apiError.js) - the
          message is written for the operator and says WHICH rule was broken:
          a missing Goods Type, an Old Barcode that matches nothing, a barcode
@@ -8172,9 +8237,18 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
            as a runtime error */
         const data = await response.json().catch(() => ({}));
         setShowSaveConfirm(false);
+        setSavingProgress({ show: false, stage: '', completed: 0, total: 0 });
         setSaveError(data.error || `Save failed (HTTP ${response.status})`);
         return false;
       }
+      
+      setSavingProgress({ 
+        show: true, 
+        stage: 'Completing operation...', 
+        completed: totalBarcodes, 
+        total: totalBarcodes 
+      });
+      
       setShowSaveConfirm(false);
       const saved = await response.json().catch(() => ({}));
       /* The barcode values are the server's - SEQ is given there - so every
@@ -8217,8 +8291,16 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
         return (next._importStatus || next._edited) ? { ...next, _importStatus: undefined, _edited: undefined } : next;
       }));
       setPendingDeletes([]);
+      
+      // Close progress overlay
+      setSavingProgress({ show: false, stage: '', completed: 0, total: 0 });
+      
       if (onSaved) {
         onSaved();
+        // Redirect to GRC list after successful save
+        setTimeout(() => {
+          router.push('/admin/transaction/purchase/grc');
+        }, 500);
       } else if (saved.grcId) {
         /* The standalone screen has no page to re-read for it: remember the
            GRC the first Submit created, and take the rows back with their
@@ -8228,6 +8310,10 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
           .then((result) => result.json())
           .then((result) => { if (Array.isArray(result.rows)) setRows(result.rows.map(toGridRow)); })
           .catch(() => {});
+        // Redirect to GRC list after successful save
+        setTimeout(() => {
+          router.push('/admin/transaction/purchase/grc');
+        }, 500);
       }
       return true;
     } catch (error) {
@@ -8235,6 +8321,7 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
       /* the confirm dialog sits over the banner, so it has to go or the
          operator never sees why the save was refused */
       setShowSaveConfirm(false);
+      setSavingProgress({ show: false, stage: '', completed: 0, total: 0 });
       setSaveError(error.message || "Save failed");
       return false;
     } finally {
@@ -8381,6 +8468,43 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
 
   return (
     <div className="min-h-screen bg-gray-100 px-2 pb-24 pt-4 md:pt-6">
+      {/* Progress Overlay */}
+      {savingProgress.show && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+            <div className="mb-4 text-center">
+              <div className="mb-2 text-xl font-semibold text-gray-800">Generating Barcodes...</div>
+              <p className="text-sm text-gray-600">Please wait while barcode labels are being generated and saved.</p>
+            </div>
+            
+            {savingProgress.total > 0 && (
+              <div className="mb-4">
+                <div className="mb-2 flex justify-between text-sm text-gray-700">
+                  <span>{Math.round((savingProgress.completed / savingProgress.total) * 100)}% completed</span>
+                  <span>{savingProgress.completed} of {savingProgress.total}</span>
+                </div>
+                <div className="h-3 w-full overflow-hidden rounded-full bg-gray-200">
+                  <div 
+                    className="h-full rounded-full bg-blue-600 transition-all duration-300"
+                    style={{ width: `${Math.min(100, (savingProgress.completed / savingProgress.total) * 100)}%` }}
+                  />
+                </div>
+              </div>
+            )}
+            
+            <div className="text-center text-sm font-medium text-gray-700">
+              {savingProgress.stage}
+            </div>
+            
+            {!savingProgress.total && (
+              <div className="mt-4 flex justify-center">
+                <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-blue-600"></div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      
       <div className="flex items-center justify-between gap-4 pb-3">
         <div>
           <h1 className="text-xl font-semibold text-gray-800">GRC Barcode Generation</h1>
@@ -8399,19 +8523,13 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
         priceSetup={supplierPriceSetup}
         rateCodeMapping={rateCodeMapping}
         grcId={grcHeader.grcId || grcId}
-        /* The Bill Sl No. to show in the form, derived from the Item
-           Summary: the billSlNo from the first Item Summary row.
-           When the GRC has no rows yet, this is 1. This mirrors exactly what
-           the Item Summary table shows - it is built from the same rows array
-           - so the Serial No. field is always in step with that table. */
-        initialBillSlNo={
-          summaryRows.length === 0
-            ? 1
-            : Number(summaryRows[0].billSlNo) || 1
-        }
-        /* The Item Summary rows themselves: both Serial No. boxes read the
-           bill line of the item selected here from them (billSlNoOfItem), and
-           a barcode's own running number is left to the save route. */
+        /* The Bill Sl No. to show in the form, calculated from all existing
+           barcode rows: one more than the highest Bill SL No. across the GRC.
+           When the GRC has no rows yet, this is 1. */
+        initialBillSlNo={nextBillSlNo(validRows, 1)}
+        /* The Item Summary rows themselves: both Serial No. boxes now
+           auto-increment from the highest Bill SL No., and a barcode's own
+           running number is left to the save route. */
         itemSummaryRows={validRows}
         onClose={() => setShowAddItem(true)}
         onSubmit={(items) => appendRows(items)}

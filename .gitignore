@@ -1,40 +1,30 @@
-/node_modules
-.env
-.next
-.next-dev
+# Dependencies and environment
+/node_modules/
+/.env
+/.next/
+/.next-dev/
 
-grc-import-report.json
-backups/
-supplier-import-report.json
-agent-import-report.json
+# Import reports
+/grc-import-report.json
+/supplier-import-report.json
+/agent-import-report.json
 
-newbarcodeIImage
-wovenessenceerp.rar
-newbarcodeIMage
-/newbarcodeIMage
+# Backup files and archives
+/backups/
+*.rar
+*.zip
 
+# Generated barcode images
+/newbarcodeIImage/
+/newbarcodeIMage/
+/newbarcodes/
+/seeded_images_27-10-2026/
 
-OLD=wovenessenceerp.rar
-/OLD=wovenessenceerp.rarOLD=wovenessenceerp.rar
-wovenessenceerp-without roles.rar
+# ERP backup archives
+/wovenessenceerp.rar
 /wovenessenceerp-without roles.rar
-wovenessenceerp.rar
-/wovenessenceerp.rar.backups/
-
 /wovenessenceerp-shs.rar
-wovenessenceerp-shs.rar
- wovenessenceerp-shs(final ,ui not intigrated).rar
- / wovenessenceerp-shs(final ,ui not intigrated).rar
-  wovenessenceerp-shs----.rar
-  wovenessenceV2.rar
-  /wovenessenceV2.rar
-  / wovenessenceerp-shs----.rar
-
-newbarcodeIMage/
-newbarcodes/
-seeded_images_27-10-2026/
-seeded_images_27-10-2026.rar
-wovenessenceV2----.rar
-wovenessenceV2----.rar
-wovenessenceV2----.rar
+/wovenessenceerp-shs(final ,ui not intigrated).rar
+/wovenessenceerp-shs----.rar
+/wovenessenceV2.rar
 /wovenessenceV2----.rar
