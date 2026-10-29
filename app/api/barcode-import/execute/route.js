@@ -10,7 +10,7 @@ import { STRATEGIES_BY_SCOPE, IMPORT_SCOPES } from '@/lib/barcodeMasterImportCon
      { token, strategy, replaceStock }
 
    Answers with NDJSON so the wizard can show real progress on a large
-   workbook: one { type, ... } object per line, ending with `done` or
+   workbook: one { type, ... } object per line, ending with `complete` or
    `error`. Every count in the final line comes from writes that actually
    happened - not from the preview.
 

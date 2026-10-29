@@ -14,16 +14,14 @@ import ChannelPerformance from './ChannelPerformance';
 import ForecastPanel from './ForecastPanel';
 import DataNotes from './DataNotes';
 import { EmptyState, ErrorPanel, Glyph, Skeleton, StatusPill } from './ui';
+import { useScope } from '@/components/ScopeContext';
 import {
   count, dateRangeLabel, daysBetween, financialYearBounds,
   periodForFinancialYear, timeLabel,
 } from './format';
 
 const EMPTY_FILTERS = {
-  company: '',
-  branch: '',
   channel: 'all',
-  financialYear: '',
   comparison: 'previous_period',
   startDate: '',
   endDate: '',
@@ -31,17 +29,26 @@ const EMPTY_FILTERS = {
 
 const LIVE_REFRESH_MS = 60_000;
 
-function validateFilters(filters) {
-  if (!filters.financialYear) return 'Choose a financial year.';
-  const bounds = financialYearBounds(filters.financialYear);
+function validateFilters(filters, financialYear) {
+  if (!financialYear) return 'Choose a financial year in the top bar.';
+  const bounds = financialYearBounds(financialYear);
   if (!filters.startDate || !filters.endDate) return 'Choose both a start and an end date.';
   if (filters.startDate > filters.endDate) return 'The start date must be on or before the end date.';
   const days = daysBetween(filters.startDate, filters.endDate);
   if (days > 366) return `Select 366 days or fewer. This range is ${count(days)} days.`;
   if (filters.startDate < bounds.start || filters.endDate > bounds.end) {
-    return `The selected dates must fall inside financial year ${filters.financialYear}.`;
+    return `The selected dates must fall inside financial year ${financialYear}.`;
   }
   return '';
+}
+
+function validId(value) {
+  return /^[a-f\d]{24}$/i.test(String(value || ''));
+}
+
+function financialYearLabel(value) {
+  const match = /^(\d{4})-(\d{4})$/.exec(String(value || ''));
+  return match ? `FY ${match[1]}–${match[2].slice(-2)}` : '';
 }
 
 function queryString(filters) {
@@ -78,6 +85,10 @@ function DashboardSkeleton() {
 }
 
 export default function DashboardClient() {
+  const {
+    businesses, locations, business: headerBusiness, location: headerLocation, finYear: headerFinancialYear,
+    businessReady, locationReady,
+  } = useScope();
   const [options, setOptions] = useState(null);
   const [optionsLoading, setOptionsLoading] = useState(true);
   const [optionsError, setOptionsError] = useState('');
@@ -90,6 +101,7 @@ export default function DashboardClient() {
   const [lastUpdated, setLastUpdated] = useState('');
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState('');
+  const [datesForFinancialYear, setDatesForFinancialYear] = useState('');
   const requestSeq = useRef(0);
 
   useEffect(() => {
@@ -106,8 +118,8 @@ export default function DashboardClient() {
     };
   }, []);
 
-  /* Filter vocabulary is fetched once per page load. It is already narrowed
-     to the session's locations by the route. */
+  /* The report options are loaded independently of the global ERP selectors
+     and are narrowed to the session's authorized locations by the route. */
   useEffect(() => {
     const controller = new AbortController();
     let alive = true;
@@ -123,14 +135,6 @@ export default function DashboardClient() {
       .then((body) => {
         if (!alive) return;
         setOptions(body);
-        const fy = body.currentFinancialYear?.value || body.financialYears?.[0]?.value || '';
-        const period = body.defaultPeriod || periodForFinancialYear(fy);
-        setFilters({
-          ...EMPTY_FILTERS,
-          financialYear: fy,
-          startDate: period.startDate,
-          endDate: period.endDate,
-        });
       })
       .catch((err) => {
         if (!alive || err.name === 'AbortError') return;
@@ -141,12 +145,63 @@ export default function DashboardClient() {
     return () => { alive = false; controller.abort(); };
   }, [optionsRetry]);
 
-  const validationError = useMemo(() => (options ? validateFilters(filters) : ''), [options, filters]);
+  useEffect(() => {
+    if (!businessReady || !locationReady || !headerFinancialYear) return;
+    const bounds = financialYearBounds(headerFinancialYear);
+    if (!bounds.start || !bounds.end) return;
+
+    setFilters((current) => {
+      if (current.startDate && current.endDate
+        && current.startDate >= bounds.start && current.endDate <= bounds.end) return current;
+      return { ...current, ...periodForFinancialYear(headerFinancialYear) };
+    });
+    setDatesForFinancialYear(headerFinancialYear);
+  }, [businessReady, locationReady, headerFinancialYear]);
+
+  const contextReady = businessReady
+    && locationReady
+    && validId(headerBusiness)
+    && validId(headerLocation)
+    && /^\d{4}-\d{4}$/.test(String(headerFinancialYear || ''));
+  const contextError = !businessReady || !locationReady
+    ? ''
+    : !validId(headerBusiness)
+      ? 'Choose a company in the top bar to load this report.'
+      : !validId(headerLocation)
+        ? 'Choose a location in the top bar to load this report.'
+        : !/^\d{4}-\d{4}$/.test(String(headerFinancialYear || ''))
+          ? 'Choose a financial year in the top bar to load this report.'
+          : '';
+  const reportFilters = useMemo(() => ({
+    company: headerBusiness,
+    branch: headerLocation,
+    financialYear: headerFinancialYear,
+    ...filters,
+  }), [headerBusiness, headerLocation, headerFinancialYear, filters]);
+  const validationError = useMemo(
+    () => validateFilters(filters, headerFinancialYear),
+    [filters, headerFinancialYear]
+  );
 
   /* Every filter change becomes one private, abortable request. A response is
      only allowed to land if it belongs to the latest request. */
   useEffect(() => {
-    if (!options) return undefined;
+    if (!options) {
+      requestSeq.current += 1;
+      setLoading(true);
+      setData(null);
+      setError(null);
+      return undefined;
+    }
+    if (!contextReady || datesForFinancialYear !== headerFinancialYear) {
+      requestSeq.current += 1;
+      setLoading(!businessReady || !locationReady);
+      setData(null);
+      setError(contextError
+        ? { message: contextError, code: 'GLOBAL_CONTEXT', validation: true }
+        : null);
+      return undefined;
+    }
     if (validationError) {
       setLoading(false);
       setData(null);
@@ -163,7 +218,7 @@ export default function DashboardClient() {
     setDownloadError('');
 
     const timer = window.setTimeout(() => {
-      fetch(`/api/dashboard/analytics?${queryString(filters)}`, {
+      fetch(`/api/dashboard/analytics?${queryString(reportFilters)}`, {
         signal: controller.signal,
         cache: 'no-store',
       })
@@ -197,15 +252,13 @@ export default function DashboardClient() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [options, filters, validationError, refreshTick]);
+  }, [
+    options, contextReady, datesForFinancialYear, headerFinancialYear, reportFilters,
+    filters, validationError, contextError, businessReady, locationReady, refreshTick,
+  ]);
 
   function changeFilter(key, value) {
-    setFilters((current) => {
-      const next = { ...current, [key]: value };
-      if (key === 'company') next.branch = '';
-      if (key === 'financialYear') Object.assign(next, periodForFinancialYear(value));
-      return next;
-    });
+    setFilters((current) => ({ ...current, [key]: value }));
   }
 
   function retry() {
@@ -217,7 +270,7 @@ export default function DashboardClient() {
     setDownloading(true);
     setDownloadError('');
     try {
-      const response = await fetch(`/api/dashboard/export?${queryString(filters)}`, { cache: 'no-store' });
+      const response = await fetch(`/api/dashboard/export?${queryString(reportFilters)}`, { cache: 'no-store' });
       if (!response.ok) {
         const body = await response.json().catch(() => null);
         throw new Error(body?.error || 'The report could not be built. Please retry.');
@@ -241,14 +294,12 @@ export default function DashboardClient() {
   }
 
   const meta = data?.meta;
-  const branchLabel = meta?.branchLabel
-    || (filters.branch
-      ? options?.branches.find((branch) => branch.value === filters.branch)?.label
-      : 'All four branches')
-    || 'All branches';
-  const companyLabel = meta?.companyLabel || (filters.company
-    ? options?.companies.find((company) => company.value === filters.company)?.label
-    : 'All companies') || 'All companies';
+  const companyLabel = businesses.find((company) => company.value === headerBusiness)?.label
+    || (businessReady ? 'Company unavailable' : 'Loading company…');
+  const branchLabel = locations.find((location) => location.value === headerLocation)?.label
+    || (locationReady ? 'Location unavailable' : 'Loading location…');
+  const financialYearText = financialYearLabel(headerFinancialYear)
+    || (businessReady ? 'Financial year unavailable' : 'Loading financial year…');
   const comparisonLabel = meta?.comparison?.label || (filters.comparison === 'none' ? '' : 'Comparing');
   const rangeLabel = meta
     ? dateRangeLabel(meta.startDate, meta.endDate)
@@ -279,6 +330,7 @@ export default function DashboardClient() {
               <span className={styles.heroChip}><Glyph name="calendar" size={13} /> {rangeLabel}</span>
               <span className={styles.heroChip}><Glyph name="store" size={13} /> {branchLabel}</span>
               <span className={styles.heroChip}><Glyph name="filter" size={13} /> {companyLabel}</span>
+              <span className={styles.heroChip}><Glyph name="calendar" size={13} /> {financialYearText}</span>
               <StatusPill tone={statusTone} icon={error ? 'warning' : loading ? 'refresh' : 'check'}>
                 {error ? 'Data unavailable' : loading ? 'Reading records' : 'Live ERP + storefront'}
               </StatusPill>
@@ -304,10 +356,13 @@ export default function DashboardClient() {
         <FilterBar
           options={options}
           filters={filters}
+          financialYear={headerFinancialYear}
           onChange={changeFilter}
           onRefresh={retry}
           onDownload={download}
           loading={loading}
+          optionsLoading={optionsLoading}
+          optionsError={optionsError}
           downloading={downloading}
           lastUpdated={lastUpdated}
           error={error?.validation ? error.message : ''}

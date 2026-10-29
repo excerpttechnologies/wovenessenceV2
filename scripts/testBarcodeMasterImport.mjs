@@ -55,6 +55,12 @@ import {
   MASTER_TYPES,
   SHEET_NAMES,
 } from '../lib/barcodeMasterImportConstants.js';
+import { executeApprovedImport } from '../lib/itemWiseSummaryServer.js';
+import {
+  ITEM_WISE_SHEET,
+  STRATEGIES as ITEM_WISE_STRATEGIES,
+  TEMPLATE_FIELDS as ITEM_WISE_TEMPLATE_FIELDS,
+} from '../lib/itemWiseSummaryConstants.js';
 
 const FIN_YEAR = '2026-2027';
 const RUN = `${Date.now().toString(36)}${crypto.randomBytes(2).toString('hex')}`.toUpperCase();
@@ -266,7 +272,7 @@ console.log('Run id:', RUN);
 
 /* ========================================================================== */
 
-await scenario('1. Template download has all four sheets, required headers, sample rows and master reference', async () => {
+await scenario('1. Template download has only the data sheets, required headers and sample rows', async () => {
   const reference = {
     suppliers: [{ code: 'SUP001', name: 'Existing Supplier' }],
     items: [{ code: 'ITM001', name: 'Existing Item' }],
@@ -282,28 +288,19 @@ await scenario('1. Template download has all four sheets, required headers, samp
   assert.ok(buffer.length > 0);
 
   const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
-  assert.deepEqual(workbook.SheetNames, [
-    SHEET_NAMES.INSTRUCTIONS,
-    SHEET_NAMES.BARCODE,
-    SHEET_NAMES.MASTER,
-    SHEET_NAMES.REFERENCE,
-  ]);
+  assert.deepEqual(workbook.SheetNames, [SHEET_NAMES.BARCODE, SHEET_NAMES.MASTER]);
 
   const barcodeRows = workbookRows(buffer, SHEET_NAMES.BARCODE);
-  assert.equal(barcodeRows[2][0], 'Barcode Number *');
-  assert.equal(barcodeRows[2][1], 'Old Barcode');
-  assert.equal(barcodeRows[2][2], 'Item Code *');
-  assert.match(String(barcodeRows[3][0]), /^EXAMPLE0001$/);
-  assert.match(String(barcodeRows[4][0]), /^EXAMPLE0002$/);
-  assert.equal(workbook.Sheets[SHEET_NAMES.BARCODE][`A4`].t, 's', 'sample barcode must be stored as text');
+  assert.equal(barcodeRows[0][0], 'Barcode Number *');
+  assert.equal(barcodeRows[0][1], 'Old Barcode');
+  assert.equal(barcodeRows[0][2], 'Item Code *');
+  assert.match(String(barcodeRows[1][0]), /^EXAMPLE0001$/);
+  assert.match(String(barcodeRows[2][0]), /^EXAMPLE0002$/);
+  assert.equal(workbook.Sheets[SHEET_NAMES.BARCODE][`A2`].t, 's', 'sample barcode must be stored as text');
 
   const masterRows = workbookRows(buffer, SHEET_NAMES.MASTER);
-  assert.equal(masterRows[2][0], 'Master Type *');
-  assert.match(String(masterRows[3][0]), /^Example/i);
-
-  const referenceRows = workbookRows(buffer, SHEET_NAMES.REFERENCE);
-  assert.equal(referenceRows[3][0], 'SUP001');
-  assert.equal(referenceRows[3][2], 'ITM001');
+  assert.equal(masterRows[0][0], 'Master Type *');
+  assert.match(String(masterRows[1][0]), /^Example/i);
 
   /* The template's own sample rows must never become imports or masters. */
   const analysis = analyzeImport({
@@ -328,6 +325,51 @@ await scenario('1. Template download has all four sheets, required headers, samp
   assert.equal(analysis.summary.barcode.valid, 0, 'sample rows must not count as valid imports');
   assert.equal(analysis.barcode.rows.filter((row) => row.actions?.CREATE_AND_IMPORT === 'import').length, 0);
   assert.equal(analysis.summary.master.total, 0, 'the master example row must be ignored');
+});
+
+/* ========================================================================== */
+
+await scenario('1b. Each import type downloads only its own sheets and columns', async () => {
+  const reference = {
+    suppliers: [{ code: 'SUP001', name: 'Existing Supplier' }],
+    items: [{ code: 'ITM001', name: 'Existing Item' }],
+    hsn: [{ code: '5007' }],
+    groups: [{ name: 'Sarees' }],
+    subGroups: [{ name: 'Silk Sarees' }],
+    uoms: [{ name: 'PC', shortName: 'PC' }],
+    locations: [{ name: 'Main Store' }],
+    agents: [{ code: 'AG001', name: 'Agent One' }],
+    contactTypes: [{ name: 'Supplier' }, { name: 'Agent' }],
+  };
+
+  /* Barcode / Stock Update: barcode identifier and new quantity only. */
+  const stockBuffer = buildTemplateWorkbook({ reference, scope: IMPORT_SCOPES.BARCODE_STOCK });
+  const stockBook = XLSX.read(stockBuffer, { type: 'buffer' });
+  assert.deepEqual(stockBook.SheetNames, [SHEET_NAMES.BARCODE]);
+  assert.deepEqual(workbookRows(stockBuffer, SHEET_NAMES.BARCODE)[0], ['Barcode Number *', 'Opening Quantity *']);
+  const stockAnalysis = analyzeImport({ buffer: stockBuffer, scope: IMPORT_SCOPES.BARCODE_STOCK, masterIndex: buildMasterIndex({}) });
+  assert.ok(!stockAnalysis.blocking, 'the stock template must pass its own required-column check');
+  assert.equal(stockAnalysis.summary.master.total, 0);
+  assert.equal(stockAnalysis.barcode.present, true);
+
+  /* Master Data Import: Master Data + reference, no Barcode Import sheet. */
+  const masterBuffer = buildTemplateWorkbook({ reference, scope: IMPORT_SCOPES.MASTER_DATA });
+  const masterBook = XLSX.read(masterBuffer, { type: 'buffer' });
+  assert.deepEqual(masterBook.SheetNames, [SHEET_NAMES.MASTER]);
+  assert.equal(workbookRows(masterBuffer, SHEET_NAMES.MASTER)[0][0], 'Master Type *');
+  const masterAnalysis = analyzeImport({ buffer: masterBuffer, scope: IMPORT_SCOPES.MASTER_DATA, masterIndex: buildMasterIndex({}) });
+  assert.ok(!masterAnalysis.blocking);
+  assert.equal(masterAnalysis.barcode.present, false, 'a master import must not parse a barcode sheet');
+  assert.equal(masterAnalysis.summary.barcode.total, 0);
+
+  /* Barcode + Master Data: barcode details plus the master sheet, without the
+     calculated summary columns the importer deliberately ignores. */
+  const barcodeHeader = workbookRows(buildTemplateWorkbook({ reference, scope: IMPORT_SCOPES.BARCODE_MASTER }), SHEET_NAMES.BARCODE)[0];
+  assert.equal(barcodeHeader[0], 'Barcode Number *');
+  assert.equal(barcodeHeader[2], 'Item Code *');
+  assert.ok(barcodeHeader.includes('Opening Quantity *'));
+  assert.ok(!barcodeHeader.includes('Opening Value'), 'ignored summary columns must not be in the template');
+  assert.ok(!barcodeHeader.includes('Closing Quantity'));
 });
 
 /* ========================================================================== */
@@ -359,15 +401,24 @@ await withFixture('valid', async (ctx) => {
     assert.equal(counts.invalid, 0);
     assert.equal(counts.missing_master, 0);
 
+    const progressEvents = [];
     const result = await executeImportSession({
       token,
       strategy: IMPORT_STRATEGIES.CREATE_AND_IMPORT,
       user: USER,
+      onProgress: (event) => progressEvents.push(event),
     });
     assert.equal(result.status, 'COMPLETED');
     assert.equal(result.result.created, 1);
     assert.equal(result.result.mastersCreated, 0);
     assert.equal(result.result.failed, 0);
+    assert.ok(progressEvents.some((event) => (
+      event.type === 'progress'
+      && event.step === 'barcodes'
+      && event.done === 1
+      && event.total === 1
+      && event.success === 1
+    )));
 
     const written = await barcodeRow(ctx, barcodeNo);
     assert.ok(written, 'barcode row was not created');
@@ -760,14 +811,23 @@ await withFixture('stock-confirmed', async (ctx) => {
     assert.equal(analysis.barcode.rows[0].actions.UPDATE_STOCK, 'update');
     assert.equal(analysis.summary.barcode.ready, 1);
 
+    const progressEvents = [];
     const result = await executeImportSession({
       token,
       strategy: IMPORT_STRATEGIES.UPDATE_STOCK,
       replaceStock: true,
       user: USER,
+      onProgress: (event) => progressEvents.push(event),
     });
     assert.equal(result.status, 'COMPLETED');
     assert.equal(result.result.updated, 1);
+    assert.ok(progressEvents.some((event) => (
+      event.type === 'progress'
+      && event.step === 'stock'
+      && event.done === 1
+      && event.total === 1
+      && event.success === 1
+    )));
 
     const after = await barcodeRow(ctx, 'STOCK-YES-001');
     assert.equal(Number(after.qtyNum), 8);
@@ -925,15 +985,24 @@ await withFixture('master-only', async (ctx) => {
     assert.equal(analysis.master.rows.length, 6);
     assert.ok(analysis.master.rows.every((row) => row.creatable));
 
+    const progressEvents = [];
     const result = await executeImportSession({
       token,
       strategy: IMPORT_STRATEGIES.CREATE_AND_IMPORT,
       user: USER,
+      onProgress: (event) => progressEvents.push(event),
     });
     assert.equal(result.status, 'COMPLETED');
     assert.equal(result.result.mastersCreated, 6);
     assert.equal(result.result.failed, 0);
     assert.equal(result.result.created, 0);
+    assert.ok(progressEvents.some((event) => (
+      event.type === 'progress'
+      && event.step === 'masters'
+      && event.done === 6
+      && event.total === 6
+      && event.success === 6
+    )));
 
     assert.ok(await Item.findOne({ businessId: ctx.business._id, itemCode: 'M-ITEM-001' }).lean());
     assert.ok(await ProductGroup.findOne({ businessId: ctx.business._id, name: 'Master Sub Group' }).lean());
@@ -1184,6 +1253,78 @@ await withFixture('business-and-search', async (ctx) => {
     assert.equal(search.masters.length, 1);
     assert.equal(search.masters[0].id, String(ctx.supplier._id));
     assert.equal(search.masters[0].code, ctx.supplier.contactId);
+  });
+});
+
+/* ========================================================================== */
+
+await withFixture('item-wise-progress', async (ctx) => {
+  await scenario('22. Item Wise Summary reports actual validated and persisted row progress', async () => {
+    const values = {
+      locationName: ctx.location.name,
+      groupName: ctx.group.name,
+      supplierCode: ctx.supplier.contactId,
+      supplierName: ctx.supplier.businessName,
+      date: '19/10/2026',
+      age: 5,
+      purchaseDate: '01/10/2026',
+      grcNo: 'IW-GRC-1',
+      supplierInvoiceNo: 'IW-INV-1',
+      batchUnique: 'Unique',
+      itemCode: ctx.item.itemCode,
+      printDescription: ctx.item.name,
+      barcode: 'ITEMWISE-PROGRESS-001',
+      itemAttributes: '',
+      hsn: '5007',
+      purRate: 100,
+      discount: 0,
+      finalNet: 100,
+      gst: 5,
+      rsp: 150,
+      discountPercent: 10,
+      offerPrice: 135,
+      wsp: 120,
+      dp: 110,
+      openQty: 5,
+      uom: 'PCS',
+      openValue: 500,
+      inwardQty: 0,
+      inwardValue: 0,
+      outwardQty: 0,
+      outwardValue: 0,
+      closeQty: 5,
+      closeValue: 500,
+    };
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+      ITEM_WISE_TEMPLATE_FIELDS.map((field) => field.label),
+      ITEM_WISE_TEMPLATE_FIELDS.map((field) => values[field.key] ?? ''),
+    ]), ITEM_WISE_SHEET);
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    const progressEvents = [];
+
+    const { result } = await executeApprovedImport({
+      buffer,
+      fileName: 'item-wise-progress.xlsx',
+      businessId: String(ctx.business._id),
+      finYear: FIN_YEAR,
+      strategy: ITEM_WISE_STRATEGIES.CREATE,
+      user: USER,
+      jobId: `IW-PROGRESS-${RUN}`,
+      onProgress: (event) => progressEvents.push(event),
+    });
+
+    assert.equal(result.imported, 1);
+    assert.equal(result.dataRows, 1);
+    assert.ok(progressEvents.some((event) => event.step === 'validation' && event.total === 0));
+    assert.ok(progressEvents.some((event) => (
+      event.step === 'rows'
+      && event.done === 1
+      && event.total === 1
+      && event.success === 1
+      && event.failed === 0
+    )));
+    assert.ok(await barcodeRow(ctx, 'ITEMWISE-PROGRESS-001'));
   });
 });
 

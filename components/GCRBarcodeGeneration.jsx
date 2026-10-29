@@ -1,4 +1,5 @@
-﻿// "use client";
+﻿"use client";
+// "use client";
 
 // import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 // import { createPortal } from "react-dom";
@@ -4366,7 +4367,6 @@
 
 
 
-"use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -5442,7 +5442,29 @@ function SupplierPriceSetupPanel({ setup }) {
   );
 }
 
-function AddItemModal({ open, onClose, onSubmit, onSubmitAndPrint, barcodeFormat, business = "", markupDefaults = {}, priceSetup = null, rateCodeMapping = null, grcId = null, initialBillSlNo = 1, initialNextSerialNo = 1 }) {
+/* THE BILL LINE AN ITEM WAS RECEIVED ON, read off this GRC's own Item Summary
+   (the rows the grid and the summary table are built from). Matched by the
+   item's own identifier - its code, or its id where a row carries one - never
+   by a serial counter, the last barcode generated, or another row's Bill Sl
+   No. '' means the item has no Item Summary row yet; the caller then keeps its
+   own default. */
+function billSlNoOfItem(rows, itemId, itemCode) {
+  const id = String(itemId || "").trim();
+  const code = String(itemCode || "").trim().toLowerCase();
+  if (!id && !code) return "";
+  let found = "";
+  for (const row of rows || []) {
+    const rowId = String(row?.itemId || "").trim();
+    const rowCode = String(row?.itemCode || "").trim().toLowerCase();
+    if ((id && rowId === id) || (code && rowCode === code)) {
+      const bill = String(row?.billSlNo ?? "").trim();
+      if (bill) found = bill;
+    }
+  }
+  return found;
+}
+
+function AddItemModal({ open, onClose, onSubmit, onSubmitAndPrint, barcodeFormat, business = "", markupDefaults = {}, priceSetup = null, rateCodeMapping = null, grcId = null, initialBillSlNo = 1, itemSummaryRows = NO_ROWS }) {
   /* The form's starting prices: the GRC supplier's Price Calculation Setup
      when the screen has it, otherwise the three markups it has always been
      handed. A value the supplier does not have is left blank - never a
@@ -5525,11 +5547,12 @@ function AddItemModal({ open, onClose, onSubmit, onSubmitAndPrint, barcodeFormat
   const fieldError = (key) => (fieldErrors[key]
     ? <p className="text-[11px] font-medium text-red-600" role="alert">{fieldErrors[key]}</p>
     : null);
-  /* State for the next Serial No. (4th part of barcode) - fetched from backend.
-     Seeded from Item Summary SL NO (the row's position in the summary table),
-     passed in as initialNextSerialNo. The operator can still override it. */
-  const [nextSerialNo, setNextSerialNo] = useState(initialNextSerialNo);
-  const [serialNoLoading, setSerialNoLoading] = useState(false);
+  /* BOTH Serial No. boxes show the BILL SL NO. - the bill line the selected
+     item was received on, as its Item Summary row carries it (form.serialNo).
+     They no longer show a serial counter: the barcode's own running number
+     within the line is assigned by the save route (lib/barcodeValue.js), and
+     a counter read from lastSerialByBill, the previous barcode or the last
+     generated serial must never stand in for this line's Bill Sl No. */
   /* the reservation round trip - the Add buttons are disabled while it runs
      so a double-click cannot burn a second block of numbers */
   const [reserving, setReserving] = useState(false);
@@ -5773,37 +5796,6 @@ function AddItemModal({ open, onClose, onSubmit, onSubmitAndPrint, barcodeFormat
      validated. */
   const updateSerialNo = (raw) => updateField("serialNo", String(raw ?? "").replace(/\D/g, ""));
 
-  /* Fetch next Serial No. (4th part of barcode) when Bill Sl No. changes */
-  const fetchNextSerialNo = useCallback(async (billSlNo) => {
-    if (!grcId || !billSlNo || !String(billSlNo).trim()) {
-      setNextSerialNo(1);
-      return;
-    }
-    setSerialNoLoading(true);
-    try {
-      const response = await fetch(`/api/barcode-generation/next-serial?grcId=${grcId}&billSlNo=${encodeURIComponent(String(billSlNo).trim())}`);
-      const data = await response.json();
-      if (data.ok && data.nextSerialNo) {
-        setNextSerialNo(Number(data.nextSerialNo));
-      } else {
-        setNextSerialNo(1);
-      }
-    } catch {
-      setNextSerialNo(1);
-    } finally {
-      setSerialNoLoading(false);
-    }
-  }, [grcId]);
-
-  useEffect(() => {
-    const billSlNo = String(form.serialNo ?? "").trim();
-    if (billSlNo) {
-      fetchNextSerialNo(billSlNo);
-    } else {
-      setNextSerialNo(1);
-    }
-  }, [form.serialNo, fetchNextSerialNo]);
-
   /* HSN appears in row 1 and again in row 3. Both call this, so both read
      the same form.hsnId / hsnLabel and both go through handleHsnSelection -
      picking in either box updates the other and pulls the GST slab with it.
@@ -6041,9 +6033,17 @@ function AddItemModal({ open, onClose, onSubmit, onSubmitAndPrint, barcodeFormat
       if (unit.hsn) setHsnLabel(unit.hsn);
       if (unit.hsn) setHsn2Label(unit.hsn);
 
+      /* this item's bill line on THIS GRC: the scanned unit's own when it came
+         off this GRC, otherwise the line its Item Summary row carries. Never
+         the unit's serialNo - that is the barcode's running number, not a
+         bill line. */
+      const scannedBillSlNo = String(unit.grcId || "") === String(grcId || "")
+        ? String(unit.billSlNo || "").trim()
+        : "";
       setForm((current) => ({
         ...current,
         oldBarcode: code,
+        serialNo: scannedBillSlNo || billSlNoOfItem(itemSummaryRows, unit.itemId, unit.itemCode || unit.itemName) || initialBillSlNo,
         itemId: unit.itemId ? String(unit.itemId) : "",
         itemCode: unit.itemCode || "",
         itemName: unit.itemName || "",
@@ -6125,6 +6125,7 @@ function AddItemModal({ open, onClose, onSubmit, onSubmitAndPrint, barcodeFormat
       setForm((current) => withFormPrices(withItemOffers({
         ...current,
         itemId: "", itemName: "", itemCode: "", subGroupName: "", groupName: "", printDescription: "",
+        serialNo: initialBillSlNo,
         hsnId: "", hsn: "", hsn2Id: "", hsn2: "", gst: "0",
         ...supplierMarkups,
       }, null)));
@@ -6143,6 +6144,9 @@ function AddItemModal({ open, onClose, onSubmit, onSubmitAndPrint, barcodeFormat
       itemId: opt.value,
       itemCode,
       itemName,
+      /* the bill line this item carries in the GRC's Item Summary - not the
+         previous item's, and not a serial counter */
+      serialNo: billSlNoOfItem(itemSummaryRows, opt.value, itemCode) || initialBillSlNo,
       printDescription: opt.description || "",
       hsnId: "",
       hsn: "",
@@ -6587,7 +6591,9 @@ function AddItemModal({ open, onClose, onSubmit, onSubmitAndPrint, barcodeFormat
         groupId: planItem.groupId || null,
         groupSize: planItem.groupSize || 1,
         billSlNo: String(baseSerial),
-        serialNo: nextSerialNo ? String(nextSerialNo) : "",  // Operator-overridable starting Serial No.
+        /* No serialNo: the save route gives every new barcode its running
+           number within this bill line, so the box cannot hand it a number
+           from another line's counter. */
         rsp: String(form.rspPrice || 0),
         wsp: String(form.wspPrice || 0),
         dp: String(form.dpPrice || 0),
@@ -6755,28 +6761,23 @@ function AddItemModal({ open, onClose, onSubmit, onSubmitAndPrint, barcodeFormat
 
               Bill Sl No. is the supplier's bill line number (3rd part of barcode),
               hidden while SHOW_BILL_SL_NO is off - its value still travels.
-              Serial No. is the auto-incrementing counter per Bill Sl No. (4th part of barcode).
-              Row 2 Serial No. is EDITABLE - the operator can override the auto-suggested value. */}
+              Serial No. shows that same bill line, read from the selected item's
+              Item Summary row (form.serialNo), and stays editable. The barcode's
+              own running sequence (4th part) is assigned by the save route. */}
           <div className={`mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 ${SHOW_BILL_SL_NO ? "xl:grid-cols-[90px_90px_minmax(0,1fr)_minmax(0,1fr)]" : "xl:grid-cols-[90px_minmax(0,1fr)_minmax(0,1fr)]"}`}>
             {SHOW_BILL_SL_NO && <SerialNoField value={form.serialNo} onChange={updateSerialNo} editableClass={editableClass} />}
             <div className="space-y-1">
               <label className="block text-[11px] font-semibold text-gray-700">Serial No. *</label>
               <div className="relative">
                 <input
-                  value={nextSerialNo ?? ""}
+                  value={form.serialNo ?? ""}
                   inputMode="numeric"
                   aria-label="Serial No."
                   placeholder="1"
                   onWheel={(event) => event.currentTarget.blur()}
-                  onChange={(event) => {
-                    const digits = String(event.target.value).replace(/\D/g, "");
-                    setNextSerialNo(digits === "" ? "" : Number(digits));
-                  }}
+                  onChange={(event) => updateSerialNo(event.target.value)}
                   className={`w-full rounded-md px-2 py-2 text-sm ${editableClass}`}
                 />
-                {serialNoLoading && (
-                  <div className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-blue-600">Loading...</div>
-                )}
               </div>
             </div>
 
@@ -6794,15 +6795,15 @@ function AddItemModal({ open, onClose, onSubmit, onSubmitAndPrint, barcodeFormat
           {/* ROW 3: [Bill Sl No.] | Serial No. | HSN (second, independent) | Unique Barcode | MTR.
 
               Bill Sl No. here is a locked read-back of the value entered in row 2
-              — one value, two windows, hidden with it. Serial No. shows the next
-              auto-increment value. */}
+              — one value, two windows, hidden with it. Serial No. is the same
+              bill line, locked. */}
           <div className={`mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 ${SHOW_BILL_SL_NO ? "xl:grid-cols-[90px_90px_170px_230px_230px]" : "xl:grid-cols-[90px_170px_230px_230px]"}`}>
             {SHOW_BILL_SL_NO && <SerialNoField value={form.serialNo} readOnlyClass={readOnlyClass} locked />}
             <div className="space-y-1">
               <label className="block text-[11px] font-semibold text-gray-700">Serial No. *</label>
               <div className="relative">
                 <input
-                  value={nextSerialNo ?? ""}
+                  value={form.serialNo ?? ""}
                   inputMode="numeric"
                   aria-label="Serial No."
                   placeholder="1"
@@ -8398,20 +8399,20 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
         priceSetup={supplierPriceSetup}
         rateCodeMapping={rateCodeMapping}
         grcId={grcHeader.grcId || grcId}
-        /* The next Bill Sl No. to suggest in the form, derived from the Item
-           Summary: the highest billSlNo already present in the saved rows + 1.
+        /* The Bill Sl No. to show in the form, derived from the Item
+           Summary: the billSlNo from the first Item Summary row.
            When the GRC has no rows yet, this is 1. This mirrors exactly what
            the Item Summary table shows - it is built from the same rows array
            - so the Serial No. field is always in step with that table. */
         initialBillSlNo={
-          validRows.length === 0
+          summaryRows.length === 0
             ? 1
-            : Math.max(...validRows.map((r) => Number(r.billSlNo) || 0)) + 1
+            : Number(summaryRows[0].billSlNo) || 1
         }
-        /* The Serial No.* field initial value — the SL NO from the Item Summary
-           for the next new entry. Item Summary SL NO is simply the row counter
-           of that table (1, 2, 3...), so the next one is summaryRows.length + 1. */
-        initialNextSerialNo={summaryRows.length + 1}
+        /* The Item Summary rows themselves: both Serial No. boxes read the
+           bill line of the item selected here from them (billSlNoOfItem), and
+           a barcode's own running number is left to the save route. */
+        itemSummaryRows={validRows}
         onClose={() => setShowAddItem(true)}
         onSubmit={(items) => appendRows(items)}
         onSubmitAndPrint={(items) => {

@@ -6,7 +6,9 @@ import {
   LuFileSpreadsheet, LuLayers, LuRefreshCw, LuSearch, LuUpload, LuX,
 } from 'react-icons/lu';
 import Icon from './Icon';
+import ImportProgressPanel from './ImportProgressPanel';
 import { useScope } from './ScopeContext';
+import { readImportProgressStream } from '@/lib/importProgressClient';
 import {
   IMPORT_SCOPES, IMPORT_SCOPE_LABELS, IMPORT_SCOPE_DESCRIPTIONS,
   IMPORT_STRATEGIES, IMPORT_STRATEGY_LABELS, IMPORT_STRATEGY_DESCRIPTIONS,
@@ -760,6 +762,13 @@ export default function BarcodeMasterImport() {
     setBusy(true);
     setError('');
     setNotice('');
+    setProgress({
+      step: 'validation',
+      done: 0,
+      total: 0,
+      status: 'active',
+      message: 'Validating the workbook. No data will be written.',
+    });
     try {
       const form = new FormData();
       form.append('file', file);
@@ -774,6 +783,23 @@ export default function BarcodeMasterImport() {
 
       setToken(data.token);
       setAnalysis(data.analysis);
+      const summary = data.analysis?.summary || {};
+      const barcodeRows = Number(summary.barcode?.total || 0);
+      const masterRows = Number(summary.master?.total || 0);
+      const analyzedRows = scope === IMPORT_SCOPES.MASTER_DATA
+        ? masterRows
+        : scope === IMPORT_SCOPES.BARCODE_STOCK
+          ? barcodeRows
+          : barcodeRows + masterRows;
+      setProgress({
+        step: 'preview',
+        done: analyzedRows,
+        total: analyzedRows,
+        unit: 'rows',
+        status: 'completed',
+        completed: true,
+        message: 'Workbook validated. Preview is ready; no import has been performed.',
+      });
       if (typeof window !== 'undefined') window.sessionStorage.setItem(SESSION_KEY, data.token);
       setStrategy(DEFAULT_STRATEGY[scope]);
       setSheet(scope === IMPORT_SCOPES.MASTER_DATA ? 'master' : 'barcode');
@@ -785,6 +811,11 @@ export default function BarcodeMasterImport() {
       setStep('review');
     } catch (err) {
       setError(err.message);
+      setProgress((prev) => ({
+        ...(prev || { step: 'validation', done: 0, total: 0 }),
+        status: 'failed',
+        message: err.message || 'Workbook validation failed.',
+      }));
     } finally {
       setBusy(false);
     }
@@ -795,6 +826,13 @@ export default function BarcodeMasterImport() {
     setBusy(true);
     setError('');
     setNotice('');
+    setProgress({
+      step: 'validation',
+      done: 0,
+      total: 0,
+      status: 'active',
+      message: 'Revalidating the workbook against current master data.',
+    });
     try {
       const response = await fetch('/api/barcode-import/resolve', {
         method: 'POST',
@@ -804,10 +842,32 @@ export default function BarcodeMasterImport() {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'The workbook could not be revalidated.');
       setAnalysis((previous) => ({ ...data.analysis, masterCreations: previous?.masterCreations || [] }));
+      const summary = data.analysis?.summary || {};
+      const barcodeRows = Number(summary.barcode?.total || 0);
+      const masterRows = Number(summary.master?.total || 0);
+      const analyzedRows = scope === IMPORT_SCOPES.MASTER_DATA
+        ? masterRows
+        : scope === IMPORT_SCOPES.BARCODE_STOCK
+          ? barcodeRows
+          : barcodeRows + masterRows;
+      setProgress({
+        step: 'preview',
+        done: analyzedRows,
+        total: analyzedRows,
+        unit: 'rows',
+        status: 'completed',
+        completed: true,
+        message: 'Workbook revalidated. Preview is ready; no import has been performed.',
+      });
       setPreview({ rows: [], page: 1, pages: 1, total: 0, counts: {} });
       setNotice('Workbook revalidated against the masters as they are now.');
     } catch (err) {
       setError(err.message);
+      setProgress((prev) => ({
+        ...(prev || { step: 'validation', done: 0, total: 0 }),
+        status: 'failed',
+        message: err.message || 'Workbook revalidation failed.',
+      }));
     } finally {
       setBusy(false);
     }
@@ -879,7 +939,7 @@ export default function BarcodeMasterImport() {
     setBusy(true);
     setError('');
     setNotice('');
-    setProgress({ step: 'start', done: 0, total: 0, message: 'Starting the import…' });
+    setProgress({ step: 'start', done: 0, total: 0, status: 'active', message: 'Preparing import…' });
     try {
       const response = await fetch('/api/barcode-import/execute', {
         method: 'POST',
@@ -887,63 +947,48 @@ export default function BarcodeMasterImport() {
         body: JSON.stringify({ token, strategy, replaceStock }),
       });
 
-      const contentType = response.headers.get('content-type') || '';
-      if (!response.ok || !contentType.includes('ndjson')) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || 'The import could not be started.');
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let completion = null;
-
-      const consume = (line) => {
-        if (!line.trim()) return;
-        let event;
-        try {
-          event = JSON.parse(line);
-        } catch {
-          return;
-        }
+      const completion = await readImportProgressStream(response, (event) => {
         if (event.type === 'start') {
-          setProgress({ step: 'start', done: 0, total: 0, message: `Import job ${event.jobId} started.` });
+          setProgress({ step: 'start', done: 0, total: 0, status: 'active', message: `Import job ${event.jobId} started.` });
         } else if (event.type === 'progress') {
           setProgress({
             step: event.step || 'working',
             done: Number(event.done || 0),
             total: Number(event.total || 0),
             message: event.message || 'Working…',
+            unit: event.unit || 'rows',
+            success: event.success,
+            skipped: event.skipped,
+            failed: event.failed,
+            status: 'active',
           });
         } else if (event.type === 'done') {
-          setProgress((prev) => ({ ...(prev || {}), done: prev?.total || prev?.done || 0, message: 'Import finished. Loading the result…' }));
-        } else if (event.type === 'complete') {
-          completion = event;
-        } else if (event.type === 'error') {
-          throw new Error(event.error || 'The import failed.');
+          setProgress((prev) => ({ ...(prev || {}), status: 'active', message: 'Finalizing the import…' }));
         }
-      };
-
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-        lines.forEach(consume);
-      }
-      buffer += decoder.decode();
-      if (buffer.trim()) consume(buffer);
-
-      if (!completion) {
-        throw new Error('The import ended before a result was received. Reload the page and check the import job before retrying.');
-      }
+      });
+      const failed = Number(completion.result?.failed || 0);
+      setProgress((prev) => ({
+        ...(prev || {}),
+        status: completion.status === 'FAILED' ? 'failed' : 'completed',
+        completed: completion.status !== 'FAILED',
+        message: completion.status === 'FAILED'
+          ? 'Import failed. Review the error details before retrying.'
+          : completion.status === 'PARTIAL' || failed > 0
+            ? 'Import completed with row failures.'
+            : 'Import completed successfully.',
+        success: Number(completion.result?.created || 0) + Number(completion.result?.updated || 0) + Number(completion.result?.mastersCreated || 0),
+        skipped: Number(completion.result?.skipped || 0),
+        failed,
+      }));
       setResult({ ...completion, token });
-      setProgress(null);
       setStep('result');
     } catch (err) {
       setError(err.message);
-      setProgress(null);
+      setProgress((prev) => ({
+        ...(prev || { step: 'start', done: 0, total: 0 }),
+        status: 'failed',
+        message: err.message || 'The import failed.',
+      }));
     } finally {
       setBusy(false);
     }
@@ -1148,7 +1193,7 @@ export default function BarcodeMasterImport() {
                       <LuRefreshCw size={14} /> Retry / Continue import
                     </button>
                   )}
-                  <button type="button" className="btn" onClick={() => { if (typeof window !== 'undefined') window.sessionStorage.removeItem(SESSION_KEY); setResult(null); setFile(null); setToken(''); setAnalysis(null); setConfirmed(false); setReplaceStock(false); setError(''); setNotice(''); setPreview({ rows: [], page: 1, pages: 1, total: 0, counts: {} }); setStep('upload'); }}>
+                  <button type="button" className="btn" onClick={() => { if (typeof window !== 'undefined') window.sessionStorage.removeItem(SESSION_KEY); setResult(null); setProgress(null); setFile(null); setToken(''); setAnalysis(null); setConfirmed(false); setReplaceStock(false); setError(''); setNotice(''); setPreview({ rows: [], page: 1, pages: 1, total: 0, counts: {} }); setStep('upload'); }}>
                     <LuUpload size={14} /> Import Another File
                   </button>
                   <button type="button" className="btn btn-primary" onClick={close}>Done</button>
@@ -1252,6 +1297,7 @@ export default function BarcodeMasterImport() {
                     onChange={(e) => {
                       setFile(e.target.files?.[0] || null);
                       setError('');
+                      setProgress(null);
                     }}
                   />
                 </label>
@@ -1259,31 +1305,37 @@ export default function BarcodeMasterImport() {
 
               <div className="rounded-lg border border-line bg-[#f7f9fc] p-3 text-[12px] text-inkmuted">
                 <div className="flex items-center gap-2 font-semibold text-ink">
-                  <LuFileSpreadsheet size={15} /> What the template contains
+                  <LuFileSpreadsheet size={15} /> What this template contains
                 </div>
-                <p className="mt-1">
-                  <strong>Instructions</strong> explains the rules, <strong>Barcode Import</strong> holds one row per barcode,
-                  <strong> Master Data</strong> declares the suppliers, items, HSN, groups, UOM, locations and agents that
-                  may be created, and <strong>Existing Master Reference</strong> lists the codes already in this business.
-                  Keep the sheet names and header row unchanged.
-                </p>
+                {scope === IMPORT_SCOPES.BARCODE_MASTER && (
+                  <p className="mt-1">
+                    A plain workbook with two sheets: <strong>Barcode Import</strong> (one row per new barcode with its item,
+                    supplier, classification and opening-stock details) and <strong>Master Data</strong> (only the masters
+                    that do not exist yet). The header is row 1 and required columns are marked *.
+                  </p>
+                )}
                 {scope === IMPORT_SCOPES.BARCODE_STOCK && (
-                  <p className="mt-2 font-semibold text-[#8a5a00]">
-                    Stock update never creates a barcode or a master. Only Barcode Number and Opening Quantity are used,
-                    and the quantity is replaced only when you explicitly confirm it.
+                  <p className="mt-1">
+                    A plain workbook with one <strong>Barcode Import</strong> sheet and exactly two columns:
+                    <strong> Barcode Number</strong> and <strong>Opening Quantity</strong>. A stock update never creates a
+                    barcode or a master, and the quantity is replaced only when you explicitly confirm it.
                   </p>
                 )}
                 {scope === IMPORT_SCOPES.MASTER_DATA && (
-                  <p className="mt-2 font-semibold text-[#8a5a00]">
-                    Master Data Import reads the Master Data sheet only. No barcode row is written.
+                  <p className="mt-1">
+                    A plain workbook with one <strong>Master Data</strong> sheet: one row per master, with only the columns
+                    those master types need. Required fields depend on Master Type and required columns are marked *.
                   </p>
                 )}
               </div>
 
               {!file && (
                 <div className="rounded-lg border border-[#e7c96b] bg-[#fff8e6] px-3 py-2 text-[12px] text-[#8a5a00]">
-                  Download the template for this import type, fill it, then upload the same file. The older item-wise
-                  summary workbooks have no Barcode Number column and are rejected with a direct explanation.
+                  {scope === IMPORT_SCOPES.MASTER_DATA
+                    ? 'Download the Master Data template, fill the Master Data sheet, then upload the same file. Only the masters you list are created; ambiguous matches must be resolved first.'
+                    : scope === IMPORT_SCOPES.BARCODE_STOCK
+                      ? 'Download the stock-update template, enter an existing barcode and its new quantity, then upload the same file. Unknown barcodes are rejected; nothing new is created.'
+                      : 'Download the template, fill the Barcode Import and Master Data sheets, then upload the same file. The older item-wise summary workbooks have no Barcode Number column and are rejected with a direct explanation.'}
                 </div>
               )}
             </div>
@@ -1291,6 +1343,7 @@ export default function BarcodeMasterImport() {
 
           {step === 'review' && analysis && (
             <div className="space-y-4">
+              {progress && <ImportProgressPanel progress={progress} />}
               {blocking && (
                 <div className="rounded-lg border border-[#e7c96b] bg-[#fff8e6] px-4 py-3">
                   <div className="text-[14px] font-bold text-[#8a5a00]">{blocking.title}</div>
@@ -1344,7 +1397,9 @@ export default function BarcodeMasterImport() {
                     {scopeNeedsBarcodes(scope) && (
                       <div><span className="text-inkmuted">Rows importable under this strategy:</span> {num(strategySummary?.importable)}</div>
                     )}
-                    <div><span className="text-inkmuted">Missing master values:</span> {num(missingMasters.length)}</div>
+                    {scope !== IMPORT_SCOPES.BARCODE_STOCK && (
+                      <div><span className="text-inkmuted">Missing master values:</span> {num(missingMasters.length)}</div>
+                    )}
                   </div>
                 </div>
 
@@ -1662,10 +1717,16 @@ export default function BarcodeMasterImport() {
                       ) : (
                         <>
                           <th className="px-2 py-1.5">Barcode</th>
-                          <th className="px-2 py-1.5">Item</th>
-                          <th className="px-2 py-1.5">Supplier</th>
-                          <th className="px-2 py-1.5">Location</th>
-                          <th className="px-2 py-1.5 text-right">Qty</th>
+                          {scope !== IMPORT_SCOPES.BARCODE_STOCK && (
+                            <>
+                              <th className="px-2 py-1.5">Item</th>
+                              <th className="px-2 py-1.5">Supplier</th>
+                              <th className="px-2 py-1.5">Location</th>
+                            </>
+                          )}
+                          <th className="px-2 py-1.5 text-right">
+                            {scope === IMPORT_SCOPES.BARCODE_STOCK ? 'New quantity' : 'Qty'}
+                          </th>
                           <th className="px-2 py-1.5">Issue / note</th>
                         </>
                       )}
@@ -1706,12 +1767,16 @@ export default function BarcodeMasterImport() {
                             <span className={'rounded px-1.5 py-0.5 text-[11px] font-semibold ' + badge.tone}>{badge.label}</span>
                           </td>
                           <td className="px-2 py-1.5 font-mono">{row.values?.barcodeNo || '—'}</td>
-                          <td className="px-2 py-1.5">
-                            {row.values?.itemCode || '—'}
-                            {row.values?.itemName ? <span className="text-inkmuted"> · {row.values.itemName}</span> : null}
-                          </td>
-                          <td className="px-2 py-1.5">{row.values?.supplierCode || row.values?.supplierName || '—'}</td>
-                          <td className="px-2 py-1.5">{row.values?.locationName || 'Default location'}</td>
+                          {scope !== IMPORT_SCOPES.BARCODE_STOCK && (
+                            <>
+                              <td className="px-2 py-1.5">
+                                {row.values?.itemCode || '—'}
+                                {row.values?.itemName ? <span className="text-inkmuted"> · {row.values.itemName}</span> : null}
+                              </td>
+                              <td className="px-2 py-1.5">{row.values?.supplierCode || row.values?.supplierName || '—'}</td>
+                              <td className="px-2 py-1.5">{row.values?.locationName || 'Default location'}</td>
+                            </>
+                          )}
                           <td className="px-2 py-1.5 text-right">{num(row.values?.openingQty)}</td>
                           <td className="px-2 py-1.5 text-inkmuted">{rowIssue(row)}</td>
                         </tr>
@@ -1719,7 +1784,7 @@ export default function BarcodeMasterImport() {
                     })}
                     {!preview.rows.length && (
                       <tr>
-                        <td colSpan={sheet === 'master' ? 6 : 8} className="px-2 py-6 text-center text-inkmuted">
+                        <td colSpan={sheet === 'master' ? 6 : scope === IMPORT_SCOPES.BARCODE_STOCK ? 5 : 8} className="px-2 py-6 text-center text-inkmuted">
                           No rows in this filter.
                         </td>
                       </tr>
@@ -1739,20 +1804,7 @@ export default function BarcodeMasterImport() {
                 </span>
               </div>
 
-              {progress && (
-                <div className="rounded-lg border border-line bg-[#f7f9fc] px-3 py-2 text-[12px]">
-                  <div className="flex items-center justify-between font-semibold">
-                    <span>{progress.message || 'Working…'}</span>
-                    {progress.total > 0 && <span>{num(progress.done)} / {num(progress.total)}</span>}
-                  </div>
-                  <div className="mt-1 h-2 overflow-hidden rounded bg-[#e3e8f0]">
-                    <div
-                      className="h-full rounded bg-brand transition-all"
-                      style={{ width: progress.total > 0 ? `${Math.min(100, Math.round((progress.done / progress.total) * 100))}%` : '20%' }}
-                    />
-                  </div>
-                </div>
-              )}
+              {progress && <ImportProgressPanel progress={progress} />}
 
               <div className="rounded-lg border border-line bg-[#f7f9fc] px-3 py-2 text-[12px]">
                 <div className="font-semibold">
@@ -1789,6 +1841,7 @@ export default function BarcodeMasterImport() {
 
           {step === 'result' && result && (
             <div className="space-y-3">
+              {progress && <ImportProgressPanel progress={progress} />}
               <div className={'rounded-lg px-4 py-3 ' + (result.status === 'FAILED' ? 'bg-[#fdecec] text-danger' : 'bg-okgreenbg text-okgreen')}>
                 <div className="text-[15px] font-bold">
                   {result.status === 'FAILED' ? 'Import failed' : result.status === 'PARTIAL' ? 'Import completed with failures' : 'Import completed'}

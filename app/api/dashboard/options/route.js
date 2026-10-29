@@ -24,8 +24,8 @@ function fail(err) {
 }
 
 /* Filter vocabulary for the dashboard. Only sessions allowed to view reports
-   may enumerate it, and the branch list is already narrowed to the locations
-   the session is assigned to by loadDashboardOptions(). */
+   may enumerate it, and the company/location lists are already narrowed to
+   the session's ERP permissions by loadDashboardOptions(). */
 export async function GET() {
   try {
     const session = await requirePermission(PERMISSIONS.REPORTS_VIEW);
@@ -44,15 +44,15 @@ export async function GET() {
         label: b.name,
         isMainBranch: b.isMainBranch,
       })),
-      branches: access.authorizedBranches.map((b) => ({
-        value: b.branchId,
-        label: [b.branchName, b.city].filter(Boolean).join(' · '),
-        branchName: b.branchName,
-        branchCode: b.branchCode,
-        city: b.city,
-        companyId: b.businessId,
-        companyName: b.businessName,
-        isMainBranch: b.isMainBranch,
+      branches: access.authorizedLocations.map((location) => ({
+        value: location.locationId,
+        label: location.name,
+        branchName: location.name,
+        city: location.city,
+        companyId: location.businessId,
+        companyName: access.businessById.get(location.businessId)?.name
+          || access.businessById.get(location.businessId)?.businessPrintName
+          || '',
       })),
       channels: CHANNELS,
       financialYears,
@@ -67,7 +67,7 @@ export async function GET() {
       timezone: 'Asia/Kolkata',
       currency: 'INR',
       sourceNote:
-        'Branch names and cities come from the storefront branches collection mapped to ERP businesses. No branch is invented.',
+        'Company and location names and IDs come from the ERP business and companylocation collections.',
     });
   } catch (err) {
     return fail(err);

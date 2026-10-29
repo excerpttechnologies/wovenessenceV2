@@ -21,7 +21,7 @@ master creator, or from a retried import.
 | Screen | `/admin/report/data-import` → **Add Import** |
 | Import types | Barcode + Master Data, Barcode / Stock Update, Master Data |
 | Template | Real `.xlsx`, downloadable per import type |
-| Workbook sheets | Instructions, Barcode Import, Master Data, Existing Master Reference |
+| Workbook sheets | Per import type: Barcode Import and/or Master Data only (see section 4) |
 | Parsing | Server-side; the browser never posts row data back |
 | Validation | Per-row status, missing-master detection, duplicate detection |
 | Master resolution | Missing / ambiguous references can be created, mapped to an existing master, rechecked or reviewed |
@@ -106,18 +106,23 @@ returns a real styled workbook:
 | Barcode / Stock Update | `barcode-stock-update-template.xlsx` |
 | Master Data | `master-data-import-template.xlsx` |
 
-Every template contains:
+Each template is a plain data workbook: it contains only the sheet(s) that
+import type fills, with the header on row 1 and no Instructions or reference
+sheet.
 
-1. **Instructions** – the rules, required columns and examples.
-2. **Barcode Import** – one row per barcode.
-3. **Master Data** – only masters that do not exist yet.
-4. **Existing Master Reference** – codes and names already in the selected
-   business, used as a lookup / dropdown reference.
+| Import type | Sheets | Barcode Import columns |
+| --- | --- | --- |
+| Barcode + Master Data | Barcode Import, Master Data | Every barcode field except the calculated opening/inward/outward/closing summary columns |
+| Barcode / Stock Update | Barcode Import | Barcode Number, Opening Quantity |
+| Master Data | Master Data | No Barcode Import sheet |
 
-The writer adds frozen header rows, AutoFilter, sensible column widths,
+A stock-update template has no master, item, supplier or new-barcode column.
+A master-import template has no barcode or stock field.
+
+The writer adds a frozen header row, AutoFilter, sensible column widths,
 number/date formats, required-header markers, text formatting for barcode and
-code columns (leading zeros are preserved), sample rows and dropdowns where
-practical.
+code columns (leading zeros are preserved), sample rows and the Master
+Type/Status dropdowns where practical.
 
 **Do not rename the sheets or move the header row.** The parser also accepts
 common header aliases, but keeping the template layout is the supported path.
@@ -145,9 +150,12 @@ template shows `0` ready rows.
 | **Item Code** | Must resolve to an Item master, or be creatable from the row’s own fields (group, sub group, UOM, HSN) or from a Master Data row. |
 | **Opening Quantity** | The quantity to open. Zero-quantity rows are treated as invalid rather than silently creating empty stock. |
 
+In **Barcode / Stock Update** the sheet has only **Barcode Number** and
+**Opening Quantity**. Item Code is neither required nor shown there.
+
 ### Supported columns
 
-The template also supports:
+The Barcode + Master Data template also supports:
 
 - **Identity:** Old Barcode, Item Name, Print Description, Item Attributes
 - **Classification:** HSN, Group Name, Sub Group Name, UOM, Batch/Unique,
@@ -542,6 +550,13 @@ also checked against the user who uploaded them.
 | `POST` | `/api/barcode-import/execute` | `{ token, strategy, replaceStock }`; streams NDJSON progress and a final `complete`/`error` event. Unresolved ambiguity ends the stream with `RESOLUTION_REQUIRED` before any write. |
 | `GET` | `/api/barcode-import/error-report?token=` | Downloads the validation/error workbook. |
 | `POST` | `/api/hsr-import` | Multipart HSR analyze/execute (`mode`, `operation`, `business`, `location`, `file`, `finYear`, optional `sourceLocation`, `stockPoint`, `dryRun`). |
+
+The barcode/master execute stream reports persisted master, barcode, and stock
+work as it completes. Its progress display stays below 100% until the terminal
+`complete` event confirms that the job and import session were finalized.
+Item Wise Summary execution uses the same NDJSON progress contract; validation
+and preview remain non-writing operations, and only the confirmed execute step
+reports database-write progress.
 
 ### Import scopes
 

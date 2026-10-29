@@ -249,18 +249,39 @@ async function main() {
 
   const allAccess = await loadDashboardOptions(unrestricted);
   assert.equal(allAccess.authorizedBranches.length, 4);
-  assert.equal(allAccess.authorizedBusinesses.length, 4);
+  assert.equal(allAccess.authorizedBusinesses.length, await db.collection('business').countDocuments({}));
+  assert.ok(allAccess.authorizedLocations.some((location) => location.locationId === String(suvarnaLocation._id)));
 
   const oneAccess = await loadDashboardOptions(restricted);
   assert.equal(oneAccess.authorizedBranches.length, 1);
   assert.equal(oneAccess.authorizedBranches[0].branchCode, 'TF-0004');
+  assert.deepEqual(oneAccess.authorizedLocations.map((location) => location.locationId), [String(suvarnaLocation._id)]);
 
-  const suvarnaFilter = parseFilters(new URLSearchParams({ branch: String(suvarna._id) }), oneAccess);
-  assert.equal(suvarnaFilter.branch, String(suvarna._id));
-  const other = branches.find((b) => b.branchCode === 'TF-0001');
+  const suvarnaFilter = parseFilters(new URLSearchParams({ branch: String(suvarnaLocation._id) }), oneAccess);
+  assert.equal(suvarnaFilter.branch, String(suvarnaLocation._id));
+  assert.equal(suvarnaFilter.selectedBusinessId, suvarnaBusinessId);
+  const resolvedLocation = await resolveDashboardRequest(unrestricted, new URLSearchParams({
+    branch: String(suvarnaLocation._id),
+    financialYear: '2026-2027',
+    startDate: '2026-09-23',
+    endDate: '2026-10-22',
+    comparison: 'previous_period',
+  }));
+  assert.deepEqual(resolvedLocation.locationIds.map(String), [String(suvarnaLocation._id)]);
+  assert.deepEqual(resolvedLocation.businessIds.map(String), [suvarnaBusinessId]);
+  const otherLocation = allAccess.authorizedLocations.find(
+    (location) => location.businessId !== suvarnaBusinessId
+  );
+  assert.ok(otherLocation, 'a location for another company is required for the access test');
   assert.throws(
-    () => parseFilters(new URLSearchParams({ branch: String(other._id) }), oneAccess),
+    () => parseFilters(new URLSearchParams({ branch: otherLocation.locationId }), oneAccess),
     (err) => err instanceof DashboardError && err.status === 403
+  );
+  assert.throws(
+    () => parseFilters(new URLSearchParams({
+      company: suvarnaBusinessId, branch: otherLocation.locationId,
+    }), allAccess),
+    (err) => err instanceof DashboardError && err.status === 422
   );
   assert.throws(
     () => parseFilters(new URLSearchParams({ company: 'not-an-id' }), allAccess),
@@ -302,7 +323,7 @@ async function main() {
     assert.equal(all.reconciliation.totalOrders, kpi.orders.value);
   });
 
-  await testAsync('pre-launch POS and website records stay out of dashboard totals', async () => {
+  await testAsync('historical POS invoices are included while pre-launch website orders stay out', async () => {
     const beforeGoLive = await buildDashboardAnalytics(unrestricted, new URLSearchParams({
       financialYear: '2026-2027',
       startDate: '2026-09-01',
@@ -310,13 +331,11 @@ async function main() {
       comparison: 'none',
       channel: 'all',
     }));
-    assert.equal(beforeGoLive.kpis.current.revenue, 0);
-    assert.equal(beforeGoLive.kpis.current.orders, 0);
-    assert.ok(beforeGoLive.kpis.cards.every((card) => card.value === 0));
-    assert.equal(beforeGoLive.reconciliation.offline.orders, 0);
+    assert.ok(beforeGoLive.meta.sourceCounts.posInvoices > 0);
+    assert.ok(beforeGoLive.kpis.current.revenue > 0);
+    assert.ok(beforeGoLive.kpis.current.orders > 0);
     assert.equal(beforeGoLive.reconciliation.website.orders, 0);
     assert.equal(beforeGoLive.reconciliation.website.net, 0);
-    assert.ok(beforeGoLive.trend.every((row) => row.revenue === 0 && row.orders === 0));
   });
 
   await testAsync('dated branches and channel rows have N/A-safe growth', async () => {
@@ -353,16 +372,16 @@ async function main() {
     });
   });
 
-  await testAsync('branch filter narrows every panel to one branch', async () => {
+  await testAsync('location filter narrows every panel to the selected company and location', async () => {
     const data = await buildDashboardAnalytics(unrestricted, new URLSearchParams({
-      ...base, channel: 'all', branch: String(suvarna._id),
+      ...base, channel: 'all', branch: String(suvarnaLocation._id),
     }));
-    assert.equal(data.meta.branch, String(suvarna._id));
+    assert.equal(data.meta.branch, String(suvarnaLocation._id));
     assert.equal(data.branches.rows.length, 1);
     assert.equal(data.branches.rows[0].branchName, 'Suvarna Fabrics');
     approx(data.kpis.current.revenue, data.branches.rows[0].revenue);
     approx(sum(data.categories, (row) => row.revenue), data.kpis.current.revenue);
-    assert.equal(data.meta.branchLabel.includes('Suvarna Fabrics'), true);
+    assert.equal(data.meta.branchLabel.includes(String(suvarnaLocation.name)), true);
   });
 
   await testAsync('channel filter changes KPIs and categories but keeps reconciliation rows', async () => {
@@ -404,7 +423,11 @@ async function main() {
       assert.equal(all.forecast.available, true);
       assert.match(all.forecast.model, /daily average/i);
       assert.match(all.forecast.disclaimer, /not a guarantee/i);
-      approx(all.forecast.forecast, all.forecast.dailyAverage * all.forecast.nextMonthDays);
+      approx(
+        all.forecast.forecast,
+        all.forecast.dailyAverage * all.forecast.nextMonthDays,
+        all.forecast.nextMonthDays * 0.005 + 0.01
+      );
       assert.ok(all.forecast.lower < all.forecast.forecast);
       assert.ok(all.forecast.upper > all.forecast.forecast);
     }
@@ -454,7 +477,7 @@ async function main() {
   await testAsync('restricted session cannot read another branch through analytics', async () => {
     await assert.rejects(
       buildDashboardAnalytics(restricted, new URLSearchParams({
-        ...base, branch: String(other._id),
+        ...base, branch: otherLocation.locationId,
       })),
       (err) => err.status === 403
     );

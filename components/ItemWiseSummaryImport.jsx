@@ -5,7 +5,9 @@ import {
   LuArrowLeft, LuArrowRight, LuCheck, LuDownload, LuFileSpreadsheet, LuRefreshCw, LuUpload, LuX,
 } from 'react-icons/lu';
 import Icon from './Icon';
+import ImportProgressPanel from './ImportProgressPanel';
 import { useScope } from './ScopeContext';
+import { readImportProgressStream } from '@/lib/importProgressClient';
 import {
   FILTERS, ROW_STATUS_LABELS, ROW_STATUS_TONES,
   STRATEGIES, STRATEGY_LABELS, STRATEGY_DESCRIPTIONS,
@@ -75,6 +77,7 @@ export default function ItemWiseSummaryImport() {
   const [replaceStock, setReplaceStock] = useState(false);
   const [force, setForce] = useState(false);
   const [result, setResult] = useState(null);
+  const [progress, setProgress] = useState(null);
 
   const summary = analysis?.summary || {};
   const missingMasters = analysis?.missingMasters || [];
@@ -110,6 +113,7 @@ export default function ItemWiseSummaryImport() {
     setReplaceStock(false);
     setForce(false);
     setResult(null);
+    setProgress(null);
     setBusiness(scopeBusiness || '');
     setFinYear(scopeFinYear || '');
     setStrategy(STRATEGIES.CREATE);
@@ -136,6 +140,13 @@ export default function ItemWiseSummaryImport() {
     }
     setBusy(true);
     setError('');
+    setProgress({
+      step: 'validation',
+      done: 0,
+      total: 0,
+      status: 'active',
+      message: 'Parsing the workbook and validating rows.',
+    });
     try {
       const form = new FormData();
       form.append('action', 'analyze');
@@ -152,6 +163,16 @@ export default function ItemWiseSummaryImport() {
 
       setToken(data.token);
       setAnalysis(data);
+      const dataRows = Number(data.summary?.dataRows || 0);
+      setProgress({
+        step: 'preview',
+        done: dataRows,
+        total: dataRows,
+        unit: 'rows',
+        status: 'completed',
+        completed: true,
+        message: 'Preview prepared. No records have been imported.',
+      });
       setStrategy(nextStrategy);
       if (!Object.keys(nextChecked).length && nextStrategy === STRATEGIES.CREATE) {
         setChecked(defaultChecked(data.missingMasters || []));
@@ -160,6 +181,11 @@ export default function ItemWiseSummaryImport() {
       setConfirmed(false);
     } catch (e) {
       setError(e.message);
+      setProgress((prev) => ({
+        ...(prev || { step: 'validation', done: 0, total: 0 }),
+        status: 'failed',
+        message: e.message || 'Workbook validation failed.',
+      }));
       setStep('upload');
     } finally {
       setBusy(false);
@@ -229,6 +255,13 @@ export default function ItemWiseSummaryImport() {
   async function executeImport() {
     setBusy(true);
     setError('');
+    setProgress({
+      step: 'start',
+      done: 0,
+      total: 0,
+      status: 'active',
+      message: 'Preparing import.',
+    });
     try {
       const response = await fetch('/api/item-wise-summary-import', {
         method: 'POST',
@@ -243,12 +276,50 @@ export default function ItemWiseSummaryImport() {
           force,
         }),
       });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || 'The import failed.');
+      const data = await readImportProgressStream(response, (event) => {
+        if (event.type === 'progress') {
+          setProgress({
+            step: event.step || 'working',
+            done: Number(event.done || 0),
+            total: Number(event.total || 0),
+            unit: event.unit || 'rows',
+            message: event.message || 'Working…',
+            success: event.success,
+            skipped: event.skipped,
+            failed: event.failed,
+            status: 'active',
+          });
+        }
+      });
+      const total = Number(data.result?.dataRows || 0);
+      const failed = Number(data.result?.failed || 0);
+      setProgress((prev) => ({
+        ...(prev || {}),
+        done: total,
+        total,
+        unit: 'rows',
+        status: data.status === 'FAILED' ? 'failed' : 'completed',
+        completed: data.status !== 'FAILED',
+        message: data.status === 'FAILED'
+          ? 'Import failed. Review the error details before retrying.'
+          : data.status === 'PARTIAL' || failed > 0
+            ? 'Import completed with row failures.'
+            : 'Import completed successfully.',
+        success: Number(data.result?.imported || 0)
+          + Number(data.result?.updated || 0)
+          + Number(data.result?.unchanged || 0),
+        skipped: Number(data.result?.skipped || 0),
+        failed,
+      }));
       setResult(data);
       setStep('result');
     } catch (e) {
       setError(e.message);
+      setProgress((prev) => ({
+        ...(prev || { step: 'start', done: 0, total: 0 }),
+        status: 'failed',
+        message: e.message || 'The import failed.',
+      }));
     } finally {
       setBusy(false);
     }
@@ -348,6 +419,7 @@ export default function ItemWiseSummaryImport() {
 
           {step === 'upload' && (
             <div className="space-y-3">
+              {progress && <ImportProgressPanel progress={progress} />}
               <p className="text-[13px] text-inkmuted">
                 Download the exact 33-column template, fill one row per item barcode, and upload it here.
                 The workbook is validated and previewed before anything is saved. Existing masters are
@@ -378,6 +450,7 @@ export default function ItemWiseSummaryImport() {
                   onChange={(e) => {
                     setFile(e.target.files?.[0] || null);
                     setError('');
+                    setProgress(null);
                   }}
                 />
               </label>
@@ -397,6 +470,7 @@ export default function ItemWiseSummaryImport() {
 
           {step === 'review' && analysis && (
             <div className="space-y-4">
+              {progress && <ImportProgressPanel progress={progress} />}
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
                 <Stat label="Excel rows" value={Number(summary.totalRows || 0).toLocaleString()} />
                 <Stat label="Ready" value={Number(summary.importable || 0).toLocaleString()} tone="text-okgreen" />
@@ -534,6 +608,7 @@ export default function ItemWiseSummaryImport() {
 
           {step === 'preview' && (
             <div className="space-y-3">
+              {progress && <ImportProgressPanel progress={progress} />}
               <div className="flex flex-wrap gap-2">
                 {FILTERS.map((entry) => (
                   <button
@@ -624,6 +699,7 @@ export default function ItemWiseSummaryImport() {
 
           {step === 'result' && result && (
             <div className="space-y-3">
+              {progress && <ImportProgressPanel progress={progress} />}
               <div className={'rounded-lg px-4 py-3 ' + (result.status === 'FAILED' ? 'bg-[#fdecec] text-danger' : 'bg-okgreenbg text-okgreen')}>
                 <div className="text-[15px] font-bold">
                   {result.status === 'FAILED' ? 'Import failed' : result.status === 'PARTIAL' ? 'Import completed with failures' : 'Import completed'}

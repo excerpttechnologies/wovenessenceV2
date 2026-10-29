@@ -311,61 +311,109 @@ export const POST = handler(async (req) => {
     startedAt: new Date(),
   });
 
-  try {
-    const { result, analysis } = await executeApprovedImport({
-      buffer: workbook,
-      fileName: meta.fileName,
-      businessId: meta.businessId,
-      finYear: meta.finYear,
-      strategy,
-      approvals: parseApprovals(fields.approvals),
-      replaceStock,
-      user: session,
-      locationAllowed: (locationId) => canUseLocation(session, locationId),
-      jobId,
-      sheetName: meta.analysis?.sheetName || '',
-    });
+  const stream = new ReadableStream({
+    async start(controller) {
+      let closed = false;
+      let latestProgress = null;
+      const emit = (event) => {
+        if (closed) return;
+        try {
+          controller.enqueue(new TextEncoder().encode(`${JSON.stringify(event)}\n`));
+        } catch {
+          closed = true;
+        }
+      };
 
-    const status = result.failed > 0
-      ? (result.imported + result.updated > 0 ? 'PARTIAL' : 'FAILED')
-      : 'COMPLETED';
+      try {
+        const { result, analysis } = await executeApprovedImport({
+          buffer: workbook,
+          fileName: meta.fileName,
+          businessId: meta.businessId,
+          finYear: meta.finYear,
+          strategy,
+          approvals: parseApprovals(fields.approvals),
+          replaceStock,
+          user: session,
+          locationAllowed: (locationId) => canUseLocation(session, locationId),
+          jobId,
+          sheetName: meta.analysis?.sheetName || '',
+          onProgress: (progress) => {
+            latestProgress = progress;
+            emit({ type: 'progress', ...progress });
+          },
+        });
 
-    await ItemWiseImportJob.updateOne({ jobId }, {
-      $set: {
-        status,
-        summary: result,
-        mastersCreated: result.mastersCreatedByType || {},
-        masterFailures: result.masterFailures || [],
-        errors: result.errors || [],
-        errorCount: result.errorCount || 0,
-        completedAt: new Date(),
-      },
-    });
+        const status = result.failed > 0
+          ? (result.imported + result.updated > 0 ? 'PARTIAL' : 'FAILED')
+          : 'COMPLETED';
 
-    await updateImportSession(meta.token, {
-      execution: { jobId, status, result, executedAt: new Date().toISOString() },
-    });
+        await ItemWiseImportJob.updateOne({ jobId }, {
+          $set: {
+            status,
+            summary: result,
+            mastersCreated: result.mastersCreatedByType || {},
+            masterFailures: result.masterFailures || [],
+            errors: result.errors || [],
+            errorCount: result.errorCount || 0,
+            completedAt: new Date(),
+          },
+        });
 
-    return json({
-      ok: status !== 'FAILED',
-      action,
-      jobId,
-      status,
-      result,
-      summary: analysis.summary,
-      filters: analysis.filters,
-      missingMasters: analysis.missingMasters,
-      locations: analysis.locations,
-    }, status === 'FAILED' ? 422 : 200);
-  } catch (error) {
-    await ItemWiseImportJob.updateOne({ jobId }, {
-      $set: {
-        status: 'FAILED',
-        errors: [{ message: error.message, code: error.code || 'IMPORT_FAILED' }],
-        errorCount: 1,
-        completedAt: new Date(),
-      },
-    });
-    throw error;
-  }
+        await updateImportSession(meta.token, {
+          execution: { jobId, status, result, executedAt: new Date().toISOString() },
+        });
+
+        emit({
+          type: 'complete',
+          ok: status !== 'FAILED',
+          action,
+          jobId,
+          status,
+          result,
+          summary: analysis.summary,
+          filters: analysis.filters,
+          missingMasters: analysis.missingMasters,
+          locations: analysis.locations,
+        });
+      } catch (error) {
+        let message = error.message || 'The import failed.';
+        try {
+          await ItemWiseImportJob.updateOne({ jobId }, {
+            $set: {
+              status: 'FAILED',
+              errors: [{ message, code: error.code || 'IMPORT_FAILED' }],
+              errorCount: 1,
+              completedAt: new Date(),
+            },
+          });
+          await updateImportSession(meta.token, {
+            execution: { jobId, status: 'FAILED', error: message, executedAt: new Date().toISOString() },
+          });
+        } catch (statusError) {
+          console.error('[item-wise-summary] failed to persist import failure status:', statusError);
+          message = `${message} The server could not save the final failure status; check the import job before retrying.`;
+        }
+        console.error('[item-wise-summary] import execution failed:', error);
+        emit({
+          type: 'error',
+          error: message,
+          code: error.code || 'IMPORT_FAILED',
+          progress: latestProgress,
+        });
+      } finally {
+        if (!closed) {
+          try { controller.close(); } catch { /* client disconnected */ }
+        }
+      }
+    },
+  });
+
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/x-ndjson; charset=utf-8',
+      'Cache-Control': 'no-store, no-transform',
+      'X-Accel-Buffering': 'no',
+    },
+  });
 });

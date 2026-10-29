@@ -28,7 +28,8 @@ import pkg from 'jsbarcode/bin/barcodes/CODE128/index.js';
 import {
   labelGeometry, LABEL_SECTIONS, SECTION_ORDER,
   PAD_X_MM, PAD_Y_MM, BORDER_MM, QUIET_ZONE_MODULES,
-  barsBox, barcodeModules, TARGET_X_MM, BAR_HEIGHT_SHARE,
+  barsBox, readableBarsBox, barcodeModules, TARGET_X_MM, BAR_HEIGHT_SHARE,
+  BAR_DRAW_SCALE, BAR_MAX_WIDTH_SHARE, DRAW_MIN_X_MM, ISO_X_MM, MIN_X_MM,
 } from '@/lib/barcodeLabelGeometry';
 import { canonicalBarcodeValue } from '@/lib/barcodeValue';
 
@@ -129,6 +130,12 @@ for (const format of FORMATS) {
       assert.ok(type(key) > 0.9, key + ' type is ' + type(key).toFixed(2) + 'mm - too small to read');
     }
   });
+  if (format.labelSize === '50 x 40 mm') {
+    check(format.name + ': barcode identifiers use larger, label-readable type', () => {
+      assert.ok(type('identifier') >= 2.3, type('identifier').toFixed(2) + 'mm');
+      assert.ok(type('identifier') < band('identifier'));
+    });
+  }
 
   check(format.name + ': the barcode gets the largest share of the label', () => {
     const barcode = band('barcode');
@@ -169,9 +176,10 @@ for (const format of FORMATS) {
    take, from the value. The label was reading as one big black slab because
    the symbol was drawn to the last millimetre of the band whatever it
    encoded - a six-character counter number included. These checks pin the
-   three things that has to satisfy: it must be smaller than the band, it
-   must never be bigger than the label, and shrinking it must not take a
-   readable value below the readable floor. */
+   four things that has to satisfy: it must be smaller than the band, it must
+   never be bigger than the label, the drawn width must be exactly
+   BAR_DRAW_SCALE of the readable one, and the drawing must never take a
+   module below DRAW_MIN_X_MM (the width a bar can no longer be printed at). */
 for (const format of FORMATS) {
   const geometry = labelGeometry(format);
   const { band, usableW } = geometry;
@@ -183,19 +191,36 @@ for (const format of FORMATS) {
     assert.equal(Number(short.h.toFixed(4)), Number((band('barcode') * BAR_HEIGHT_SHARE).toFixed(4)));
   });
 
-  check(format.name + ': a short value is drawn at the target module width, or capped by the stock', () => {
-    const wanted = short.modules * TARGET_X_MM;
+  const readable = readableBarsBox(geometry, '9A1135');
+
+  check(format.name + ': a short value is read at the target module width, or capped by the stock', () => {
+    const wanted = readable.modules * TARGET_X_MM;
     if (wanted <= usableW) {
       /* the stock can afford the target, so the bars must NOT be stretched
          across the whole label - that is the change this test exists for */
-      assert.ok(short.w < usableW, short.w.toFixed(2) + 'mm of ' + usableW.toFixed(2) + 'mm');
-      assert.equal(Number(short.x.toFixed(4)), TARGET_X_MM);
+      assert.ok(readable.w < usableW, readable.w.toFixed(2) + 'mm of ' + usableW.toFixed(2) + 'mm');
+      assert.equal(Number(readable.x.toFixed(4)), TARGET_X_MM);
     } else {
-      /* 38mm stock cannot fit 110 modules at 0.33mm; the cap takes over and
-         the symbol fills the label, exactly as it always did */
-      assert.equal(Number(short.w.toFixed(4)), Number(usableW.toFixed(4)));
-      assert.ok(short.x < TARGET_X_MM && short.x >= 0.25,
-        'capped at ' + short.x.toFixed(3) + 'mm/module');
+      /* 38mm stock cannot fit 110 modules at 0.33mm, so the cap takes over:
+         the symbol is as wide as the label allows (BAR_MAX_WIDTH_SHARE), or
+         as wide as the readable floor needs when that is wider */
+      const share = usableW * BAR_MAX_WIDTH_SHARE;
+      assert.ok(readable.w <= Math.max(share, readable.modules * MIN_X_MM) + 1e-9,
+        readable.w.toFixed(2) + 'mm of ' + usableW.toFixed(2) + 'mm usable, share ' + share.toFixed(2) + 'mm');
+      assert.ok(readable.x < TARGET_X_MM && readable.x >= ISO_X_MM,
+        'capped at ' + readable.x.toFixed(3) + 'mm/module');
+    }
+  });
+
+  check(format.name + ': the drawn box is BAR_DRAW_SCALE of the readable one', () => {
+    for (const value of VALUES) {
+      const want = readableBarsBox(geometry, value);
+      const box = barsBox(geometry, value);
+      if (!want.modules) continue;
+      const scaled = Math.max(want.w * BAR_DRAW_SCALE, Math.min(want.w, want.modules * DRAW_MIN_X_MM));
+      assert.equal(Number(box.w.toFixed(4)), Number(scaled.toFixed(4)),
+        JSON.stringify(value) + ' drawn ' + box.w.toFixed(2) + 'mm, expected ' + scaled.toFixed(2) + 'mm');
+      assert.ok(box.w <= want.w + 1e-9, JSON.stringify(value) + ' is drawn wider than it is read');
     }
   });
 
@@ -217,13 +242,13 @@ for (const format of FORMATS) {
     }
   });
 
-  check(format.name + ': shrinking never costs a value that could be read at 0.25mm', () => {
+  check(format.name + ': a module is never drawn thinner than DRAW_MIN_X_MM', () => {
     for (const value of VALUES) {
       const box = barsBox(geometry, value);
       if (!box.modules) continue;
-      const full = usableW / box.modules;      /* what it would get filling the label */
-      if (full >= 0.25) assert.ok(box.x >= 0.25,
-        JSON.stringify(value) + ' could reach ' + full.toFixed(3) + 'mm but is drawn at ' + box.x.toFixed(3) + 'mm');
+      const full = readableBarsBox(geometry, value).x;   /* what it is read at */
+      assert.ok(box.x >= Math.min(full, DRAW_MIN_X_MM) - 1e-9,
+        JSON.stringify(value) + ' is read at ' + full.toFixed(3) + 'mm but drawn at ' + box.x.toFixed(3) + 'mm');
     }
   });
 }
@@ -299,7 +324,10 @@ const report = (heading, values) => {
     const modules = modulesOf(value) + QUIET_ZONE_MODULES * 2;
     const box = barsBox(geo, value);
     const x = box.x;
-    const verdict = x >= 0.25 ? 'ok' : x >= 0.19 ? 'close range only' : 'BELOW THE READABLE FLOOR';
+    const verdict = x >= ISO_X_MM ? 'ok'
+      : x >= MIN_X_MM ? 'close range only'
+        : x >= DRAW_MIN_X_MM ? 'narrow - test it on the printer'
+          : 'BELOW THE PRINTABLE FLOOR';
     if (x < 0.25) marginal.push(value);
     console.log(
       '  ' + x.toFixed(3) + ' mm/module  ' + String(modules).padStart(4) + ' modules  ' +
@@ -313,7 +341,8 @@ report('as STORED (the spelling the bars carried before they were canonical)', S
 report('as ENCODED now (canonical compact composed values)', ENCODED);
 const marginalEncoded = ENCODED.filter((value) => marginal.includes(value));
 console.log(
-  '  ' + marginal.length + ' of ' + VALUES.length + ' values cannot reach 0.25mm/module on a 50mm label'
+  '  drawn at BAR_DRAW_SCALE = ' + BAR_DRAW_SCALE + ', on a 50mm label' + '\n' +
+  '  ' + marginal.length + ' of ' + VALUES.length + ' values cannot reach 0.25mm/module'
   + ' (' + marginalEncoded.length + ' of the ' + ENCODED.length + ' encoded ones).\n' +
   '  The label layout cannot change that - only a shorter barcode value or\n' +
   '  wider label stock can. Reported so the choice is made deliberately.\n'

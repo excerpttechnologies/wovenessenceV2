@@ -747,10 +747,11 @@ export function Label({ label, geometry }) {
           how many modules this symbol needs and the width it can be read at
           (TARGET_X_MM per module, capped at BAR_MAX_WIDTH_SHARE of the label,
           not below the ISO / MIN_X_MM floor); barsBox then draws it at
-          BAR_DRAW_SCALE (1 - full width) of that width, centred,
-          bottom-anchored (lib/barcodeLabelGeometry.js). On 50 x 40 a composed
-          value comes out about 40 x 8.2mm at ~0.19mm/module - the readable
-          floor; at the old 0.5 it was ~0.095mm and did not scan.
+          BAR_DRAW_SCALE (0.85) of that width, never thinner than
+          DRAW_MIN_X_MM, centred, bottom-anchored (lib/barcodeLabelGeometry.js).
+          On 50 x 40 a composed value comes out about 35.5 x 8.2mm at
+          ~0.16mm/module, and a counter number about 31 x 8.2mm at 0.28mm; at
+          the old 0.5 the composed value was ~0.095mm and did not scan.
 
           Nothing is cropped or squeezed to achieve that: the box is modules x
           module-width, so every bar keeps its proportion to every other bar.
@@ -807,21 +808,15 @@ export function Label({ label, geometry }) {
           )),
           lineHeight: band('identifier'),
           fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
-          /* regular here, bold on the number: Consolas (what this stack
-             resolves to on Windows) has only 400 and 700, so the 600 this
-             row used to carry already rendered bold and a bolder number
-             could not stand out from it */
+          /* Keep the identifiers regular-weight; the monospace face renders
+             synthetic bold especially heavily at label-print sizes. */
           fontWeight: 400,
           letterSpacing: '0.01em',
           textTransform: 'none',
         }}
       >
-        {/* the unit's own number in bold; the composed value also bold to match */}
-        {/* heavier than bold: Consolas stops at 700, so a thin outline in
-            the text colour thickens every stroke without widening the
-            characters (the row's fit and the 10mm gap are unchanged) */}
-        <span style={{ ...ONE_LINE_FULL, fontWeight: 700, WebkitTextStroke: '0.06em currentColor' }}>{barcodeNo}</span>
-        {secondary && <span style={{ ...ONE_LINE_FULL, fontWeight: 700, WebkitTextStroke: '0.06em currentColor' }}>{secondary}</span>}
+        <span style={ONE_LINE_FULL}>{barcodeNo}</span>
+        {secondary && <span style={ONE_LINE_FULL}>{secondary}</span>}
       </div>
 
       {/* 3 — the print description, up to DESCRIPTION_LINES (3) lines,

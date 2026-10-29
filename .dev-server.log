@@ -1,0 +1,43 @@
+
+> orbit-erp-clone@0.1.0 dev
+> next dev
+
+ ⚠ Port 3000 is in use, trying 3001 instead.
+   ▲ Next.js 15.1.6
+   - Local:        http://localhost:3001
+   - Network:      http://192.168.31.18:3001
+   - Environments: .env
+
+ ✓ Starting...
+ ✓ Ready in 12s
+ ○ Compiling /api/auth/[action] ...
+ ✓ Compiled /api/auth/[action] in 3.2s (332 modules)
+ POST /api/auth/login 200 in 11157ms
+ ○ Compiling /api/barcode-generation ...
+ ✓ Compiled /api/barcode-generation in 2.6s (366 modules)
+ POST /api/barcode-generation 400 in 4364ms
+ POST /api/auth/login 200 in 257ms
+ POST /api/barcode-generation 200 in 862ms
+ POST /api/barcode-generation 200 in 749ms
+ ○ Compiling /_not-found ...
+ ✓ Compiled /_not-found in 2.1s (585 modules)
+ POST /api/auth/login 404 in 3146ms
+ ○ Compiling / ...
+ ✓ Compiled / in 3.5s (1507 modules)
+ GET / 200 in 8531ms
+ POST /api/auth/login 422 in 99ms
+ POST /api/auth/login 200 in 305ms
+ ○ Compiling /middleware ...
+ ✓ Compiled /middleware in 710ms (98 modules)
+ ○ Compiling /admin/transaction/purchase/grc/[id]/barcode-generation ...
+ ✓ Compiled /admin/transaction/purchase/grc/[id]/barcode-generation in 10.6s (1743 modules)
+ GET /admin/transaction/purchase/grc/6abd1c3f1dd6ac4f2056d5b0/barcode-generation 200 in 16762ms
+ GET /api/auth/me 200 in 677ms
+ ○ Compiling /api/my-permissions ...
+ ✓ Compiled /api/my-permissions in 8.7s (1774 modules)
+ GET /api/my-permissions?business=6a853cdefb266c4358beb548 200 in 9919ms
+ GET /api/notifications?business=6a853cdefb266c4358beb548&location=6a858ded9d37d436b1fc02dc&finYear=2026-2027 200 in 12327ms
+ GET /api/notifications?business=6a853cdefb266c4358beb548&location=&finYear=2026-2027 200 in 12762ms
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename 'C:\Users\Admin\Desktop\deploy\wovenessenceV2\.next-dev\cache\webpack\server-development\10.pack.gz_' -> 'C:\Users\Admin\Desktop\deploy\wovenessenceV2\.next-dev\cache\webpack\server-development\10.pack.gz'
+ GET /api/grc/6abd1c3f1dd6ac4f2056d5b0 200 in 27941ms
+ ○ Compiling /api/hsn ...
