@@ -339,7 +339,7 @@ export const GRID_COLS = [
 export const COMPACT_GRID_COLS = [
   'Sl No.', 'Barcode', 'Qty', 'UOM', 'HSN', 'Item Name / Description',
   /* Norashan: free text per line (user, 14-10-2026; saved as `remarks`) */
-  'RSP Price', 'Norashan', 'Image', 'Action',
+  'RSP Price', 'Narration', 'Image', 'Action',
 ];
 
 export const INFO = [

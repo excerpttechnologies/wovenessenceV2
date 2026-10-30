@@ -385,7 +385,8 @@ export default function PrintPosPage() {
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || 'Could not send the email.');
       setEmailBox(null);
-      setShareNote({ notice: 'Invoice emailed to ' + to + ' with the PDF attached.' });
+      setShareNote({ notice: 'Invoice emailed to ' + to + ' with the PDF attached.' + (d.savedToCustomer ? ' Email saved on the customer.' : '') });
+      if (d.savedToCustomer) setDoc((x) => (x && !x.customerEmail ? { ...x, customerEmail: to } : x));
     } catch (e) {
       setEmailBox((b) => (b ? { ...b, error: (e && e.message) || 'Could not send the email.' } : b));
     } finally {

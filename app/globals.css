@@ -1871,3 +1871,21 @@ html {
 .wa-hint p { margin-top: 3px; font-size: 11.5px; line-height: 1.6; color: #7a6a3a; }
 .wa-hint code { border-radius: 4px; background: #f6efd5; padding: 1px 4px; }
 .wa-install { margin-top: 0; }
+
+/* Inter Company Delivery Challan print (30-10-2026) - its own classes, so the
+   shared .print-doc rules used by other screens are untouched. The copy under
+   <body> is hidden on screen and is the only thing printed. Higher specificity
+   than `body > *:not(.print-doc)` above, so it is not hidden by that rule. */
+.ic-dc-print-copy { display: none; }
+@media print {
+  html body > .ic-dc-print-copy {
+    display: block !important;
+    visibility: visible !important;
+    position: static !important;
+    margin: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  html body > .ic-dc-print-copy * { visibility: visible !important; }
+  html body > .ic-dc-print-copy .ic-dc-doc { max-width: 100% !important; margin: 0 !important; }
+}

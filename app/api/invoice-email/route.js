@@ -2,6 +2,7 @@ import nodemailer from 'nodemailer';
 import mongoose, { isValidObjectId, Types } from 'mongoose';
 import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
+import { Customer } from '@/lib/contacts';
 
 /* POST /api/invoice-email  (26-10-2026)
 
@@ -50,7 +51,7 @@ export async function POST(req) {
   await dbConnect();
   const invoice = await mongoose.connection.db.collection('posinvoice').findOne(
     { _id: new Types.ObjectId(invoiceId) },
-    { projection: { invoiceNo: 1, totalAmount: 1, date: 1 } },
+    { projection: { invoiceNo: 1, totalAmount: 1, date: 1, customerId: 1 } },
   );
   if (!invoice) return json({ error: 'Invoice not found.' }, 404);
 
@@ -93,5 +94,29 @@ export async function POST(req) {
     }, 502);
   }
 
-  return json({ ok: true, to, invoiceNo });
+  const savedToCustomer = await saveEmailOnCustomer(invoice.customerId, to);
+  return json({ ok: true, to, invoiceNo, savedToCustomer });
+}
+
+/* KEEP THE ADDRESS ON THE CUSTOMER (user, 30-10-2026): the Add Customer form
+   is usually saved without an email, so the address typed here to send the
+   bill is written onto the bill's customer - into Email when that is empty,
+   else into Email 2 when that is empty and the address is new. An address
+   already on file is never overwritten. A bill with no customer saves
+   nothing, and a failure here never fails the send. */
+async function saveEmailOnCustomer(customerId, to) {
+  if (!customerId || !isValidObjectId(customerId)) return false;
+  try {
+    const c = await Customer.findById(customerId, { billingEmail: 1, billingEmail2: 1 }).lean();
+    if (!c) return false;
+    const has = (v) => String(v || '').trim().toLowerCase();
+    if (has(c.billingEmail) === has(to) || has(c.billingEmail2) === has(to)) return false;
+    const field = !has(c.billingEmail) ? 'billingEmail' : !has(c.billingEmail2) ? 'billingEmail2' : null;
+    if (!field) return false;
+    await Customer.updateOne({ _id: c._id }, { $set: { [field]: to } });
+    return true;
+  } catch (e) {
+    console.error('invoice-email: could not save the email on the customer:', e);
+    return false;
+  }
 }

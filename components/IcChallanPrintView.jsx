@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import Icon from './Icon';
 import { uomTypeOf } from '@/lib/barcodeUnits';
@@ -74,6 +75,9 @@ export default function IcChallanPrintView({ id }) {
   const router = useRouter();
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
+  /* the print-only copy is portalled under <body> once mounted (30-10-2026) */
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
     let off = false;
@@ -125,7 +129,15 @@ export default function IcChallanPrintView({ id }) {
         </button>
       </div>
 
-      <div className="print-doc mx-auto max-w-[980px] bg-white text-[13px]">
+      {/* PRINT (user, 30-10-2026): the shared print rule only keeps a
+          .print-doc sitting straight under <body>, so this one - inside the
+          page layout - printed blank. The challan now has its OWN classes
+          (other screens use .print-doc): .ic-dc-doc on screen, and a copy
+          portalled under <body> as .ic-dc-print-copy, the only part printed
+          (rules at the end of app/globals.css). */}
+      {(() => {
+        const challan = (
+      <div className="ic-dc-doc mx-auto max-w-[980px] bg-white text-[13px]">
         <div className="mb-1 text-center text-[15px] font-bold">Delivery Challan</div>
 
         <div className="border border-black">
@@ -175,11 +187,13 @@ export default function IcChallanPrintView({ id }) {
                 <th className="w-[70px]">UOM</th>
                 <th className="w-[100px]">HSN</th>
                 <th>Item Name / Description</th>
+                {/* the line's Narration (saved as remarks) - user, 30-10-2026 */}
+                <th>Narration</th>
               </tr>
             </thead>
             <tbody>
               {!items.length && (
-                <tr><td colSpan={6} className="text-center">No items on this challan.</td></tr>
+                <tr><td colSpan={7} className="text-center">No items on this challan.</td></tr>
               )}
               {items.map((l, i) => (
                 <tr key={i}>
@@ -189,6 +203,7 @@ export default function IcChallanPrintView({ id }) {
                   <td className="text-center">{l.uom || '-'}</td>
                   <td className="text-center">{l.hsn || '-'}</td>
                   <td>{l.itemName || '-'}</td>
+                  <td>{l.remarks || '-'}</td>
                 </tr>
               ))}
             </tbody>
@@ -197,7 +212,7 @@ export default function IcChallanPrintView({ id }) {
                   the totals are a statement about the consignment, not a
                   value belonging under the Qty column. */}
               <tr>
-                <td colSpan={6} className="text-left font-bold">
+                <td colSpan={7} className="text-left font-bold">
                   {Object.entries(perUom).map(([u, q]) => (
                     <div key={u}>Total Qty ({u}) : {q}</div>
                   ))}
@@ -217,6 +232,14 @@ export default function IcChallanPrintView({ id }) {
           </div>
         </div>
       </div>
+        );
+        return (
+          <>
+            {challan}
+            {mounted && createPortal(<div className="ic-dc-print-copy">{challan}</div>, document.body)}
+          </>
+        );
+      })()}
     </>
   );
 }

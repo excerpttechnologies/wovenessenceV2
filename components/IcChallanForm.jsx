@@ -1135,7 +1135,7 @@ export default function IcChallanForm({ cfg, id }) {
                       <input
                         type="text"
                         className="f-input h-8 min-w-[180px]"
-                        placeholder="Norashan"
+                        placeholder="Narration"
                         maxLength={200}
                         value={r.remarks ?? ''}
                         onChange={(e) => setCell(i, 'remarks', e.target.value)}
