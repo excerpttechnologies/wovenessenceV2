@@ -158,9 +158,10 @@ function PendingPanel({ nonce }) {
         />
 
         <div className="mt-3 overflow-x-auto">
-          <table className="dt">
+          <table className="dt dt-nowrap-head">
             <thead>
               <tr>
+                <th>Action</th>
                 {visible.map((c, i) => (
                   <SortHeader
                     key={c.t + i}
@@ -170,7 +171,6 @@ function PendingPanel({ nonce }) {
                     onSort={(next) => { setSort(next); setPage(1); }}
                   />
                 ))}
-                <th>Action</th>
               </tr>
             </thead>
             <tbody>
@@ -182,7 +182,6 @@ function PendingPanel({ nonce }) {
               )}
               {!loading && state.rows.map((row) => (
                 <tr key={row._id}>
-                  {visible.map((c, i) => <td key={c.t + i}>{cellText(row, c)}</td>)}
                   <td>
                     <button
                       type="button"
@@ -195,6 +194,7 @@ function PendingPanel({ nonce }) {
                         : <Icon name="save" size={12} />} Receive
                     </button>
                   </td>
+                  {visible.map((c, i) => <td key={c.t + i}>{cellText(row, c)}</td>)}
                 </tr>
               ))}
             </tbody>
@@ -409,9 +409,10 @@ function ReceivedPanel({ nonce }) {
         />
 
         <div className="mt-3 overflow-x-auto">
-          <table className="dt">
+          <table className="dt dt-nowrap-head">
             <thead>
               <tr>
+                <th>Actions</th>
                 {visible.map((c, i) => (
                   <SortHeader
                     key={c.t + i}
@@ -421,7 +422,6 @@ function ReceivedPanel({ nonce }) {
                     onSort={(next) => { setSort(next); setPage(1); }}
                   />
                 ))}
-                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -433,7 +433,6 @@ function ReceivedPanel({ nonce }) {
               )}
               {!loading && state.rows.map((row) => (
                 <tr key={row._id}>
-                  {visible.map((c, i) => <td key={c.t + i}>{cellText(row, c)}</td>)}
                   <td className="flex gap-1.5">
                     <button
                       type="button"
@@ -457,6 +456,7 @@ function ReceivedPanel({ nonce }) {
                       {' '}Return
                     </button>
                   </td>
+                  {visible.map((c, i) => <td key={c.t + i}>{cellText(row, c)}</td>)}
                 </tr>
               ))}
             </tbody>

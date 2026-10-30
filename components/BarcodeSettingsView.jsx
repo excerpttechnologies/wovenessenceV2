@@ -343,6 +343,7 @@ export default function BarcodeSettingsView() {
   const [page, setPage] = useState(1);
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [viewing, setViewing] = useState(null);
   /* numbered pager with Rows-per-page, and every column header sorts on
      click (components/NumberedPager.jsx). perPage stays null until picked,
      so the endpoint's own default page size is kept. */
@@ -410,6 +411,26 @@ export default function BarcodeSettingsView() {
         />
       )}
 
+      {viewing && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-auto bg-black/45 p-4 pt-14" onMouseDown={() => setViewing(null)}>
+          <div className="w-full max-w-[640px] rounded-lg bg-white shadow-pop" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="relative flex items-center border-b border-line px-4 py-3">
+              <span className="text-[15px] font-bold">View Barcode Settings</span>
+              <span className="flex-1" />
+              <button type="button" onClick={() => setViewing(null)} className="flex h-6 w-6 items-center justify-center rounded-full bg-[#e0342c] text-white"><Icon name="x" size={13} /></button>
+            </div>
+            <div className="grid grid-cols-1 gap-x-6 gap-y-3 px-4 py-4 md:grid-cols-2">
+              {COLUMNS.map((c, i) => (
+                <div key={c.t + i}>
+                  <label className="f-label">{c.t}</label>
+                  <input className="f-input bg-[#eff2f7] text-inkmuted" value={String(cell(viewing, c) ?? '')} readOnly />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {editing && (
         <EditDialog
           row={editing}
@@ -456,6 +477,7 @@ export default function BarcodeSettingsView() {
             <table className="dt">
               <thead>
                 <tr>
+                  <th>Action</th>
                   {visible.map((c, i) => (
                     <SortHeader
                       key={c.t + i}
@@ -465,7 +487,6 @@ export default function BarcodeSettingsView() {
                       onSort={(next) => { setSort(next); setPage(1); }}
                     />
                   ))}
-                  <th>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -481,32 +502,14 @@ export default function BarcodeSettingsView() {
                 )}
                 {!loading && state.rows.map((row) => (
                   <tr key={row._id}>
-                    {visible.map((c, i) => <td key={c.t + i}>{cell(row, c)}</td>)}
                     <td>
                       <span className="inline-flex items-center gap-1.5">
-                        {mayUpdate && (
-                          <button
-                            className="act-btn bg-warnyellow"
-                            title="Edit"
-                            onClick={() => setEditing(row)}
-                          >
-                            <Icon name="pencil" size={12} />
-                          </button>
-                        )}
-                        {mayDelete && (
-                          <button
-                            className="act-btn bg-danger"
-                            title="Delete"
-                            onClick={() => remove(row._id)}
-                          >
-                            <Icon name="trash" size={12} />
-                          </button>
-                        )}
-                        {!mayUpdate && !mayDelete && (
-                          <span className="text-[11px] text-inkmuted">View only</span>
-                        )}
+                        <button className="act-btn act-blue" title="View" onClick={() => setViewing(row)}><Icon name="eye" size={12} /></button>
+                        {mayUpdate && (<button className="act-btn act-amber" title="Edit" onClick={() => setEditing(row)}><Icon name="pencil" size={12} /></button>)}
+                        {mayDelete && (<button className="act-btn act-red" title="Delete" onClick={() => remove(row._id)}><Icon name="trash" size={12} /></button>)}
                       </span>
                     </td>
+                    {visible.map((c, i) => <td key={c.t + i}>{cell(row, c)}</td>)}
                   </tr>
                 ))}
               </tbody>

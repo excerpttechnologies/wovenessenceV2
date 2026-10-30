@@ -66,6 +66,7 @@ const SHARED = {
   addTitle: 'Inter Company Delivery Challan',
   /* view + edit + print, matching the deployed row actions */
   actionIcons: ['view', 'edit', 'print'],
+  nowrapHead: true,
   /* the print icon opens the challan's own print page - see
      components/IcChallanPrintView.jsx for why it cannot print the list */
   printHref: (r) => '/admin/transaction/intercompanysell/deliverychallan/print/' + r._id,

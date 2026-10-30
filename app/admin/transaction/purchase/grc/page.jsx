@@ -13,8 +13,9 @@ const CONFIG = {
   pager: 'numbered',
   sortable: true,
   scope: ["business","location","finYear"],
-  actionPosition: "left",
-  actionVariant: "dropdown",
+  actionPosition: "right",
+  actionVariant: "buttons",
+  nowrapHead: true,
   /* second button in the card header, next to Refresh */
  
   /* Action ▾ menu, matching the deployed GRC list */

@@ -679,9 +679,10 @@ function DeliveryGrid({
         />
 
         <div className="mt-3 overflow-x-auto">
-          <table className="dt">
+          <table className="dt dt-nowrap-head">
             <thead>
               <tr>
+                <th>Action</th>
                 {visible.map((c, i) => (
                   <SortHeader
                     key={c.t + i}
@@ -691,7 +692,6 @@ function DeliveryGrid({
                     onSort={(next) => { setSort(next); setPage(1); }}
                   />
                 ))}
-                <th>Action</th>
               </tr>
             </thead>
             <tbody>
@@ -703,30 +703,30 @@ function DeliveryGrid({
               )}
               {!loading && state.rows.map((row) => (
                 <tr key={row._id}>
-                  {visible.map((c, i) => <td key={c.t + i}>{cell(row, c)}</td>)}
                   <td>
                     <span className="inline-flex items-center gap-1.5">
-                      <button className="act-btn bg-[#2b7fd4]" title="View" onClick={() => onView(row, state.labels)}>
+                      <button className="act-btn act-blue" title="View" onClick={() => onView(row, state.labels)}>
                         <Icon name="eye" size={12} />
                       </button>
                       {mayUpdate && (
-                      <button className="act-btn bg-warnyellow" title="Edit" onClick={() => onEdit(row)}>
+                      <button className="act-btn act-amber" title="Edit" onClick={() => onEdit(row)}>
                         <Icon name="pencil" size={12} />
                       </button>
                       )}
                       {/* documents and photos attached to THIS consignment */}
                       {(mayCreate || mayUpdate) && (
-                      <button className="act-btn bg-[#0d9488]" title="Upload document / photo" onClick={() => setUploadRow(row)}>
+                      <button className="act-btn act-teal" title="Upload document / photo" onClick={() => setUploadRow(row)}>
                         <Icon name="upload" size={12} />
                       </button>
                       )}
                       {mayDelete && (
-                      <button className="act-btn bg-danger" title="Delete" onClick={() => remove(row._id)}>
+                      <button className="act-btn act-red" title="Delete" onClick={() => remove(row._id)}>
                         <Icon name="trash" size={12} />
                       </button>
                       )}
                     </span>
                   </td>
+                  {visible.map((c, i) => <td key={c.t + i}>{cell(row, c)}</td>)}
                 </tr>
               ))}
             </tbody>

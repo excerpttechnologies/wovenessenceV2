@@ -20,7 +20,8 @@ const CONFIG = {
   sortable: ['date', 'invoiceNo', 'totalAmount', 'archivedAt'],
   scope: ['business', 'location', 'finYear'],
   showAdd: false,
-  actionPosition: 'left',
+  actionPosition: 'right',
+  nowrapHead: true,
   actionVariant: 'buttons',
   actionMenu: [{ label: 'View', icon: 'eye' }],
   columns: [

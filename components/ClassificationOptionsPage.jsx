@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import Icon from '@/components/Icon';
 import { useScope } from '@/components/ScopeContext';
 import { classificationGroupsFor } from '@/lib/productClassificationConstants';
+import NumberedPager from '@/components/NumberedPager';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 /* E-commerce -> By Weave / By Fabric / By Craft / By Occasion / By Colour
    (28-10-2026). One screen per classification type, for the business picked
@@ -36,6 +38,11 @@ export default function ClassificationOptionsPage({ type, label }) {
   /* the Add pop-up (28-10-2026): open, and its own error line */
   const [showAdd, setShowAdd] = useState(false);
   const [addError, setAddError] = useState('');
+  /* delete asks through the app's ConfirmDialog; client-side paging (30-10-2026) */
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(10);
 
   const load = useCallback(async () => {
     if (!business || !group) { setRows([]); return; }
@@ -92,8 +99,10 @@ export default function ClassificationOptionsPage({ type, label }) {
     }
   }
 
-  async function remove(row) {
-    if (!window.confirm('Delete "' + row.name + '" from ' + label + ' (' + groupLabel + ')?\nIt is also taken off the e-commerce products that have it.')) return;
+  async function confirmDelete() {
+    const row = pendingDelete;
+    if (!row || deleting) return;
+    setDeleting(true);
     setError('');
     setFlash('');
     try {
@@ -101,14 +110,24 @@ export default function ClassificationOptionsPage({ type, label }) {
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || 'Could not delete it.');
       setFlash('"' + row.name + '" deleted.' + (d.productsUpdated ? ' Removed from ' + d.productsUpdated + ' product(s).' : ''));
+      setPendingDelete(null);
       load();
     } catch (err) {
+      setPendingDelete(null);
       setError(err.message || 'Could not delete it.');
+    } finally {
+      setDeleting(false);
     }
   }
 
   const needle = search.trim().toLowerCase();
-  const shown = needle ? rows.filter((row) => String(row.name || '').toLowerCase().includes(needle)) : rows;
+  const filtered = needle ? rows.filter((row) => String(row.name || '').toLowerCase().includes(needle)) : rows;
+  const pages = Math.max(1, Math.ceil(filtered.length / perPage));
+  const curPage = Math.min(page, pages);
+  const offset = (curPage - 1) * perPage;
+  const shown = filtered.slice(offset, offset + perPage);
+
+  useEffect(() => { setPage(1); }, [search, type, business, group]);
 
   return (
     <div className="card">
@@ -175,29 +194,40 @@ export default function ClassificationOptionsPage({ type, label }) {
         </div>
 
         <div className="mt-4 overflow-x-auto">
-          <table className="dt">
+          <table className="dt dt-nowrap-head">
             <thead>
-              <tr><th style={{ width: 70 }}>Sl. No.</th><th>Name</th><th style={{ width: 90 }}>Action</th></tr>
+              <tr><th style={{ width: 90 }}>Action</th><th style={{ width: 70 }}>Sl. No.</th><th>Name</th></tr>
             </thead>
             <tbody>
               {loading && <tr><td colSpan={3} className="text-center text-inkmuted">Loading...</td></tr>}
               {!loading && !shown.length && <tr><td colSpan={3} className="text-center text-inkmuted">{business ? 'Nothing in ' + groupLabel + ' yet - use Add.' : '-'}</td></tr>}
               {!loading && shown.map((row, i) => (
                 <tr key={row._id}>
-                  <td>{i + 1}</td>
-                  <td>{row.name}</td>
                   <td>
-                    <button type="button" title="Delete" aria-label={'Delete ' + row.name} className="flex h-7 w-7 items-center justify-center rounded bg-danger text-white" onClick={() => remove(row)}>
-                      <Icon name="trash" size={14} />
+                    <button type="button" title="Delete" aria-label={'Delete ' + row.name} className="act-btn act-red" onClick={() => setPendingDelete(row)}>
+                      <Icon name="trash" size={12} />
                     </button>
                   </td>
+                  <td>{offset + i + 1}</td>
+                  <td>{row.name}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        {!loading && business && <div className="mt-2 text-[12px] text-inkmuted">{shown.length} of {rows.length} shown</div>}
+        {!loading && business && (
+          <NumberedPager page={curPage} pages={pages} total={filtered.length} shown={shown.length} perPage={perPage} onPage={setPage} onPerPage={(n) => { setPerPage(n); setPage(1); }} />
+        )}
       </div>
+
+      <ConfirmDialog
+        open={Boolean(pendingDelete)}
+        recordName={pendingDelete ? pendingDelete.name : ''}
+        message={pendingDelete ? 'It will be removed from ' + label + ' (' + groupLabel + ') and taken off the e-commerce products that have it.' : undefined}
+        busy={deleting}
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={confirmDelete}
+      />
     </div>
   );
 }

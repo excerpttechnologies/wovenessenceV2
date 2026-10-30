@@ -14,8 +14,10 @@ const CONFIG = {
   sortable: true,
   scope: ["business","location","finYear"],
   addHref: '/admin/transaction/sell/pos-return/add',
-  actionPosition: "left",
-  actionVariant: "dropdown",
+  actionPosition: "right",
+  nowrapHead: true,
+  actionVariant: "icons",
+  actionIcons: ["view", "edit"],
   columns: [
     { k: "date", t: "Date", f: "date" },
     { k: "invoiceNo", t: "Invoice No" },

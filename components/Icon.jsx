@@ -29,6 +29,8 @@ const P = {
      Upload button. Deliberately NOT a camera or a barcode: it stands for
      "attach a document or a photo to this record". */
   upload: 'M12 16V4M8 8l4-4 4 4M4 15v3a2 2 0 002 2h12a2 2 0 002-2v-3',
+  /* download: the same tray, arrow going down into it (30-10-2026) */
+  download: 'M12 4v12M8 12l4 4 4-4M4 15v3a2 2 0 002 2h12a2 2 0 002-2v-3',
   /* the two choices inside that dialog */
   image: 'M4 5h16v14H4zM8.5 11a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM4 16l4.5-4.5L13 16l3-3 4 4',
   /* share: three nodes joined by two links - the Action column's Share

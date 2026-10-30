@@ -356,6 +356,27 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
     }
   }, [activeHref]);
 
+  /* The browser tab is named after the screen ("Suppliers", "Add Suppliers",
+     "Edit Suppliers") so tabs opened from the menu can be told apart
+     (30-10-2026). Screens outside the menu keep the site title. */
+  useEffect(() => {
+    let label = '';
+    NAV.forEach((n) => {
+      if (n.href === activeHref) label = n.label;
+      (n.children || []).forEach((c) => { if (c.href === activeHref) label = c.label; });
+    });
+    if (!label) return undefined;
+    const rest = pathname.slice(activeHref.length);
+    const title = rest === '/add' ? 'Add ' + label
+      : /^\/[a-f0-9]{24}$/i.test(rest) ? 'Edit ' + label
+      : label;
+    const full = title + ' | Woven Essence';
+    document.title = full;
+    /* Next.js writes the page's own title after a client-side move; put ours back */
+    const t = setTimeout(() => { document.title = full; }, 50);
+    return () => clearTimeout(t);
+  }, [activeHref, pathname]);
+
   /* Nothing to fly out of once the labels are back. */
   useEffect(() => {
     if (!collapsed) setFlyout(null);
@@ -511,6 +532,8 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
               >
                 <Link
                   href={item.href}
+                  target="_blank"
+                  rel="noopener"
                   className={'sb-item ' + (isActive ? 'sb-item-active' : '')}
                 >
                   <span className="sb-item-ico">
@@ -598,6 +621,8 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
                           <Link
                             key={c.href}
                             href={c.href}
+                            target="_blank"
+                            rel="noopener"
                             tabIndex={isOpen ? undefined : -1}
                             className={
                               'sb-sub-link ' +
@@ -640,6 +665,8 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
                         <Link
                           key={c.href}
                           href={c.href}
+                          target="_blank"
+                          rel="noopener"
                           onClick={hideFlyout}
                           className={
                             'sb-fly-link ' +

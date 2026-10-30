@@ -15,8 +15,9 @@ const CONFIG = {
   scope: ["business","location","finYear"],
   /* the challan was list + edit only - there was no way to print the document
      that travels with the goods */
-  actionPosition: "left",
-  actionVariant: "dropdown",
+  actionPosition: "right",
+  actionVariant: "buttons",
+  nowrapHead: true,
   actionMenu: [
     { label: "Edit", icon: "pencil", to: (row) => `/admin/transaction/sell/deliverychallan/${row._id}` },
     { label: "Print Challan", icon: "printer", to: (row) => `/admin/transaction/sell/deliverychallan/${row._id}/challan` },

@@ -56,7 +56,7 @@ const CONFIG = {
   addLabel: 'New Dispatch',
   formMode: 'modal',
   modalWide: true,
-  actionIcons: ['edit', 'delete'],
+  actionIcons: ['view', 'edit', 'delete'],
   columns: [
     { k: 'docNo', t: 'Doc No' },
     { k: 'date', t: 'Date', f: 'date' },

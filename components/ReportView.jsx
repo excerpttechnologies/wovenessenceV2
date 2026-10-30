@@ -3183,6 +3183,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Icon from './Icon';
 import MultiSelect from './MultiSelect';
 import { useScope } from './ScopeContext';
+import NumberedPager from './NumberedPager';
 import { useOptions } from './useOptions';
 import { fmt, toCsv, toXlsHtml, download, printTable } from '@/lib/format';
 
@@ -3733,7 +3734,7 @@ function SupplierDetailsModal({ row, business, onClose }) {
           {!loading && !error && (
             <>
               <div className="overflow-x-auto rounded border border-line bg-white">
-                <table className="dt">
+                <table className="dt dt-nowrap-head">
                   <thead>
                     <tr>{['Location', 'GRC No.', 'GRC Date', 'Stock Point'].map((label) => <th key={label}>{label}</th>)}</tr>
                   </thead>
@@ -3860,7 +3861,7 @@ function ItemDetailsModal({ row, business, onClose }) {
           </div>
           {!loading && !error && (
             <div className="overflow-x-auto rounded border border-line bg-white">
-              <table className="dt">
+              <table className="dt dt-nowrap-head">
                 <thead>
                   <tr>{headings.map((heading) => <th key={heading}>{heading}</th>)}</tr>
                 </thead>
@@ -4018,7 +4019,7 @@ function Section({ section, data, tone, onSupplierSelect, onItemSelect }) {
       )}
       <div className="card-body">
         <div className="overflow-x-auto">
-          <table className="dt">
+          <table className="dt dt-nowrap-head">
             <thead>
               <tr>
                 {columns.map((c) => (
@@ -4279,6 +4280,8 @@ export default function ReportView({ spec, toolbar = null }) {
   const [tab, setTab] = useState(spec.tabs?.[0]?.k || '');
   const [data, setData] = useState(null);
   const [page, setPage] = useState(1);
+  /* Rows-per-page, same numbered footer as every list; null keeps the report's own size */
+  const [perPageSel, setPerPageSel] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   /* a searchOnly report shows nothing until its required filter is filled in,
@@ -4331,7 +4334,7 @@ export default function ReportView({ spec, toolbar = null }) {
     setLoading(true);
     setError('');
 
-    const qs = reportQuery({ page, perPage: spec.perPage || 15, business, location, finYear, tab, applied });
+    const qs = reportQuery({ page, perPage: perPageSel || spec.perPage || 15, business, location, finYear, tab, applied });
 
     try {
       const r = await fetch('/api/reports/' + spec.slug + '?' + qs);
@@ -4346,7 +4349,7 @@ export default function ReportView({ spec, toolbar = null }) {
     } finally {
       if (latest()) setLoading(false);
     }
-  }, [spec.slug, spec.perPage, page, applied, tab, business, location, finYear, searched]);
+  }, [spec.slug, spec.perPage, perPageSel, page, applied, tab, business, location, finYear, searched]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setPage(1); }, [applied, tab, business, location, finYear]);
@@ -4676,73 +4679,15 @@ export default function ReportView({ spec, toolbar = null }) {
           )}
 
           {!loading && spec.paginated !== false && data && (
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 bg-[#eef2f8] px-3 py-2">
-              <span className="whitespace-nowrap text-[13px] text-cell">
-                PAGE <b className="text-brand-link">{data.page || 1}</b> OF {data.pages || 1}
-              </span>
-              <nav
-                aria-label="Report pagination"
-                className="inline-flex items-center gap-1 rounded-lg border border-line bg-white px-2 py-2 shadow-sm"
-              >
-                <button
-                  type="button"
-                  aria-label="Previous page"
-                  className="flex h-8 w-8 items-center justify-center rounded-md text-inkmuted hover:bg-[#f5f8fd] disabled:cursor-not-allowed disabled:opacity-40"
-                  disabled={(data.page || 1) <= 1}
-                  onClick={() => setPage((p) => p - 1)}
-                >
-                  <Icon name="chevL" size={16} />
-                </button>
-                {paginationItems(Number(data.pages) || 1, Number(data.page) || 1).map((item, index) => (
-                  typeof item === 'number' ? (
-                    <button
-                      key={item}
-                      type="button"
-                      aria-label={'Page ' + item}
-                      aria-current={item === (Number(data.page) || 1) ? 'page' : undefined}
-                      className={
-                        'h-8 min-w-8 rounded-md px-2 text-sm font-semibold '
-                        + (item === (Number(data.page) || 1)
-                          ? 'bg-[#368cf5] text-white'
-                          : 'text-inkmuted hover:bg-[#f5f8fd]')
-                      }
-                      onClick={() => setPage(item)}
-                    >
-                      {item}
-                    </button>
-                  ) : (
-                    <span key={item + index} className="px-1 text-inkmuted" aria-hidden="true">…</span>
-                  )
-                ))}
-                <button
-                  type="button"
-                  aria-label="Next page"
-                  className="flex h-8 w-8 items-center justify-center rounded-md text-inkmuted hover:bg-[#f5f8fd] disabled:cursor-not-allowed disabled:opacity-40"
-                  disabled={(data.page || 1) >= (data.pages || 1)}
-                  onClick={() => setPage((p) => p + 1)}
-                >
-                  <Icon name="chevR" size={16} />
-                </button>
-              </nav>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  className="btn"
-                  disabled={(data.page || 1) <= 1}
-                  onClick={() => setPage((p) => p - 1)}
-                >
-                  Previous
-                </button>
-                <button
-                  type="button"
-                  className="btn"
-                  disabled={(data.page || 1) >= (data.pages || 1)}
-                  onClick={() => setPage((p) => p + 1)}
-                >
-                  Next
-                </button>
-              </div>
-            </div>
+            <NumberedPager
+              page={Number(data.page) || 1}
+              pages={Number(data.pages) || 1}
+              total={Number(data.total) || 0}
+              shown={Math.max(0, Math.min(perPageSel || spec.perPage || 15, (Number(data.total) || 0) - ((Number(data.page) || 1) - 1) * (perPageSel || spec.perPage || 15)))}
+              perPage={perPageSel || spec.perPage || 15}
+              onPage={setPage}
+              onPerPage={(n) => { setPerPageSel(n); setPage(1); }}
+            />
           )}
         </>
       )}

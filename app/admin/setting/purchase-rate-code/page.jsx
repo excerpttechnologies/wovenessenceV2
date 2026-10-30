@@ -129,95 +129,90 @@ export default function PurchaseRateCodePage() {
           <div className="dt-empty"><span className="spin" /></div>
         ) : (
           <>
-            <div className="max-w-[420px] overflow-x-auto">
-              <table className="dt">
-                <thead>
-                  <tr>
-                    <th style={{ width: 110 }}>Digit</th>
-                    <th>Code / Alphabet</th>
-                  </tr>
-                </thead>
-                <tbody>
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,560px)_minmax(0,1fr)]">
+              <div>
+                <div className="mb-2 text-[11.5px] font-bold uppercase tracking-wide text-inkmuted">Digit &rarr; Code / Alphabet</div>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
                   {CODE_DIGITS.map((digit) => (
-                    <tr key={digit}>
-                      <td className="font-semibold">{digit}</td>
-                      <td>
-                        <input
-                          className="f-input h-8 w-[120px]"
-                          value={mapping[digit]}
-                          maxLength={4}
-                          placeholder="-"
-                          onChange={(e) => setDigit(digit, e.target.value)}
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <label className="mt-4 flex w-fit cursor-pointer items-center gap-2 text-[13px]">
-              <input
-                type="checkbox"
-                className="h-4 w-4 accent-[#0d5ddc]"
-                checked={isActive}
-                onChange={(e) => setIsActive(e.target.checked)}
-              />
-              Active - encode purchase rates using this configuration
-            </label>
-
-            {/* Every reason the mapping cannot be saved, all at once. */}
-            {!ok && (
-              <ul className="mt-3 list-disc pl-5 text-[12.5px] text-danger">
-                {errors.map((message) => <li key={message}>{message}</li>)}
-              </ul>
-            )}
-
-            <div className="mt-4 flex items-center gap-3">
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={saving || !ok || !maySave}
-                title={!maySave ? noSaveReason : undefined}
-                onClick={save}
-              >
-                <Icon name="save" size={13} /> {saving ? 'Saving...' : 'Save Configuration'}
-              </button>
-              <button type="button" className="btn" disabled={saving} onClick={load}>
-                <Icon name="undo" size={13} /> Revert
-              </button>
-            </div>
-
-            {/* ---------------------------------------------------- preview -- */}
-            <div className="mt-6 border-t border-line pt-4">
-              <label className="f-label">Try it - type a purchase rate</label>
-              <input
-                className="f-input max-w-[240px]"
-                value={preview}
-                inputMode="decimal"
-                placeholder="119583.05"
-                onChange={(e) => setPreview(e.target.value)}
-              />
-              {preview !== '' && (
-                <div className="mt-3 space-y-1 text-[13px]">
-                  <div>
-                    Encoded:{' '}
-                    <span className="font-mono font-bold">
-                      {encodedPreview || <span className="text-danger">complete the mapping above first</span>}
-                    </span>
-                  </div>
-                  {encodedPreview && (
-                    <div className="text-inkmuted">
-                      Decodes back to: <span className="font-mono">{decodedPreview}</span>
-                      {decodedPreview !== String(preview).trim() && (
-                        <span className="ml-2 text-danger">
-                          does not round-trip - check for duplicate codes
-                        </span>
-                      )}
+                    <div key={digit} className="rounded-lg border border-line bg-thead p-2.5 text-center">
+                      <div className="mb-1.5 text-[18px] font-bold leading-none text-ink">{digit}</div>
+                      <input
+                        className="f-input h-8 w-full text-center font-mono font-bold"
+                        value={mapping[digit]}
+                        maxLength={4}
+                        placeholder="-"
+                        aria-label={`Code for digit ${digit}`}
+                        onChange={(e) => setDigit(digit, e.target.value)}
+                      />
                     </div>
-                  )}
+                  ))}
                 </div>
-              )}
+
+                <label className="mt-4 flex w-fit cursor-pointer items-center gap-2 text-[13px]">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-[#0d5ddc]"
+                    checked={isActive}
+                    onChange={(e) => setIsActive(e.target.checked)}
+                  />
+                  Active - encode purchase rates using this configuration
+                </label>
+
+                {/* Every reason the mapping cannot be saved, all at once. */}
+                {!ok && (
+                  <ul className="mt-3 list-disc pl-5 text-[12.5px] text-danger">
+                    {errors.map((message) => <li key={message}>{message}</li>)}
+                  </ul>
+                )}
+
+                <div className="mt-4 flex items-center gap-3">
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    disabled={saving || !ok || !maySave}
+                    title={!maySave ? noSaveReason : undefined}
+                    onClick={save}
+                  >
+                    <Icon name="save" size={13} /> {saving ? 'Saving...' : 'Save Configuration'}
+                  </button>
+                  <button type="button" className="btn" disabled={saving} onClick={load}>
+                    <Icon name="undo" size={13} /> Revert
+                  </button>
+                </div>
+
+              </div>
+
+              {/* ---------------------------------------------------- preview -- */}
+              <div className="h-fit rounded-lg border border-line p-4">
+                <label className="f-label">Try it - type a purchase rate</label>
+                <input
+                  className="f-input max-w-[240px]"
+                  value={preview}
+                  inputMode="decimal"
+                  placeholder="119583.05"
+                  onChange={(e) => setPreview(e.target.value)}
+                />
+                {preview !== '' && (
+                  <div className="mt-3 space-y-1 text-[13px]">
+                    <div>
+                      Encoded:{' '}
+                      <span className="font-mono font-bold">
+                        {encodedPreview || <span className="text-danger">complete the mapping above first</span>}
+                      </span>
+                    </div>
+                    {encodedPreview && (
+                      <div className="text-inkmuted">
+                        Decodes back to: <span className="font-mono">{decodedPreview}</span>
+                        {decodedPreview !== String(preview).trim() && (
+                          <span className="ml-2 text-danger">
+                            does not round-trip - check for duplicate codes
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </>
         )}

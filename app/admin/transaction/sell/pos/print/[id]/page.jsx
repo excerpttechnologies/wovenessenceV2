@@ -118,6 +118,9 @@ const SHOW_GMAIL_EMAIL = false;
    as on View POS (user, 27-10-2026) */
 const SHOW_WHATSAPP_WEB_LINK = false;
 const SHOW_WHATSAPP_APP = false;
+/* the direct WhatsApp (send the PDF to a typed number) button - hidden; a
+   Download PDF button sits in its place, as on View POS (user, 30-10-2026) */
+const SHOW_WHATSAPP_SEND = false;
 
 /* Indian grouping, two places - 18,485.00 */
 const inr = (v) => Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -206,6 +209,8 @@ export default function PrintPosPage() {
   /* the direct WhatsApp box - customer's mobile, and whether it is sending (27-10-2026) */
   const [waBox, setWaBox] = useState(null);           // { to, error } | null
   const [waSending, setWaSending] = useState(false);
+  /* the Download PDF button is working (30-10-2026) */
+  const [downloading, setDownloading] = useState(false);
   /* the last WhatsApp-app link, for an "open it" fallback link (26-10-2026) */
   const [waAppUrl, setWaAppUrl] = useState('');
   useEffect(() => {
@@ -247,6 +252,18 @@ export default function PrintPosPage() {
     try { window.localStorage.setItem(footerKey, v); } catch { /* not remembered, still used */ }
   };
   const footerTpl = footerTemplates.find((t) => t._id === footerPick) || null;
+
+  /* A4 ONLY: the items' photos at the top right of the bill, picked With /
+     Without image and remembered on this computer (user, 30-10-2026). The
+     80mm receipt and A5 never show them. */
+  const [a4Images, setA4Images] = useState('with');
+  useEffect(() => {
+    try { const v = window.localStorage.getItem('posA4Images'); if (v === 'with' || v === 'without') setA4Images(v); } catch { /* default */ }
+  }, []);
+  const pickA4Images = (v) => {
+    setA4Images(v);
+    try { window.localStorage.setItem('posA4Images', v); } catch { /* not remembered, still used */ }
+  };
 
   /* ONE PAGE, AS LONG AS THE RECEIPT (user, 12-10-2026 - it printed on two).
      `@page { size: 80mm auto }` is not valid CSS - the browser dropped it and
@@ -331,6 +348,24 @@ export default function PrintPosPage() {
       enableLinks: true,
       jsPDF: { unit: 'mm', format: [wMm, hMm], orientation: hMm >= wMm ? 'portrait' : 'landscape' },
     }).from(element).outputPdf('blob');
+  }
+  /* DOWNLOAD (user, 30-10-2026): the invoice in the size picked above, saved
+     as Invoice_<no>.pdf - the same PDF the email sends */
+  async function downloadInvoicePdf() {
+    if (downloading) return;
+    setDownloading(true);
+    setShareNote(null);
+    try {
+      const blob = await invoicePdfBlob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = pdfName; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } catch (e) {
+      setShareNote({ error: 'Could not make the PDF. Use Print Invoice and save as PDF instead.' });
+    } finally {
+      setDownloading(false);
+    }
   }
   /* DIRECT EMAIL WITH THE PDF ATTACHED (user, 26-10-2026): the PDF is built
      here, exactly as for WhatsApp, and app/api/invoice-email sends it from
@@ -546,6 +581,19 @@ export default function PrintPosPage() {
           <option value="">No footer</option>
           {footerTemplates.map((t) => <option key={t._id} value={t._id}>{t.templateName || 'Footer'}</option>)}
         </select>
+        {/* With / Without image - A4 only (30-10-2026) - screen only */}
+        {format === 'a4' && (
+          <select
+            className="rounded border border-line bg-white px-2 py-1 text-[12px]"
+            title="Item photos on the A4 bill"
+            aria-label="Item photos on the A4 bill"
+            value={a4Images}
+            onChange={(e) => pickA4Images(e.target.value)}
+          >
+            <option value="with">With image</option>
+            <option value="without">Without image</option>
+          </select>
+        )}
         <div className="flex gap-2">
           {/* SHARE (user, 21-10-2026) - the same three buttons and the same
               message as the View POS screen (components/PosInvoiceView.jsx);
@@ -554,7 +602,9 @@ export default function PrintPosPage() {
               set SHOW_WHATSAPP_WEB_LINK to true to bring it back */}
           {SHOW_WHATSAPP_WEB_LINK && <button type="button" title="Share on WhatsApp Web" aria-label="Share on WhatsApp Web" className="flex h-9 w-9 items-center justify-center rounded bg-[#25D366] text-white hover:bg-[#1da851]" onClick={() => sharePdf('whatsapp')}><Icon name="whatsapp" size={18} /></button>}
           {/* DIRECT WHATSAPP (27-10-2026): type the customer's mobile, the PDF is sent from the shop's WhatsApp number */}
-          <button type="button" title="Send the invoice PDF on WhatsApp" aria-label="Send the invoice PDF on WhatsApp" className="flex h-9 w-9 items-center justify-center rounded bg-[#25D366] text-white hover:bg-[#1da851]" onClick={() => { setShareNote(null); setWaBox({ to: doc.customerContact || '', error: '' }); }}><Icon name="whatsapp" size={18} /></button>
+          {SHOW_WHATSAPP_SEND && <button type="button" title="Send the invoice PDF on WhatsApp" aria-label="Send the invoice PDF on WhatsApp" className="flex h-9 w-9 items-center justify-center rounded bg-[#25D366] text-white hover:bg-[#1da851]" onClick={() => { setShareNote(null); setWaBox({ to: doc.customerContact || '', error: '' }); }}><Icon name="whatsapp" size={18} /></button>}
+          {/* DOWNLOAD (30-10-2026): the invoice in the picked size, saved as a PDF */}
+          <button type="button" title="Download the invoice PDF" aria-label="Download the invoice PDF" disabled={downloading} className="flex h-9 w-9 items-center justify-center rounded bg-[#0d9488] text-white hover:bg-[#0b7c72] disabled:opacity-60" onClick={downloadInvoicePdf}>{downloading ? <span className="spin" /> : <Icon name="download" size={18} />}</button>
           {/* WHATSAPP APP (26-10-2026): the same link message, opened in the installed WhatsApp app.
               HIDDEN (user, 27-10-2026); set SHOW_WHATSAPP_APP to true to bring it back */}
           {SHOW_WHATSAPP_APP && <button type="button" title="Share on WhatsApp App" aria-label="Share on WhatsApp App" className="flex h-9 items-center justify-center gap-1 rounded bg-[#128C7E] px-2 text-[11px] font-bold text-white hover:bg-[#0e6f64]" onClick={() => sharePdf('whatsapp-app')}><Icon name="whatsapp" size={16} /> App</button>}
@@ -665,6 +715,7 @@ export default function PrintPosPage() {
           phones={phones}
           termLines={termLines}
           footerTpl={footerTpl}
+          showImages={format === 'a4' && a4Images === 'with'}
           paidBy={paidBy}
           changeReturn={changeReturn}
           totals={{ netSum, mrpSum, discSum, taxSum, taxable, cgst, sgst, shipping, netAmount, roundOff, pcs, mtr }}
@@ -883,8 +934,14 @@ export default function PrintPosPage() {
    ========================================================================== */
 function SheetInvoice({
   paper, doc, seller, items, when, billDate, address, place, phones, termLines,
-  paidBy, changeReturn, totals: t, hsnRows, footerTpl = null,
+  paidBy, changeReturn, totals: t, hsnRows, footerTpl = null, showImages = false,
 }) {
+  /* the items' saved photos, once each, for the top-right corner (A4, 30-10-2026);
+     smaller as there are more, so the corner never grows past the letterhead */
+  const photos = showImages
+    ? [...new Set(items.map((it) => String(it.image || '').trim()).filter(Boolean))].slice(0, 12)
+    : [];
+  const photoMm = photos.length <= 2 ? 26 : photos.length <= 4 ? 19 : photos.length <= 6 ? 15 : 12;
   /* No boxes (client, 19-10-2026): laid out like the 4-inch bill - centred
      letterhead, dashed rules between sections, rows without cell borders.
      The content is exactly what this sheet printed. A5 / A4 only; the 4-inch
@@ -908,7 +965,28 @@ function SheetInvoice({
       }}
     >
       {/* ------------------------------------------------ letterhead -- */}
-      <div className="text-center">
+      <div className="relative text-center">
+        {/* item photos, top right - A4 "With image" only (30-10-2026); placed
+            over the corner so the centred letterhead does not move. A photo
+            that does not load is hidden. */}
+        {photos.length > 0 && (
+          <div
+            className="absolute right-0 top-0 flex flex-wrap justify-end"
+            style={{ gap: '1.5mm', maxWidth: (photoMm * 3 + 3) + 'mm' }}
+          >
+            {photos.map((src) => (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img
+                key={src}
+                src={src}
+                alt=""
+                className="rounded border border-black/20 object-cover"
+                style={{ width: photoMm + 'mm', height: photoMm + 'mm' }}
+                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+              />
+            ))}
+          </div>
+        )}
         {/* both logos in one row, centred (user, 19-10-2026) */}
         <div className="flex items-center justify-center" style={{ gap: paper.w * 0.05 + 'mm' }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}

@@ -209,9 +209,10 @@ export default function VoucherList({ spec }) {
           />
 
           <div className="mt-3 overflow-x-auto">
-            <table className="dt">
+            <table className="dt dt-nowrap-head">
               <thead>
                 <tr>
+                  <th className="!text-center" style={{ width: 90 }}>Action</th>
                   {visible.map((c) => (
                     <SortHeader
                       key={c.t}
@@ -222,7 +223,6 @@ export default function VoucherList({ spec }) {
                       className="!text-center"
                     />
                   ))}
-                  <th className="!text-center" style={{ width: 90 }}>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -234,11 +234,6 @@ export default function VoucherList({ spec }) {
                 )}
                 {!loading && state.rows.map((row) => (
                   <tr key={row._id}>
-                    {visible.map((c) => (
-                      <td key={c.t} className="!text-center">
-                        {cell(row, c)}
-                      </td>
-                    ))}
                     <td className="!text-center">
                       <button
                         type="button"
@@ -249,6 +244,11 @@ export default function VoucherList({ spec }) {
                         <Icon name="trash" size={12} />
                       </button>
                     </td>
+                    {visible.map((c) => (
+                      <td key={c.t} className="!text-center">
+                        {cell(row, c)}
+                      </td>
+                    ))}
                   </tr>
                 ))}
               </tbody>

@@ -8,6 +8,7 @@ const CONFIG = {
   basePath: '/admin/',
   slugPath: "transaction/sell/salereturn",
   endpoint: '/api/sell-salereturn',
+  pager: 'numbered',
   scope: ["business","location","finYear"],
   filters: [
     { k: "startDate", label: "Start Date", type: "date" },

@@ -16,11 +16,9 @@ const CONFIG = {
   pager: 'numbered',
   sortable: true,
   scope: ["business"],
-  actionVariant: "dropdown",
-  actionMenu: [
-    { label: 'Edit', icon: 'pencil', to: (r) => '/admin/staff-management/staff/salesperson/' + r._id },
-    { label: 'Delete', icon: 'trash', action: 'delete' },
-  ],
+  actionVariant: "icons",
+  actionIcons: ["view", "edit", "delete"],
+  nowrapHead: true,
   columns: [
     { k: "name", t: "Name" },
     { k: "email", t: "Email" },

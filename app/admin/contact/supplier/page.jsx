@@ -16,8 +16,10 @@ const CONFIG = {
   gstLookup: true,
   scope: ["business"],
   formMode: "tabs",
-  actionPosition: "left",
-  actionVariant: "dropdown",
+  nowrapHead: true,
+  actionPosition: "right",
+  actionVariant: "icons",
+  actionIcons: ["view", "edit", "delete"],
   columns: [
     { k: "businessName", t: "Business Name" },
     { k: "contactId", t: "Supplier No" },

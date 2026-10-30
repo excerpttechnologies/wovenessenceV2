@@ -23,8 +23,9 @@ const CONFIG = {
   sortable: true,
   scope: ['business', 'location', 'finYear'],
   showAdd: false,
-  actionPosition: 'left',
-  actionVariant: 'dropdown',
+  actionPosition: 'right',
+  actionVariant: 'buttons',
+  nowrapHead: true,
   actionMenu: [
     { label: 'Receive / View', icon: 'eye', to: (row) => `/admin/transaction/stocktransfers/transfer/${row._id}` },
   ],

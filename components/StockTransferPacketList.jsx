@@ -228,7 +228,7 @@ export default function StockTransferPacketList() {
             }
             search={search}
             onSearch={setSearch}
-            onAdd={() => router.push(BASE + '/add')}
+            onAdd={() => window.open(BASE + '/add', '_blank', 'noopener')}
             onExportCsv={() =>
               download('stock-transfer-packet.csv', toCsv(exportHeaders(), exportRows()), 'text/csv')
             }
@@ -243,9 +243,10 @@ export default function StockTransferPacketList() {
           />
 
           <div className="mt-3 overflow-x-auto">
-            <table className="dt">
+            <table className="dt dt-nowrap-head">
               <thead>
                 <tr>
+                  <th>Action</th>
                   {visible.map((c, i) => (
                   <SortHeader
                     key={c.t + i}
@@ -255,7 +256,6 @@ export default function StockTransferPacketList() {
                     onSort={(next) => { setSort(next); setPage(1); }}
                   />
                 ))}
-                  <th>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -271,11 +271,10 @@ export default function StockTransferPacketList() {
                 )}
                 {!loading && state.rows.map((row) => (
                   <tr key={row._id}>
-                    {visible.map((c, i) => <td key={c.t + i}>{cell(row, c)}</td>)}
                     <td>
                       <span className="inline-flex items-center gap-1.5">
                         <button
-                          className="act-btn bg-[#2b7fd4]"
+                          className="act-btn act-blue"
                           title="View"
                           onClick={() => setViewing(String(row._id))}
                         >
@@ -287,14 +286,14 @@ export default function StockTransferPacketList() {
                         {!row.stockTransferLocationId && (
                           <>
                             <button
-                              className="act-btn bg-warnyellow"
+                              className="act-btn act-amber"
                               title="Edit"
-                              onClick={() => router.push(BASE + '/' + row._id)}
+                              onClick={() => window.open(BASE + '/' + row._id, '_blank', 'noopener')}
                             >
                               <Icon name="pencil" size={12} />
                             </button>
                             <button
-                              className="act-btn bg-danger"
+                              className="act-btn act-red"
                               title="Delete"
                               onClick={() => remove(row._id)}
                             >
@@ -308,7 +307,7 @@ export default function StockTransferPacketList() {
                           <>
                             {challanStatus[String(row.stockTransferLocationId)] ? (
                               <button
-                                className="act-btn bg-okgreen"
+                                className="act-btn act-green"
                                 title="Download Delivery Challan"
                                 onClick={() => downloadChallan(challanStatus[String(row.stockTransferLocationId)])}
                               >
@@ -316,7 +315,7 @@ export default function StockTransferPacketList() {
                               </button>
                             ) : (
                               <button
-                                className="act-btn bg-[#ff9800]"
+                                className="act-btn act-violet"
                                 title="Create Delivery Challan"
                                 disabled={creatingChallan === String(row.stockTransferLocationId)}
                                 onClick={() => createChallan(String(row.stockTransferLocationId))}
@@ -332,6 +331,7 @@ export default function StockTransferPacketList() {
                         )}
                       </span>
                     </td>
+                    {visible.map((c, i) => <td key={c.t + i}>{cell(row, c)}</td>)}
                   </tr>
                 ))}
               </tbody>

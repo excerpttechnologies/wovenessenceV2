@@ -315,9 +315,10 @@ export default function CashRegisterList() {
           </div>
 
           <div className="mt-3 overflow-x-auto">
-            <table className="dt">
+            <table className="dt dt-nowrap-head">
               <thead>
                 <tr>
+                  <th style={{ width: 130 }}>Action</th>
                   <SortHeader label="Opened At" sortKey="openedAt" sort={sort} onSort={(next) => { setSort(next); setPage(1); }} />
                   <SortHeader label="Closed At" sortKey="closedAt" sort={sort} onSort={(next) => { setSort(next); setPage(1); }} />
                   <SortHeader label="Status" sortKey="status" sort={sort} onSort={(next) => { setSort(next); setPage(1); }} />
@@ -325,7 +326,6 @@ export default function CashRegisterList() {
                   <SortHeader label="Closing Bal" sortKey="closingBalance" sort={sort} onSort={(next) => { setSort(next); setPage(1); }} className="text-right" />
                   <SortHeader label="Expected Bal" sortKey="expectedBalance" sort={sort} onSort={(next) => { setSort(next); setPage(1); }} className="text-right" />
                   <SortHeader label="Difference Bal" sortKey="differenceBalance" sort={sort} onSort={(next) => { setSort(next); setPage(1); }} className="text-right" />
-                  <th style={{ width: 130 }}>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -340,6 +340,29 @@ export default function CashRegisterList() {
                   const diff = num(row.differenceBalance);
                   return (
                     <tr key={row._id}>
+                      <td>
+                        {isOpen ? (
+                          <span className="inline-flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              className="h-[26px] rounded border-0 bg-danger px-3 text-xs text-white"
+                              onClick={() => setClosingRow(row)}
+                            >
+                              Close
+                            </button>
+                            <button
+                              type="button"
+                              className="act-btn act-red"
+                              title="Discard"
+                              onClick={() => remove(row._id)}
+                            >
+                              <Icon name="trash" size={12} />
+                            </button>
+                          </span>
+                        ) : (
+                          <span className="text-inkmuted">&mdash;</span>
+                        )}
+                      </td>
                       <td>{stamp(row.openedAt)}</td>
                       <td>{stamp(row.closedAt)}</td>
                       <td>
@@ -357,29 +380,6 @@ export default function CashRegisterList() {
                         }
                       >
                         {money(row.differenceBalance)}
-                      </td>
-                      <td>
-                        {isOpen ? (
-                          <span className="inline-flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              className="h-[26px] rounded border-0 bg-danger px-3 text-xs text-white"
-                              onClick={() => setClosingRow(row)}
-                            >
-                              Close
-                            </button>
-                            <button
-                              type="button"
-                              className="act-btn bg-[#9aa6ba]"
-                              title="Discard"
-                              onClick={() => remove(row._id)}
-                            >
-                              <Icon name="trash" size={12} />
-                            </button>
-                          </span>
-                        ) : (
-                          <span className="text-inkmuted">&mdash;</span>
-                        )}
                       </td>
                     </tr>
                   );

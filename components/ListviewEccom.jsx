@@ -3949,6 +3949,8 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
   /* The row whose full record is on show, for the screens that have no
      viewModal of their own. */
   const [detailRow, setDetailRow] = useState(null);
+  /* set when the quick view was opened from a View entry that also has a full page */
+  const [detailHref, setDetailHref] = useState(null);
   /* The pending delete: the row itself, so the dialog can name what is
      about to go, plus the in-flight and failed states - the request is
      fired from the dialog and the dialog is where it reports back. */
@@ -3968,7 +3970,9 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
   }, [menuFor]);
  
   const columns = cfg.columns || [];
-  const actionPos = cfg.actionPosition || "right";
+  /* every table shows its Action column on the LEFT (user, 30-10-2026);
+     cfg.actionPosition is no longer read */
+  const actionPos = "left";
   const actionVariant = cfg.actionVariant || "icons";
 
   /* Colour for an action button, taken from the icon the cfg already names -
@@ -3976,14 +3980,15 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
      rather than declaring the same thing twice. `tone` on the entry overrides
      it for anything unusual. */
   const ACTION_TONE = {
-    eye: "bg-[#2b7fd4] text-white",
-    ledger: "bg-okgreen text-white",
-    printer: "bg-[#495464] text-white",
-    file: "bg-[#495464] text-white",
-    pencil: "bg-warnyellow text-ink",
-    trash: "bg-danger text-white",
-    share: "bg-[#2b7fd4] text-white",
-    upload: "bg-[#6b7280] text-white",
+    eye: "act-blue",
+    ledger: "act-green",
+    printer: "act-violet",
+    file: "act-violet",
+    barcode: "act-teal",
+    pencil: "act-amber",
+    trash: "act-red",
+    share: "act-blue",
+    upload: "act-teal",
   };
 
   /* The row's action entries, already filtered by permission and with their
@@ -4667,9 +4672,12 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
                 /* cfg.addNewTab opens the add screen in a new browser tab and
                    leaves the list where it is - POS opens the till this way */
                 if (cfg.addNewTab) { window.open(url, "_blank", "noopener"); return undefined; }
-                return router.push(url);
+                window.open(url, "_blank", "noopener");
+                return undefined;
               }
-              return router.push(base + "/add");
+              /* Add opens in a new browser tab (30-10-2026) */
+              window.open(base + "/add", "_blank", "noopener");
+              return undefined;
             }}
             showAdd={cfg.showAdd !== false}
             addDisabled={!mayCreate}
@@ -4688,7 +4696,7 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
           )}
 
           <div className="mt-3 overflow-x-auto">
-            <table className="dt">
+            <table className={"dt" + (cfg.nowrapHead ? " dt-nowrap-head" : "")}>
               <thead>
                 <tr>
                   {actionPos === "left" && <th>Action</th>}
@@ -4803,11 +4811,11 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
                                    the column gives its width back to the data.
                                    Square and 32px tall - big enough to hit
                                    accurately at a counter. */
-                                className={'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded '
+                                className={'act-btn shrink-0 '
                                   + (m.tone
                                     || (m.action === 'delete' ? ACTION_TONE.trash : '')
                                     || ACTION_TONE[m.icon]
-                                    || 'bg-brand text-white')}
+                                    || 'act-blue')}
                                 title={m.label}
                                 aria-label={m.label}
                                 onClick={() => {
@@ -4815,7 +4823,14 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
                                   /* `onClick` lets a screen handle the action
                                      itself - POS opens View in a popup */
                                   if (m.onClick) { m.onClick(m.row); return; }
-                                  if (m.href) router.push(m.href);
+                                  /* a View entry that only navigates opens the quick-view modal first,
+                                     with the full page one click away - View is a popup everywhere */
+                                  if (m.icon === "eye" && m.href) { setDetailHref(m.href); setDetailRow(m.row); return; }
+                                  if (m.href) {
+                                    /* Edit opens in a new browser tab (30-10-2026) */
+                                    if (m.icon === "pencil") { window.open(m.href, "_blank", "noopener"); return; }
+                                    router.push(m.href);
+                                  }
                                 }}
                               >
                                 <Icon name={m.icon || 'eye'} size={15} />
@@ -4834,7 +4849,7 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
                               typeof cfg.actionIcons === "function"
                                 ? cfg.actionIcons(row) || []
                                 : cfg.actionIcons || ["view", "edit", "delete"]
-                            ).map((a) => {
+                            ).filter((a) => (a === "edit" ? mayUpdate : a === "delete" ? mayDelete : true)).map((a) => {
                               if (a === "view")
                                 return (
                                   <button
@@ -4856,7 +4871,8 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
                                       if (cfg.formMode === "modal") {
                                         setEditRow(row);
                                       } else {
-                                        router.push(base + "/" + row._id);
+                                        /* Edit opens in a new browser tab (30-10-2026) */
+                                        window.open(base + "/" + row._id, "_blank", "noopener");
                                       }
                                     }}
                                   >
@@ -5006,11 +5022,18 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
         open={Boolean(detailRow)}
         size="lg"
         title={(cfg.title || "Record") + " details"}
-        onClose={() => setDetailRow(null)}
+        onClose={() => { setDetailRow(null); setDetailHref(null); }}
         footer={
-          <button type="button" className="btn btn-primary" onClick={() => setDetailRow(null)}>
-            Close
-          </button>
+          <>
+            {detailHref && (
+              <button type="button" className="btn" onClick={() => { const h = detailHref; setDetailRow(null); setDetailHref(null); router.push(h); }}>
+                Open full page
+              </button>
+            )}
+            <button type="button" className="btn btn-primary" onClick={() => { setDetailRow(null); setDetailHref(null); }}>
+              Close
+            </button>
+          </>
         }
       >
         {detailRow && (

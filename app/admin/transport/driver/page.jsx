@@ -18,7 +18,7 @@ const CONFIG = {
   addTitle: 'New Driver Master',
   addLabel: 'New Driver Master',
   formMode: 'modal',
-  actionIcons: ['edit', 'delete'],
+  actionIcons: ['view', 'edit', 'delete'],
   columns: [
     { k: 'name', t: 'Name' },
     { k: 'code', t: 'Code' },

@@ -22,8 +22,9 @@ const CONFIG = {
   sortable: true,
   scope: ['business', 'location', 'finYear'],
   addHref: '/admin/transaction/stocktransfers/transfer/add',
-  actionPosition: 'left',
-  actionVariant: 'dropdown',
+  actionPosition: 'right',
+  actionVariant: 'buttons',
+  nowrapHead: true,
   actionMenu: [
     { label: 'Open', icon: 'eye', to: (row) => `/admin/transaction/stocktransfers/transfer/${row._id}` },
     { label: 'Delivery Challan', icon: 'printer', to: (row) => `/admin/transaction/stocktransfers/transfer/${row._id}/challan` },

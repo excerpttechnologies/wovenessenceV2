@@ -17,6 +17,7 @@ const CONFIG = {
   addTitle: 'Add Transfer Stock Location',
   /* view opens the read-only record, which carries its own Print button */
   actionIcons: ['view', 'delete'],
+  nowrapHead: true,
   filters: [
     { k: 'startDate', label: 'Start Date', type: 'date' },
     { k: 'endDate', label: 'End Date', type: 'date' },

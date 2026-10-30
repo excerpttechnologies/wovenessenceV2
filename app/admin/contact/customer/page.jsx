@@ -15,12 +15,10 @@ const CONFIG = {
   sortable: true,
   scope: ["business"],
   formMode: "tabs",
-  actionPosition: "left",
-  actionVariant: "dropdown",
-  actionMenu: [
-    { label: 'Edit', icon: 'pencil', need: 'update', to: (r) => '/admin/contact/customer/' + r._id },
-    { label: 'Delete', icon: 'trash', action: 'delete' },
-  ],
+  nowrapHead: true,
+  actionPosition: "right",
+  actionVariant: "icons",
+  actionIcons: ["view", "edit", "delete"],
   columns: [
     { k: "businessName", t: "Business Name" },
     { k: "contactId", t: "Contact ID" },

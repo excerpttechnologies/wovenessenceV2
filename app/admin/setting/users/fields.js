@@ -79,7 +79,7 @@ export const LIST = {
   sortable: true,
   scope: ['business'],
   addHref: '/admin/setting/users/add',
-  actionPosition: 'left',
+  actionPosition: 'right',
   actionVariant: 'icons',
   columns: [
     { k: 'name', t: 'Name' },

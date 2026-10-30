@@ -14,10 +14,12 @@ const CONFIG = {
   basePath: '/admin/transaction/intercompanysell/',
   slugPath: 'salesinvoice',
   endpoint: '/api/ic-sales-invoice',
+  pager: 'numbered',
   scope: ['business', 'location', 'finYear'],
   addTitle: 'Inter Company Sales Invoice',
   actionPosition: 'right',
-  actionVariant: 'dropdown',
+  actionVariant: 'buttons',
+  nowrapHead: true,
   actionMenu: [
     {
       label: 'View',

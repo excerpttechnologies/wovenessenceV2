@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Icon from './Icon';
 import Toolbar from './Toolbar';
 import { useScope } from './ScopeContext';
+import NumberedPager from './NumberedPager';
 import { fmt, toCsv, toXlsHtml, download, printTable } from '@/lib/format';
 
 /* ==========================================================================
@@ -34,6 +35,8 @@ function Panel({ spec, onAction, nonce }) {
   const [hidden, setHidden] = useState([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
+  /* Rows-per-page, same numbered footer as every other list; null keeps the endpoint's default */
+  const [perPage, setPerPage] = useState(null);
   const [busy, setBusy] = useState(null);
 
   /* which part of the scope addresses this inbox - business by default,
@@ -51,6 +54,7 @@ function Panel({ spec, onAction, nonce }) {
     setLoading(true);
 
     const qs = new URLSearchParams({ page: String(page), search });
+    if (perPage) qs.set('perPage', String(perPage));
     /* the pending card asks "addressed to me"; the actioned card is scoped
        normally, because those records belong to this branch */
     if (spec.inboxParam) {
@@ -72,11 +76,12 @@ function Panel({ spec, onAction, nonce }) {
       setState({
         rows: d.rows || [], labels: d.labels || {},
         page: d.page || 1, pages: d.pages || 1, total: d.total || 0,
+        perPage: Number(d.perPage) || null,
       });
     } finally {
       setLoading(false);
     }
-  }, [spec, page, search, inboxValue, scope.business, scope.location, scope.finYear]);
+  }, [spec, page, perPage, search, inboxValue, scope.business, scope.location, scope.finYear]);
 
   useEffect(() => { load(); }, [load, nonce]);
   useEffect(() => { setPage(1); }, [search, scope.business, scope.location, scope.finYear]);
@@ -143,11 +148,11 @@ function Panel({ spec, onAction, nonce }) {
         />
 
         <div className="mt-3 overflow-x-auto">
-          <table className="dt">
+          <table className="dt dt-nowrap-head">
             <thead>
               <tr>
-                {visible.map((c, i) => <th key={c.t + i}>{c.t}</th>)}
                 <th>Action</th>
+                {visible.map((c, i) => <th key={c.t + i}>{c.t}</th>)}
               </tr>
             </thead>
             <tbody>
@@ -159,7 +164,6 @@ function Panel({ spec, onAction, nonce }) {
               )}
               {!loading && state.rows.map((row) => (
                 <tr key={row._id}>
-                  {visible.map((c, i) => <td key={c.t + i}>{cellText(row, c)}</td>)}
                   <td>
                     {spec.actionLabel ? (
                       <button
@@ -176,20 +180,22 @@ function Panel({ spec, onAction, nonce }) {
                       <span className="text-inkmuted">&mdash;</span>
                     )}
                   </td>
+                  {visible.map((c, i) => <td key={c.t + i}>{cellText(row, c)}</td>)}
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
 
-        <div className="flex items-center pt-3 text-[13px] text-cell">
-          <span>Page <b className="text-brand-link">{state.page}</b> of {state.pages}</span>
-          <span className="flex-1" />
-          <span className="flex gap-2">
-            <button className="btn" disabled={state.page <= 1} onClick={() => setPage((p) => p - 1)}>Previous</button>
-            <button className="btn" disabled={state.page >= state.pages} onClick={() => setPage((p) => p + 1)}>Next</button>
-          </span>
-        </div>
+        <NumberedPager
+          page={state.page}
+          pages={state.pages}
+          total={state.total}
+          shown={state.rows.length}
+          perPage={perPage || state.perPage || 10}
+          onPage={setPage}
+          onPerPage={(n) => { setPerPage(n); setPage(1); }}
+        />
       </div>
     </div>
   );

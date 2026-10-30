@@ -156,15 +156,13 @@ export default function ProductTypePage() {
         <div className="mt-4 overflow-x-auto">
           <table className="dt">
             <thead>
-              <tr><th style={{ width: 70 }}>Sl. No.</th><th>Name</th><th style={{ width: 90 }}>Action</th></tr>
+              <tr><th style={{ width: 90 }}>Action</th><th style={{ width: 70 }}>Sl. No.</th><th>Name</th></tr>
             </thead>
             <tbody>
               {loading && <tr><td colSpan={3} className="text-center text-inkmuted">Loading...</td></tr>}
               {!loading && !shown.length && <tr><td colSpan={3} className="text-center text-inkmuted">{business ? 'No product types yet - use Add.' : '-'}</td></tr>}
               {!loading && shown.map((row, i) => (
                 <tr key={row.value}>
-                  <td>{i + 1}</td>
-                  <td>{row.label}</td>
                   <td>
                     {BUILT_IN.includes(row.value) ? (
                       <span className="text-[12px] text-inkmuted">Built-in</span>
@@ -174,6 +172,8 @@ export default function ProductTypePage() {
                       </button>
                     )}
                   </td>
+                  <td>{i + 1}</td>
+                  <td>{row.label}</td>
                 </tr>
               ))}
             </tbody>

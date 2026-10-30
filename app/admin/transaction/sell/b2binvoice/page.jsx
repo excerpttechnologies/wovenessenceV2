@@ -8,6 +8,7 @@ const CONFIG = {
   basePath: '/admin/',
   slugPath: "transaction/sell/b2binvoice",
   endpoint: '/api/sell-b2binvoice',
+  pager: 'numbered',
   scope: ["business","location","finYear"],
   showAdd: false,
   columns: [

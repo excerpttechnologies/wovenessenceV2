@@ -3323,7 +3323,9 @@ export default function ListView({ cfg, slug }) {
   }, [cfg]);
 
   const columns = cfg.columns || [];
-  const actionPos = cfg.actionPosition || "right";
+  /* every table shows its Action column on the LEFT (user, 30-10-2026);
+     cfg.actionPosition is no longer read */
+  const actionPos = "left";
   const actionVariant = cfg.actionVariant || "icons";
  
   const slugPath = cfg.slugPath || slug;

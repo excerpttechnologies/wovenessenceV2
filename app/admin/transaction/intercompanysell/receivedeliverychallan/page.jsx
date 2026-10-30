@@ -248,6 +248,32 @@ export default function ReceiveDeliveryChallanPage() {
      column changed. */
   const renderRow = (row, i) => (
       <tr key={row._id} className={row.awaiting ? 'bg-[#fff8e6]' : undefined}>
+                  <td>
+                    <span className="inline-flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        className="act-btn act-blue"
+                        title="View"
+                        onClick={() => setDetailRow(row)}
+                      >
+                        <Icon name="eye" size={12} />
+                      </button>
+                      {/* Approve only where there is something to approve.
+                          Disabled while its own request is in flight, so a
+                          second click cannot start a second receipt. */}
+                      {row.awaiting && (
+                        <button
+                          type="button"
+                          className="act-btn act-green disabled:opacity-50"
+                          title={'Approve challan ' + (row.dcNo || '')}
+                          disabled={busy === row._id}
+                          onClick={() => approve(row)}
+                        >
+                          <Icon name="check" size={12} />
+                        </button>
+                      )}
+                    </span>
+                  </td>
                   <td className="text-center">{i + 1}</td>
                   <td>
                     {label(tab === 'returns' ? other(row).businessId : row.businessId)}
@@ -273,32 +299,6 @@ export default function ReceiveDeliveryChallanPage() {
                       ? <span className="whitespace-nowrap text-[12px] font-semibold text-warnyellow">Awaiting approval</span>
                       : day(row.receivedAt)}
                   </td>
-                  <td>
-                    <span className="inline-flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        className="act-btn bg-[#2b7fd4]"
-                        title="View"
-                        onClick={() => setDetailRow(row)}
-                      >
-                        <Icon name="eye" size={12} />
-                      </button>
-                      {/* Approve only where there is something to approve.
-                          Disabled while its own request is in flight, so a
-                          second click cannot start a second receipt. */}
-                      {row.awaiting && (
-                        <button
-                          type="button"
-                          className="act-btn bg-okgreen disabled:opacity-50"
-                          title={'Approve challan ' + (row.dcNo || '')}
-                          disabled={busy === row._id}
-                          onClick={() => approve(row)}
-                        >
-                          <Icon name="check" size={12} />
-                        </button>
-                      )}
-                    </span>
-                  </td>
               </tr>
   );
 
@@ -306,9 +306,10 @@ export default function ReceiveDeliveryChallanPage() {
      rows carry their own flag, set where the list is built. */
   const grid = (list, emptyText, view) => (
     <div className="overflow-x-auto">
-      <table className="dt">
+      <table className="dt dt-nowrap-head">
         <thead>
           <tr>
+            <th>Action</th>
             <th>#</th>
             {view.th(tab === 'returns' ? 'Business' : 'From Business', 'business')}
             {view.th('DC No', 'dcNo')}
@@ -317,7 +318,6 @@ export default function ReceiveDeliveryChallanPage() {
             {view.th('Total Qty', 'totalQty', 'whitespace-nowrap text-center')}
             {view.th('Total Value', 'netValue', 'whitespace-nowrap text-center')}
             {view.th(tab === 'returns' ? 'Returned' : 'Received On', 'last', 'whitespace-nowrap')}
-            <th>Action</th>
           </tr>
         </thead>
         <tbody>
@@ -419,7 +419,7 @@ export default function ReceiveDeliveryChallanPage() {
             </div>
 
             <div className="overflow-x-auto p-5">
-        <table className="dt">
+        <table className="dt dt-nowrap-head">
           <thead>
             <tr>
               <th>Sl No.</th>

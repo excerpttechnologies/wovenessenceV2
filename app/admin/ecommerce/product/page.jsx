@@ -18,6 +18,7 @@ const CONFIG = {
   basePath: '/admin/ecommerce/',
   slugPath: 'product',
   endpoint: '/api/ecom-product',
+  pager: 'numbered',
   scope: ['business', 'location', 'finYear'],
 
   /* products are generated, not typed */
@@ -25,7 +26,8 @@ const CONFIG = {
 
   /* a product IS an item, so the row action opens its Item record - the row's
      _id is the item's id, so this never points at a page that does not exist */
-  actionVariant: 'dropdown',
+  actionVariant: 'buttons',
+  nowrapHead: true,
   actionMenu: [
     {
       label: 'View Item',

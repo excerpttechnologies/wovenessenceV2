@@ -170,6 +170,8 @@ const ContactSchema = new mongoose.Schema(
        Supplier and Agent have no equivalent, so these stay empty on those two.
        See app/admin/contact/customer/README-CUSTOMER-FORM.md */
     priceList: { type: String, default: 'ON RSP' },
+    /* Customer > Sales Details: Profit Sharing Percentage % (30-10-2026) */
+    profitSharingPercent: { type: Number, default: null },
     saleDueDate: { type: Number, default: null },
     interestChargedIfDelay: { type: Number, default: null },
     graceDays: { type: Number, default: null },

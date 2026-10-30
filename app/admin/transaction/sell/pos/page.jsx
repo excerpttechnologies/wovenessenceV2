@@ -159,7 +159,8 @@ const CONFIG = {
   addHref: "/admin/pos/add",
   /* the till opens in its own browser tab, so the list stays open here */
   addNewTab: true,
-  actionPosition: "left",
+  actionPosition: "right",
+  nowrapHead: true,
   /* three different destinations - view, payments, print - shown side by
      side rather than behind one Action menu. */
   actionVariant: "buttons",
@@ -286,7 +287,7 @@ export default function TransactionSellPosListPage() {
         if (m.label === 'View Payments') return { ...m, onClick: (row) => setPopup({ id: row._id, kind: 'payments' }) };
         return m;
       }),
-      ...(SHOW_DELETE ? [{ label: 'Delete', icon: 'trash', tone: 'bg-danger text-white', onClick: archiveBill }] : []),
+      ...(SHOW_DELETE ? [{ label: 'Delete', icon: 'trash', tone: 'act-red', onClick: archiveBill }] : []),
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), []);

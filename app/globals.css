@@ -618,10 +618,11 @@ select {
   /* The header sticks, so the column names stay readable once a long list
      scrolls - every screen in the app shares this one table. */
   .dt th {
-    @apply sticky top-0 z-10 border-y border-r border-line bg-thead px-2.5 py-2
+    @apply sticky top-0 z-10 whitespace-nowrap border-y border-r border-line bg-thead px-2.5 py-2
            text-left align-bottom text-[11.5px] font-bold uppercase leading-tight
            tracking-wide text-inkmuted last:border-r-0;
   }
+  .dt-nowrap-head th { @apply whitespace-nowrap; }
   .dt td { @apply border-b border-line px-2.5 py-1 text-cell align-middle; }
   .dt tbody tr { @apply transition-colors; }
   .dt tbody tr:nth-child(odd) { @apply bg-rowalt; }
@@ -694,6 +695,11 @@ select {
   .act-slate:hover  { @apply border-[#ccd5e2] bg-[#e5eaf1]; }
   .act-violet { @apply border-[#ddd0f8] bg-[#f3eefd] text-[#5b21b6]; }
   .act-violet:hover { @apply border-[#c9b4f3] bg-[#eae0fb]; }
+  /* old solid row buttons render as the soft tints (30-10-2026) */
+  .act-btn.bg-danger { @apply border-[#f8cfcc] bg-[#fdeeed] text-[#c5302a]; }
+  .act-btn.bg-danger:hover { @apply border-[#f3b4b0] bg-[#fbdedc]; }
+  .act-btn.bg-\[\#2b7fd4\] { @apply border-[#cfe1fb] bg-[#eff5fe] text-[#2366bc]; }
+  .act-btn.bg-\[\#2b7fd4\]:hover { @apply border-[#b4d1f8] bg-[#dfebfd]; }
 
   /* CSV / Excel / PDF. Same softened treatment as the row actions, so the
      two sets of coloured buttons on a list screen read as one family. */

@@ -401,6 +401,7 @@ export default function ProductEccomPage() {
       pager: 'numbered',
       sortable: true,
       actionVariant: 'buttons',
+      nowrapHead: true,
       actionMenu: [
         { label: 'View', icon: 'eye', onClick: (r) => setViewing(r) },
         {

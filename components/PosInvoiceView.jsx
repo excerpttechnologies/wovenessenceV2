@@ -36,6 +36,9 @@ const SHOW_GMAIL_EMAIL = false;
 const SHOW_WHATSAPP_WEB_LINK = false;
 /* the WhatsApp App (whatsapp://) button - hidden (user, 27-10-2026) */
 const SHOW_WHATSAPP_APP = false;
+/* the direct WhatsApp (send the PDF to a typed number) button - hidden; a
+   Download PDF button sits in its place (user, 30-10-2026) */
+const SHOW_WHATSAPP_SEND = false;
 
 /* `endpoint` (21-10-2026): where the bill is read from - the live POS bills by
    default; Archive -> POS Bills points it at /api/pos-archive/ */
@@ -55,6 +58,8 @@ export default function PosInvoiceView({ id, onBack, backLabel = 'Back', endpoin
   /* the direct WhatsApp box - customer's mobile, and whether it is sending (27-10-2026) */
   const [waBox, setWaBox] = useState(null);           // { to, error } | null
   const [waSending, setWaSending] = useState(false);
+  /* the Download PDF button is working (30-10-2026) */
+  const [downloading, setDownloading] = useState(false);
   /* this screen, turned into the shared PDF (23-10-2026) */
   const viewRef = useRef(null);
 
@@ -143,6 +148,30 @@ export default function PosInvoiceView({ id, onBack, backLabel = 'Back', endpoin
       jsPDF: { unit: 'mm', format: [wMm, hMm], orientation: hMm >= wMm ? 'portrait' : 'landscape' },
     }).from(element).outputPdf('blob');
     return { blob, pdfName };
+  }
+
+  /* DOWNLOAD (user, 30-10-2026): the same PDF of this view, saved to the
+     computer instead of sent */
+  async function downloadViewPdf() {
+    if (downloading) return;
+    setDownloading(true);
+    setShareNote(null);
+    try {
+      const { blob } = await viewPdf();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      /* saved as View_<invoice no>.pdf (user, 30-10-2026); the emailed copy keeps Invoice_<no>.pdf */
+      a.download = 'View_' + String(doc.invoiceNo || id).replace(/[^\w-]+/g, '_') + '.pdf';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } catch (e) {
+      setShareNote({ error: (e && e.message) || 'Could not make the PDF.' });
+    } finally {
+      setDownloading(false);
+    }
   }
 
   /* DIRECT EMAIL WITH THE PDF ATTACHED (user, 27-10-2026), as on the POS
@@ -269,7 +298,9 @@ export default function PosInvoiceView({ id, onBack, backLabel = 'Back', endpoin
                   set SHOW_WHATSAPP_WEB_LINK to true to bring it back */}
               {SHOW_WHATSAPP_WEB_LINK && <button type="button" title="Share on WhatsApp Web" aria-label="Share on WhatsApp Web" className="flex h-9 w-9 items-center justify-center rounded bg-[#25D366] text-white hover:bg-[#1da851]" onClick={() => shareViewPdf('whatsapp')}><Icon name="whatsapp" size={18} /></button>}
               {/* DIRECT WHATSAPP (27-10-2026): type the customer's mobile, the PDF is sent from the shop's WhatsApp number */}
-              <button type="button" title="Send the invoice PDF on WhatsApp" aria-label="Send the invoice PDF on WhatsApp" className="flex h-9 w-9 items-center justify-center rounded bg-[#25D366] text-white hover:bg-[#1da851]" onClick={() => { setShareNote(null); setWaBox({ to: doc.customerContact || '', error: '' }); }}><Icon name="whatsapp" size={18} /></button>
+              {SHOW_WHATSAPP_SEND && <button type="button" title="Send the invoice PDF on WhatsApp" aria-label="Send the invoice PDF on WhatsApp" className="flex h-9 w-9 items-center justify-center rounded bg-[#25D366] text-white hover:bg-[#1da851]" onClick={() => { setShareNote(null); setWaBox({ to: doc.customerContact || '', error: '' }); }}><Icon name="whatsapp" size={18} /></button>}
+              {/* DOWNLOAD (30-10-2026): this view saved as Invoice_<no>.pdf - the same PDF the email sends */}
+              <button type="button" title="Download the invoice PDF" aria-label="Download the invoice PDF" disabled={downloading} className="flex h-9 w-9 items-center justify-center rounded bg-[#0d9488] text-white hover:bg-[#0b7c72] disabled:opacity-60" onClick={downloadViewPdf}>{downloading ? <span className="spin" /> : <Icon name="download" size={18} />}</button>
               {/* WHATSAPP APP (27-10-2026): the same link message, opened in the installed WhatsApp app.
                   HIDDEN for now (user, 27-10-2026); set SHOW_WHATSAPP_APP to true to bring it back */}
               {SHOW_WHATSAPP_APP && <button type="button" title="Share on WhatsApp App" aria-label="Share on WhatsApp App" className="flex h-9 items-center justify-center gap-1 rounded bg-[#128C7E] px-2 text-[11px] font-bold text-white hover:bg-[#0e6f64]" onClick={() => shareViewPdf('whatsapp-app')}><Icon name="whatsapp" size={16} /> App</button>}

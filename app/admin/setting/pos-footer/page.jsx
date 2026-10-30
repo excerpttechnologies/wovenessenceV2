@@ -11,6 +11,7 @@ const CONFIG = {
   endpoint: '/api/pos-footer-template',
   pager: 'numbered',
   sortable: true,
+  nowrapHead: true,
   scope: ["business"],
   columns: [
     { k: "templateName", t: "Template Name" },

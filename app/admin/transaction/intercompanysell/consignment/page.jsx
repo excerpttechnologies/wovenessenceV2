@@ -168,9 +168,10 @@ export default function IcConsignmentPage() {
         )}
       </div>
       <div className="mb-5 overflow-x-auto">
-        <table className="dt">
+        <table className="dt dt-nowrap-head">
           <thead>
             <tr>
+              <th style={{ width: 170 }}>Action</th>
               <th style={{ width: 36 }}>Sl No.</th>
               {pendingView.th('Business', 'business')}
               {pendingView.th('DC No', 'dcNo', undefined, { width: 150 })}
@@ -178,7 +179,6 @@ export default function IcConsignmentPage() {
               {pendingView.th('Requested By', 'by', undefined, { width: 140 })}
               {pendingView.th('Items', 'items')}
               {pendingView.th('Qty', 'qty', '!text-right', { width: 70 })}
-              <th style={{ width: 170 }}>Action</th>
             </tr>
           </thead>
           <tbody>
@@ -188,22 +188,6 @@ export default function IcConsignmentPage() {
             )}
             {!loading && pendingView.rows.map(({ row, req }, i) => (
               <tr key={row._id + '|' + req.rid} className="bg-[#fff8e6]">
-                <td className="text-center">{pendingView.offset + i + 1}</td>
-                <td>
-                  {label(other(row).businessId)}
-                  <div className={'text-[11px] ' + (weSent(row) ? 'text-danger' : 'text-inkmuted')}>
-                    {weSent(row) ? '' : ''}
-                  </div>
-                </td>
-                <td>{row.dcNo || '-'}</td>
-                <td>{day(req.at)}</td>
-                <td>{req.by || '-'}</td>
-                <td className="text-[12px]">
-                  {(req.lines || []).map((l) => l.barcodeNo + ' x ' + l.qty).join(', ')}
-                </td>
-                <td className="!text-right font-semibold">
-                  {(req.lines || []).reduce((a, l) => a + (Number(l.qty) || 0), 0)}
-                </td>
                 <td>
                   {weSent(row) && !mayApprove ? (
                     <span className="text-[12px] text-inkmuted">No permission to approve</span>
@@ -230,6 +214,22 @@ export default function IcConsignmentPage() {
                     <span className="text-[12px] font-semibold text-warnyellow">Awaiting sender approval</span>
                   )}
                 </td>
+                <td className="text-center">{pendingView.offset + i + 1}</td>
+                <td>
+                  {label(other(row).businessId)}
+                  <div className={'text-[11px] ' + (weSent(row) ? 'text-danger' : 'text-inkmuted')}>
+                    {weSent(row) ? '' : ''}
+                  </div>
+                </td>
+                <td>{row.dcNo || '-'}</td>
+                <td>{day(req.at)}</td>
+                <td>{req.by || '-'}</td>
+                <td className="text-[12px]">
+                  {(req.lines || []).map((l) => l.barcodeNo + ' x ' + l.qty).join(', ')}
+                </td>
+                <td className="!text-right font-semibold">
+                  {(req.lines || []).reduce((a, l) => a + (Number(l.qty) || 0), 0)}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -241,9 +241,10 @@ export default function IcConsignmentPage() {
         <span className="card-title">Returns</span>
       </div>
       <div className="overflow-x-auto">
-        <table className="dt">
+        <table className="dt dt-nowrap-head">
           <thead>
             <tr>
+              <th style={{ width: 70 }}>Action</th>
               <th style={{ width: 36 }}>Sl No.</th>
               {rowsView.th('Business', 'business')}
               {rowsView.th('DC No', 'dcNo', undefined, { width: 150 })}
@@ -253,7 +254,6 @@ export default function IcConsignmentPage() {
               {rowsView.th('Total Qty', 'totalQty', '!text-right', { width: 90 })}
               {rowsView.th('Total Value', 'netValue', '!text-right', { width: 100 })}
               {rowsView.th('Returned', 'returned', '!text-right', { width: 90 })}
-              <th style={{ width: 70 }}>Action</th>
             </tr>
           </thead>
           <tbody>
@@ -266,6 +266,16 @@ export default function IcConsignmentPage() {
             )}
             {!loading && rowsView.rows.map((row, i) => (
               <tr key={row._id}>
+                <td>
+                  <button
+                    type="button"
+                    className="act-btn act-blue"
+                    title="View"
+                    onClick={() => setDetailRow(row)}
+                  >
+                    <Icon name="eye" size={12} />
+                  </button>
+                </td>
                 <td className="text-center">{rowsView.offset + i + 1}</td>
                 <td>
                   {label(other(row).businessId)}
@@ -301,16 +311,6 @@ export default function IcConsignmentPage() {
                     );
                   })()}
                 </td>
-                <td>
-                  <button
-                    type="button"
-                    className="act-btn act-blue"
-                    title="View"
-                    onClick={() => setDetailRow(row)}
-                  >
-                    <Icon name="eye" size={12} />
-                  </button>
-                </td>
               </tr>
             ))}
           </tbody>
@@ -339,7 +339,7 @@ export default function IcConsignmentPage() {
             </div>
 
             <div className="overflow-x-auto p-5">
-              <table className="dt">
+              <table className="dt dt-nowrap-head">
                 <thead>
                   <tr>
                     <th style={{ width: 50 }}>Sl No.</th>

@@ -1090,6 +1090,12 @@ export const TABS = [
                 { "v": "ON MRP", "l": "ON MRP" }
               ]
             },
+            /* the customer's profit sharing share, in % (user, 30-10-2026) */
+            {
+              "k": "profitSharingPercent",
+              "label": "Profit Sharing Percentage %",
+              "type": "number"
+            },
             {
               "k": "discountType",
               "label": "Discount Type",

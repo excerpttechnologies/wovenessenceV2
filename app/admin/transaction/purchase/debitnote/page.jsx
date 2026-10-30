@@ -8,6 +8,7 @@ const CONFIG = {
   basePath: '/admin/',
   slugPath: "transaction/purchase/debitnote",
   endpoint: '/api/purchase-debitnote',
+  pager: 'numbered',
   scope: ["business","location","finYear"],
   actionIcons: ["view","delete","print"],
   actionExtraButton: "label",

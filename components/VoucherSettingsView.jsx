@@ -104,15 +104,11 @@ export default function VoucherSettingsView({ cfg, slug }) {
         <div className="rounded-md border border-line px-4 py-3 text-[12.5px] text-inkmuted">{spec.note}</div>
 
         {!maySave && <div className="mt-3 text-[12px] text-danger">{noSaveReason}</div>}
-        <button
-          type="button"
-          className="btn btn-primary mt-3 flex h-[38px] w-full justify-center"
-          onClick={submit}
-          disabled={saving || !maySave}
-          title={!maySave ? noSaveReason : undefined}
-        >
-          {saving ? <span className="spin" /> : <Icon name="save" size={14} />} Submit
-        </button>
+        <div className="mt-3 flex justify-end">
+          <button type="button" className="btn btn-primary inline-flex h-[34px] items-center justify-center gap-1.5 px-5" onClick={submit} disabled={saving || !maySave} title={!maySave ? noSaveReason : undefined}>
+            {saving ? <span className="spin" /> : <Icon name="save" size={14} />} Submit
+          </button>
+        </div>
       </div>
     </div>
   );

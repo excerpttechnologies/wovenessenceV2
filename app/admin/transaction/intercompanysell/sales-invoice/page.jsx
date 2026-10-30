@@ -324,7 +324,7 @@ export default function IcItemSalesInvoicePage() {
       </div>
 
       <div className="overflow-x-auto">
-        <table className="dt">
+        <table className="dt dt-nowrap-head">
           <thead>
             <tr>
               <th style={{ width: 40 }}>
@@ -396,7 +396,7 @@ export default function IcItemSalesInvoicePage() {
             <span className="card-title">Selected Items</span>
           </div>
           <div className="overflow-x-auto">
-            <table className="dt">
+            <table className="dt dt-nowrap-head">
               <thead>
                 <tr>
                   <th style={{ width: 44 }}>Sl No</th>
@@ -489,9 +489,10 @@ export default function IcItemSalesInvoicePage() {
       </div>
 
       <div className="overflow-x-auto">
-        <table className="dt">
+        <table className="dt dt-nowrap-head">
           <thead>
             <tr>
+              <th style={{ width: 70 }}>Action</th>
               {billedView.th('Invoice No', 'invoiceNo', undefined, { width: 130 })}
               {billedView.th('Date', 'date', undefined, { width: 95 })}
               {billedView.th('Receiver', 'receiver', undefined, { width: 200 })}
@@ -499,7 +500,6 @@ export default function IcItemSalesInvoicePage() {
               {billedView.th('Items', 'items', '!text-right', { width: 60 })}
               {billedView.th('Qty', 'qty', '!text-right', { width: 60 })}
               {billedView.th('Amount', 'amount', '!text-right', { width: 90 })}
-              <th style={{ width: 70 }}>Action</th>
             </tr>
           </thead>
           <tbody>
@@ -509,13 +509,6 @@ export default function IcItemSalesInvoicePage() {
             )}
             {!loading && billedView.rows.map((inv) => (
               <tr key={inv.invoiceId}>
-                <td className="font-semibold">{inv.invoiceNo || '-'}</td>
-                <td>{day(inv.invoiceDate)}</td>
-                <td>{inv.toBusinessName || '-'}</td>
-                <td className="text-[12px]">{(inv.dcNos || []).join(', ') || '-'}</td>
-                <td className="!text-right">{inv.itemCount}</td>
-                <td className="!text-right">{qtyText(inv.totalQty)}</td>
-                <td className="!text-right">{money(inv.netValue)}</td>
                 <td>
                   <span className="inline-flex items-center gap-1.5">
                     <button type="button" className="act-btn act-blue" title="View" onClick={() => setViewInv(inv)}>
@@ -539,6 +532,13 @@ export default function IcItemSalesInvoicePage() {
                     )}
                   </span>
                 </td>
+                <td className="font-semibold">{inv.invoiceNo || '-'}</td>
+                <td>{day(inv.invoiceDate)}</td>
+                <td>{inv.toBusinessName || '-'}</td>
+                <td className="text-[12px]">{(inv.dcNos || []).join(', ') || '-'}</td>
+                <td className="!text-right">{inv.itemCount}</td>
+                <td className="!text-right">{qtyText(inv.totalQty)}</td>
+                <td className="!text-right">{money(inv.netValue)}</td>
               </tr>
             ))}
           </tbody>
@@ -648,7 +648,7 @@ export default function IcItemSalesInvoicePage() {
               </div>
 
               <div className="overflow-x-auto">
-                <table className="dt">
+                <table className="dt dt-nowrap-head">
                   <thead>
                     <tr>
                       <th style={{ width: 44 }}>Sl No</th>

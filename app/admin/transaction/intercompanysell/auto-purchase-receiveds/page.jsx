@@ -231,7 +231,7 @@ export default function AutoPurchaseReceivedsPage() {
 function LinesTable({ row, lines, editable = false, onLine, groups = [], hsns = [] }) {
   return (
     <div className="overflow-x-auto">
-      <table className="dt">
+      <table className="dt dt-nowrap-head">
         <thead>
           <tr>
             <th style={{ width: 44 }}>Sl No</th>
@@ -447,7 +447,7 @@ function ReceivedSection({ loading, onRefresh, rows, onView }) {
     return field ? r[field] || '' : '';
   });
   const slice = view.rows;
-  const cols = ['Rec No', 'Invoice No', 'From Business', 'From Location', 'Date', 'Fin Year', 'Net Value', 'Action'];
+  const cols = ['Action', 'Rec No', 'Invoice No', 'From Business', 'From Location', 'Date', 'Fin Year', 'Net Value'];
 
   return (
     <div className="card mb-4 p-4">
@@ -465,7 +465,7 @@ function ReceivedSection({ loading, onRefresh, rows, onView }) {
       </div>
 
       <div className="overflow-x-auto">
-        <table className="dt">
+        <table className="dt dt-nowrap-head">
           <thead>
             <tr>{cols.map((c) => (c === 'Action'
               ? <th key={c}>{c}</th>
@@ -485,6 +485,11 @@ function ReceivedSection({ loading, onRefresh, rows, onView }) {
             )}
             {!loading && slice.map((r) => (
               <tr key={r._id}>
+                <td>
+                  <button type="button" className="act-btn act-blue" title="View" onClick={() => onView(r)}>
+                    <Icon name="eye" size={12} />
+                  </button>
+                </td>
                 <td className="font-semibold">
                   {r.recNo || '-'} <Icon name="check" size={12} className="inline text-okgreen" />
                 </td>
@@ -494,11 +499,6 @@ function ReceivedSection({ loading, onRefresh, rows, onView }) {
                 <td>{day(r.receivedAt || r.createdAt)}</td>
                 <td>{r.finYear || '-'}</td>
                 <td className="!text-right">{money2(r.netValue)}</td>
-                <td>
-                  <button type="button" className="act-btn act-blue" title="View" onClick={() => onView(r)}>
-                    <Icon name="eye" size={12} />
-                  </button>
-                </td>
               </tr>
             ))}
           </tbody>

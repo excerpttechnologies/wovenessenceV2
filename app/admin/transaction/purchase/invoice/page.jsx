@@ -19,6 +19,7 @@ const CONFIG = {
   basePath: '/admin/',
   slugPath: "transaction/purchase/invoice",
   endpoint: '/api/purchase-invoice',
+  pager: 'numbered',
   scope: ["business","location","finYear"],
   filters: [
     { k: "startDate", label: "Start Date", type: "date" },

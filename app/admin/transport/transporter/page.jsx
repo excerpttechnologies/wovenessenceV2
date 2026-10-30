@@ -17,7 +17,7 @@ const CONFIG = {
   addTitle: 'Add Transporter',
   formMode: 'modal',
   modalWide: true,
-  actionIcons: ['edit', 'delete'],
+  actionIcons: ['view', 'edit', 'delete'],
   columns: [
     { k: 'transporterName', t: 'Transporter Name' },
     { k: 'freight', t: 'Freight Mode', f: 'badges', tone: () => 'blue' },

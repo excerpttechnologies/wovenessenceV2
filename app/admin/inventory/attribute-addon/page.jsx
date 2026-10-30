@@ -16,7 +16,7 @@ const CONFIG = {
   scope: ["business"],
   addTitle: "Add Addon Attribute",
   formMode: "modal",
-  actionIcons: ["view"],
+  actionIcons: ["view", "edit", "delete"],
   columns: [
     { k: "name", t: "Name" },
     { k: "businessId", t: "Business", f: "ref" },

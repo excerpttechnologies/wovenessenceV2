@@ -9,6 +9,7 @@ const CONFIG = {
   basePath: '/admin/transaction/intercompanysell/',
   slugPath: 'auto-purchases-return',
   endpoint: '/api/ic-auto-purchase-return',
+  pager: 'numbered',
   scope: ['business', 'location', 'finYear'],
   addTitle: 'Inter Company Auto Purchases Return',
   actionIcons: ['view', 'edit', 'delete'],
