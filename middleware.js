@@ -33,6 +33,17 @@ export async function middleware(req) {
   const { pathname, search } = req.nextUrl;
   const ok = await valid(req.cookies.get(COOKIE)?.value);
 
+  /* The ERP is the product here, not the marketing site: opening the domain
+     should land on the sign-in screen (or the dashboard when already signed
+     in), never on the GROO ERP landing page. app/page.js still holds that
+     landing page, but it is no longer what "/" serves. */
+  if (pathname === '/') {
+    const url = req.nextUrl.clone();
+    url.pathname = ok ? '/admin' : '/login';
+    url.search = '';
+    return NextResponse.redirect(url);
+  }
+
   if (pathname.startsWith('/admin')) {
     if (ok) return NextResponse.next();
     const url = req.nextUrl.clone();
@@ -52,5 +63,5 @@ export async function middleware(req) {
 }
 
 export const config = {
-  matcher: ['/admin/:path*', '/login'],
+  matcher: ['/', '/admin/:path*', '/login'],
 };
