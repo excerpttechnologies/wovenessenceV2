@@ -396,6 +396,83 @@ export default function ProductEccomPage() {
       endpoint: '/api/product-eccom',
       scope: ['business'],
       fixedQuery: { allErpBarcodes: '1' },
+      /* The Master Stock Report's filter set, applied server-side to the same
+         barcode / item records these products are built from. The route reads
+         these keys by name - see resolveProductFilters in /api/product-eccom. */
+      headerDates: ['startDate', 'endDate'],
+      filters: [
+        { k: 'barcodeNo', label: 'Barcode Number', type: 'text', placeholder: 'Barcode number' },
+        { k: 'groupName', label: 'Group Name', type: 'ref', ref: 'product/group', all: 'Select Group', showAllOptions: true },
+        { k: 'itemId', label: 'Item Code', type: 'ref', ref: 'item', multi: true, all: 'Type to search' },
+        { k: 'hsn', label: 'HSN', type: 'text', placeholder: 'HSN code' },
+        { k: 'gst', label: 'GST %', type: 'text', placeholder: 'GST %' },
+
+        { k: 'city', label: 'City', type: 'city', placeholder: 'Type city', suggest: '/api/cities' },
+        {
+          k: 'supplierId', label: 'Supplier Name', type: 'ref', ref: 'supplier', multi: true,
+          dependsOn: 'city', dependsParam: 'city', waitPlaceholder: 'Enter city first', all: 'Type to search',
+        },
+        {
+          k: 'agentId', label: 'Agent', type: 'ref', ref: 'agent', multi: true,
+          dependsOn: 'city', dependsParam: 'city', waitPlaceholder: 'Enter city first', all: 'Type to search',
+        },
+        { k: 'uom', label: 'UOM', type: 'ref', ref: 'uom', all: 'All UOM' },
+
+        { k: 'rspMin', label: 'RSP Min', type: 'text', placeholder: 'Min RSP' },
+        { k: 'rspMax', label: 'RSP Max', type: 'text', placeholder: 'Max RSP' },
+        { k: 'rspOfferPriceMin', label: 'RSP Offer Price Min', type: 'text', placeholder: 'Min offer price' },
+        { k: 'rspOfferPriceMax', label: 'RSP Offer Price Max', type: 'text', placeholder: 'Max offer price' },
+        { k: 'wspMin', label: 'WSP Min', type: 'text', placeholder: 'Min WSP' },
+        { k: 'wspMax', label: 'WSP Max', type: 'text', placeholder: 'Max WSP' },
+        { k: 'ecomMin', label: 'E COM Min', type: 'text', placeholder: 'Min E COM' },
+        { k: 'ecomMax', label: 'E COM Max', type: 'text', placeholder: 'Max E COM' },
+        { k: 'ageMin', label: 'Age Min (days)', type: 'text', placeholder: 'Min age' },
+        { k: 'ageMax', label: 'Age Max (days)', type: 'text', placeholder: 'Max age' },
+        { k: 'costPriceMin', label: 'Cost Price Min', type: 'text', placeholder: 'Min cost' },
+        { k: 'costPriceMax', label: 'Cost Price Max', type: 'text', placeholder: 'Max cost' },
+        { k: 'discount', label: 'Discount %', type: 'text', placeholder: 'Discount %' },
+
+        { k: 'patternSupplierNo', label: 'Supplier No', type: 'text', placeholder: 'Supplier code' },
+        { k: 'patternGrcNo', label: 'GRC No', type: 'text', placeholder: 'GRC number' },
+        { k: 'patternSlNo', label: 'SL No', type: 'text' },
+        { k: 'patternQty', label: 'Qty', type: 'text' },
+        { k: 'startDate', label: 'From Date', type: 'date' },
+        { k: 'endDate', label: 'To Date', type: 'date' },
+      ],
+      filterGroups: [
+        {
+          title: 'Basic Filters',
+          icon: 'barcode',
+          color: '#2563a9',
+          fields: ['barcodeNo', 'groupName', 'itemId', 'hsn', 'gst'],
+        },
+        {
+          title: 'Supplier & Inventory',
+          icon: 'truck',
+          color: '#16a34a',
+          fields: ['city', 'supplierId', 'agentId', 'uom'],
+        },
+        {
+          title: 'Price Filters',
+          icon: 'calculator',
+          color: '#f59e0b',
+          fields: [
+            { label: 'RSP', range: ['rspMin', 'rspMax'] },
+            { label: 'RSP Offer Price', range: ['rspOfferPriceMin', 'rspOfferPriceMax'] },
+            { label: 'WSP', range: ['wspMin', 'wspMax'] },
+            { label: 'E Com', range: ['ecomMin', 'ecomMax'] },
+            { label: 'Age (Days)', range: ['ageMin', 'ageMax'] },
+            { label: 'Cost Price', range: ['costPriceMin', 'costPriceMax'] },
+            'discount',
+          ],
+        },
+        {
+          title: 'Barcode Pattern',
+          icon: 'barcode',
+          color: '#7c3aed',
+          fields: ['patternSupplierNo', 'patternGrcNo', 'patternSlNo', 'patternQty'],
+        },
+      ],
       /* ADD opens a form with every field of the collection (./add) */
       addHref: '/admin/ecommerce/product-eccom/add',
       pager: 'numbered',

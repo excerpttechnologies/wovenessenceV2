@@ -3802,6 +3802,7 @@ import Icon from "./Icon";
 import Toolbar from "./Toolbar";
 import ModalForm from "./ModalForm";
 import FilterPanel, { filterDefaults } from "./FilterPanel";
+import EccomProductFilterCard from "./EccomProductFilterCard";
 import { useScope } from "./ScopeContext";
 import NumberedPager, { SortHeader } from "./NumberedPager";
 import Modal from "./Modal";
@@ -4567,7 +4568,20 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
         </button>
       )}
  
-      {cfg.filters && (
+      {cfg.filters && (cfg.filterGroups ? (
+        /* a screen that declares filterGroups gets the Master Stock Report's
+           grouped, collapsible card instead of the plain one. Both call the
+           same setFilters, so the request, paging and exports are unchanged. */
+        <EccomProductFilterCard
+          filters={cfg.filters}
+          groups={cfg.filterGroups}
+          headerDates={cfg.headerDates}
+          onSearch={(f) => {
+            setPage(1);
+            setFilters(f);
+          }}
+        />
+      ) : (
         <FilterPanel
           filters={cfg.filters}
           onSearch={(f) => {
@@ -4575,7 +4589,7 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
             setFilters(f);
           }}
         />
-      )}
+      ))}
  
       {/* A SECOND LIST ABOVE THIS ONE, for a screen that wants the same
           endpoint split into two sections - the Inter Company Delivery

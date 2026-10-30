@@ -3427,6 +3427,7 @@ import { escapeRegex } from '@/lib/validate';
 import ProductImage from '@/models/ProductImage';
 import { barcodeFilter as inventoryBarcodeFilter, imageUrl, unitFor } from '@/lib/inventory';
 import { classificationOptionsById, listClassificationOptions } from '@/lib/classificationCollections';
+import { Supplier } from '@/lib/contacts';
 
 /* /api/product-eccom - list only, read-only (19-10-2026).
 
@@ -3507,7 +3508,254 @@ const idMatch = (id) => ({ $in: [id, new Types.ObjectId(id)] });
 const itemCodeMapKey = (businessId, itemCode) =>
   `${String(businessId || '')}:${String(itemCode || '').trim().toLowerCase()}`;
 
-async function listAllErpBarcodes({ businessId, search, page, perPage, sortBy, sortDir }) {
+/* ------------------------------------------------- product list filters ---
+
+   The Ecommerce Product page offers the Master Stock Report's filters. These
+   products are built from barcodeLabel, so the same fields (and the same
+   relationships - item -> group, supplier -> city/agent) are what the filter
+   has to read. Everything below resolves to clauses on barcodeLabel and is
+   applied in Mongo BEFORE paging, so a filtered list still pages and counts
+   the correct set.
+
+   The two spellings the collection stores are both accepted throughout:
+   supplierId holds either a vendor _id or its contactId code, prices/pcts are
+   declared Strings but the warehouse import wrote real Numbers, and uom holds
+   a unit NAME rather than the Uom _id.
+   ------------------------------------------------------------------------- */
+const trimmed = (v) => String(v ?? '').trim();
+
+const manyValues = (sp, key) => String(sp.get(key) || '')
+  .split(',')
+  .map((v) => v.trim())
+  .filter(Boolean);
+
+const containsAny = (values) => ({
+  $in: values.map((v) => new RegExp(escapeRegex(v), 'i')),
+});
+
+const numericExpr = (path) => ({
+  $convert: { input: path, to: 'double', onError: null, onNull: null },
+});
+
+/* COST PRICE as the rest of the app computes it: finalNet when it carries a
+   figure, else purRate. */
+const COST_EXPR = {
+  $let: {
+    vars: {
+      fn: { $convert: { input: '$finalNet', to: 'double', onError: 0, onNull: 0 } },
+      pr: { $convert: { input: '$purRate', to: 'double', onError: 0, onNull: 0 } },
+    },
+    in: { $cond: [{ $gt: ['$$fn', 0] }, '$$fn', '$$pr'] },
+  },
+};
+
+/* One clause for "this barcode row belongs to one of these items", using the
+   same keys the list itself uses to reach a row's item: the real itemId, the
+   itemCode and the itemName an older import may have left the style code in. */
+function itemLinkClause(items) {
+  const ids = items.map((item) => item._id).filter(Boolean);
+  const keys = [...new Set(items
+    .flatMap((item) => [trimmed(item.itemCode), trimmed(item.name)])
+    .filter(Boolean))];
+  if (!ids.length && !keys.length) {
+    /* a group/item that reaches nothing must match nothing, not drop the
+       filter and return the whole catalogue */
+    return { $or: [{ itemId: { $in: [] } }] };
+  }
+  return {
+    $or: [
+      { itemId: { $in: [...ids, ...ids.map(String)] } },
+      ...(keys.length ? [{ itemCode: { $in: keys } }, { itemName: { $in: keys } }] : []),
+    ],
+  };
+}
+
+const vendorKeys = (vendors) => [...new Set(vendors
+  .flatMap((vendor) => [String(vendor._id), trimmed(vendor.contactId)])
+  .filter(Boolean))];
+
+const FILTER_KEYS = [
+  'barcodeNo', 'groupName', 'itemId', 'hsn', 'gst',
+  'city', 'supplierId', 'agentId', 'uom',
+  'rspMin', 'rspMax', 'rspOfferPriceMin', 'rspOfferPriceMax',
+  'wspMin', 'wspMax', 'ecomMin', 'ecomMax',
+  'ageMin', 'ageMax', 'costPriceMin', 'costPriceMax', 'discount',
+  'patternSupplierNo', 'patternGrcNo', 'patternSlNo', 'patternQty',
+  'startDate', 'endDate',
+];
+
+async function resolveProductFilters(sp, businessId) {
+  const ands = [];
+  const exprs = [];
+  const active = FILTER_KEYS.some((key) => trimmed(sp.get(key)) !== '');
+  const database = mongoose.connection.db;
+  const itemCollection = database.collection('item');
+
+  const barcodeNos = manyValues(sp, 'barcodeNo');
+  if (barcodeNos.length) {
+    ands.push({
+      $or: [
+        { barcodeNo: containsAny(barcodeNos) },
+        { barcodeGenerated: containsAny(barcodeNos) },
+        { oldBarcode: containsAny(barcodeNos) },
+      ],
+    });
+  }
+
+  const hsn = trimmed(sp.get('hsn'));
+  if (hsn) ands.push({ hsn: { $regex: escapeRegex(hsn), $options: 'i' } });
+
+  /* GST % compared as a NUMBER - see the Master Stock Report route: the same
+     slab is stored as "5" on generated rows and 5 on imported ones. */
+  const gstRaw = trimmed(sp.get('gst')).replace(/%/g, '').trim();
+  if (gstRaw) {
+    const gstNum = Number(gstRaw);
+    exprs.push(Number.isFinite(gstNum)
+      ? { $eq: [numericExpr('$gst'), gstNum] }
+      : { $literal: false });
+  }
+
+  /* UOM is picked as a Uom _id but stored as the unit's NAME. */
+  const uomRaw = trimmed(sp.get('uom'));
+  if (uomRaw) {
+    let names = [uomRaw];
+    if (isValidObjectId(uomRaw)) {
+      const unit = await database.collection('uom')
+        .findOne({ _id: new Types.ObjectId(uomRaw) }, { projection: { name: 1, shortName: 1 } });
+      names = [trimmed(unit?.name), trimmed(unit?.shortName)].filter(Boolean);
+    }
+    ands.push({ uom: { $in: names.map((name) => new RegExp('^' + escapeRegex(name) + '$', 'i')) } });
+  }
+
+  /* GROUP NAME is the ITEM's group (Item.subGroupId), the same source the
+     Master Stock Report reads it from. */
+  const groupQ = trimmed(sp.get('groupName'));
+  if (groupQ) {
+    const groupRows = isValidObjectId(groupQ)
+      ? await database.collection('productgroup')
+        .find({ _id: new Types.ObjectId(groupQ) }, { projection: { _id: 1 } }).toArray()
+      : await database.collection('productgroup')
+        .find({ name: { $regex: escapeRegex(groupQ), $options: 'i' } }, { projection: { _id: 1 } }).toArray();
+    const groupIds = groupRows.map((group) => group._id);
+    const groupItems = groupIds.length
+      ? await itemCollection
+        .find({ subGroupId: { $in: groupIds } }, { projection: { itemCode: 1, name: 1 } }).toArray()
+      : [];
+    ands.push(itemLinkClause(groupItems));
+  }
+
+  const itemPicks = manyValues(sp, 'itemId').filter((value) => isValidObjectId(value));
+  if (itemPicks.length) {
+    const pickedItems = await itemCollection.find(
+      { _id: { $in: itemPicks.map((value) => new Types.ObjectId(value)) } },
+      { projection: { itemCode: 1, name: 1 } },
+    ).toArray();
+    ands.push(itemLinkClause(pickedItems));
+  }
+
+  /* SUPPLIER and AGENT resolve to the vendor's two possible keys, so a pick
+     finds both the generated (id) and imported (code) stock rows. */
+  const supplierPicks = manyValues(sp, 'supplierId');
+  if (supplierPicks.length) {
+    const keys = new Set(supplierPicks);
+    for (const pick of supplierPicks) {
+      // eslint-disable-next-line no-await-in-loop
+      const vendor = isValidObjectId(pick)
+        ? await Supplier.findById(pick).select('contactId').lean()
+        : await Supplier.findOne({ contactId: pick }).select('contactId').lean();
+      if (vendor) {
+        keys.add(String(vendor._id));
+        if (trimmed(vendor.contactId)) keys.add(trimmed(vendor.contactId));
+      }
+    }
+    ands.push({ supplierId: { $in: [...keys] } });
+  }
+
+  const city = trimmed(sp.get('city'));
+  if (city) {
+    const cityRx = { $regex: '^\\s*' + escapeRegex(city) + '\\s*$', $options: 'i' };
+    const vendors = await Supplier
+      .find({ $or: [{ billingCity: cityRx }, { shippingCity: cityRx }] })
+      .select('contactId').lean();
+    ands.push({ supplierId: { $in: vendorKeys(vendors) } });
+  }
+
+  const agentPicks = manyValues(sp, 'agentId').filter((value) => isValidObjectId(value));
+  if (agentPicks.length) {
+    const agentVendors = await Supplier
+      .find({ agentId: { $in: agentPicks.map((value) => new Types.ObjectId(value)) } })
+      .select('contactId').lean();
+    ands.push({ supplierId: { $in: vendorKeys(agentVendors) } });
+  }
+
+  /* Barcode Pattern section, read exactly as the Master Stock Report does. */
+  const patternSupplierNo = trimmed(sp.get('patternSupplierNo'));
+  if (patternSupplierNo) {
+    const vendors = await Supplier.find({
+      contactId: { $regex: '^\\s*' + escapeRegex(patternSupplierNo) + '\\s*$', $options: 'i' },
+    }).select('contactId').lean();
+    ands.push({ supplierId: { $in: vendorKeys(vendors) } });
+  }
+  const patternGrcNo = trimmed(sp.get('patternGrcNo')).replace(/^GRC\s*/i, '').trim();
+  if (patternGrcNo) {
+    ands.push({ grcNo: { $regex: '^\\s*' + escapeRegex(patternGrcNo) + '\\s*$', $options: 'i' } });
+  }
+  const patternSlNo = trimmed(sp.get('patternSlNo'));
+  if (patternSlNo) {
+    ands.push({ billSlNo: { $regex: '^\\s*' + escapeRegex(patternSlNo) + '\\s*$', $options: 'i' } });
+  }
+  const patternQtyRaw = trimmed(sp.get('patternQty'));
+  if (patternQtyRaw) {
+    const patternQty = Number(patternQtyRaw);
+    exprs.push(Number.isFinite(patternQty)
+      ? { $eq: [numericExpr('$qtyNum'), patternQty] }
+      : { $literal: false });
+  }
+
+  /* PRICE RANGES - inclusive, blank bound ignored, and rows with no recorded
+     price excluded so a Max does not sweep in every unpriced unit. */
+  const addRange = (expr, minKey, maxKey) => {
+    const minRaw = trimmed(sp.get(minKey)).replace(/%/g, '').trim();
+    const maxRaw = trimmed(sp.get(maxKey)).replace(/%/g, '').trim();
+    const low = Number(minRaw);
+    const high = Number(maxRaw);
+    const hasLow = minRaw !== '' && Number.isFinite(low);
+    const hasHigh = maxRaw !== '' && Number.isFinite(high);
+    if (!hasLow && !hasHigh) return;
+    exprs.push({ $ne: [expr, null] });
+    if (hasLow) exprs.push({ $gte: [expr, low] });
+    if (hasHigh) exprs.push({ $lte: [expr, high] });
+  };
+  addRange(COST_EXPR, 'costPriceMin', 'costPriceMax');
+  addRange(numericExpr('$retailPrice'), 'rspMin', 'rspMax');
+  addRange(numericExpr('$offerPrice'), 'rspOfferPriceMin', 'rspOfferPriceMax');
+  addRange(numericExpr('$wspPrice'), 'wspMin', 'wspMax');
+  addRange(numericExpr('$dpPrice'), 'ecomMin', 'ecomMax');
+  addRange(numericExpr('$stockAge'), 'ageMin', 'ageMax');
+
+  const discRaw = trimmed(sp.get('discount')).replace(/%/g, '').trim();
+  if (discRaw) {
+    const discount = Number(discRaw);
+    exprs.push(Number.isFinite(discount)
+      ? { $eq: [numericExpr('$disc2'), discount] }
+      : { $literal: false });
+  }
+
+  const startDate = trimmed(sp.get('startDate'));
+  const endDate = trimmed(sp.get('endDate'));
+  if (startDate || endDate) {
+    const stockDate = {};
+    if (startDate && !Number.isNaN(new Date(startDate).getTime())) stockDate.$gte = new Date(startDate);
+    if (endDate && !Number.isNaN(new Date(endDate + 'T23:59:59.999').getTime())) {
+      stockDate.$lte = new Date(endDate + 'T23:59:59.999');
+    }
+    if (Object.keys(stockDate).length) ands.push({ stockDate });
+  }
+
+  return { ands, exprs, active };
+}
+
+async function listAllErpBarcodes({ businessId, search, page, perPage, sortBy, sortDir, productFilter = null }) {
   const database = mongoose.connection.db;
   const itemCollection = database.collection('item');
   const barcodeCollection = database.collection('barcodeLabel');
@@ -3567,6 +3815,14 @@ async function listAllErpBarcodes({ businessId, search, page, perPage, sortBy, s
       },
     ],
   };
+  /* The product page's filters, applied before the read so count and paging
+     describe the filtered set rather than all stock. */
+  if (productFilter?.ands?.length) barcodeFilter.$and.push(...productFilter.ands);
+  if (productFilter?.exprs?.length) {
+    barcodeFilter.$expr = productFilter.exprs.length === 1
+      ? productFilter.exprs[0]
+      : { $and: productFilter.exprs };
+  }
 
   const barcodeRows = await barcodeCollection.find(barcodeFilter, {
     projection: {
@@ -3653,22 +3909,28 @@ async function listAllErpBarcodes({ businessId, search, page, perPage, sortBy, s
       ].filter(Boolean).join(' ').toLowerCase(),
     };
   });
-  products.forEach((product) => {
-    if (matchedProductIds.has(String(product._id))) return;
-    const row = plain(product);
-    const item = itemById.get(String(row.itemId))
-      || itemByCode.get(String(row.ecommItemCode || '').trim().toLowerCase());
-    records.push({
-      ...row,
-      barcode: String(row.barcode || row.barcodeNo || row.barcodeGenerated || '').trim(),
-      barcodeImage: productImageSource(row.image || item?.image || ''),
-      itemLabel: [item?.itemCode, item?.name].filter(Boolean).join(' - '),
-      businessName: '',
-      _searchText: [
-        row.barcode, row.ecommItemCode, row.displayName, row.productType, row.status,
-      ].filter(Boolean).join(' ').toLowerCase(),
+  /* A product with no barcode row of its own carries none of the fields the
+     filters read (supplier, HSN, GST, UOM, cost, age...). Listing it under a
+     filter would be an unrelated row, so while a filter is applied only the
+     rows that matched a barcode are kept. */
+  if (!productFilter?.active) {
+    products.forEach((product) => {
+      if (matchedProductIds.has(String(product._id))) return;
+      const row = plain(product);
+      const item = itemById.get(String(row.itemId))
+        || itemByCode.get(String(row.ecommItemCode || '').trim().toLowerCase());
+      records.push({
+        ...row,
+        barcode: String(row.barcode || row.barcodeNo || row.barcodeGenerated || '').trim(),
+        barcodeImage: productImageSource(row.image || item?.image || ''),
+        itemLabel: [item?.itemCode, item?.name].filter(Boolean).join(' - '),
+        businessName: '',
+        _searchText: [
+          row.barcode, row.ecommItemCode, row.displayName, row.productType, row.status,
+        ].filter(Boolean).join(' ').toLowerCase(),
+      });
     });
-  });
+  }
 
   const filtered = search
     ? records.filter((row) => row._searchText.includes(search.toLowerCase()))
@@ -4125,6 +4387,7 @@ export async function GET(req) {
     if (!b || !isValidObjectId(b)) {
       return json({ error: 'Select a valid business before loading ERP barcodes.' }, 422);
     }
+    const productFilter = await resolveProductFilters(sp, b);
     const rows = await listAllErpBarcodes({
       businessId: b,
       search,
@@ -4132,6 +4395,7 @@ export async function GET(req) {
       perPage,
       sortBy: sp.get('sortBy'),
       sortDir: sp.get('sortDir'),
+      productFilter,
     });
     return json(rows);
   }
