@@ -19,7 +19,7 @@ import { useOptions } from './useOptions';
    from /api/options; a field with `dependsOn` stays disabled until that box
    has a value (the supplier and agent pickers wait for the city). */
 
-const GROUP_LABEL = 'mb-1 block text-[11.5px] font-semibold uppercase tracking-wide text-[#5d6b83]';
+const GROUP_LABEL = 'mb-0.5 block text-[10.5px] font-semibold uppercase tracking-wide text-[#5d6b83] leading-none';
 
 function RefField({ f, value, onChange, waiting, params }) {
   const { options, loading, error } = useOptions(f.ref, '', !waiting, params);
@@ -30,6 +30,7 @@ function RefField({ f, value, onChange, waiting, params }) {
       loading={loading}
       error={error}
       disabled={waiting}
+      className="!min-h-[30px] !h-[30px] !py-0 !text-[12.5px]"
       value={f.multi ? (Array.isArray(value) ? value : value ? [value] : []) : value || ''}
       placeholder={waiting ? (f.waitPlaceholder || 'Select...') : (f.all || 'Select...')}
       maxOptions={f.showAllOptions ? Infinity : undefined}
@@ -64,7 +65,7 @@ function CityField({ f, value, onChange }) {
   return (
     <div className="relative">
       <input
-        className="f-input"
+        className="f-input !h-[30px] !py-0 text-[12.5px]"
         placeholder={f.placeholder || 'Type city'}
         value={term}
         onChange={(e) => { onChange(e.target.value); setOpen(true); }}
@@ -101,7 +102,7 @@ function Field({ f, value, onChange, draft }) {
   return (
     <input
       type={f.type === 'date' ? 'date' : 'text'}
-      className="f-input"
+      className="f-input !h-[30px] !py-0 text-[12.5px]"
       placeholder={f.type === 'date' ? '' : f.placeholder || ''}
       value={value || ''}
       onChange={(e) => onChange(e.target.value)}
@@ -142,25 +143,25 @@ export default function EccomProductFilterCard({
   const reset = () => apply(filterDefaults(filters));
 
   return (
-    <div className="card mb-3">
-      <div className="card-head">
-        <span className="card-title"><Icon name="filter" size={15} /> Filter</span>
+    <div className="card mb-1.5">
+      <div className="card-head !py-1 !px-3">
+        <span className="card-title text-[13px]"><Icon name="filter" size={13} /> Filter</span>
         <span className="flex-1" />
-        <button type="button" className="btn" onClick={reset}>
-          <Icon name="refresh" size={14} /> Reset Filters
+        <button type="button" className="btn !h-[26px] !py-0 !px-2.5 !text-[11.5px]" onClick={reset}>
+          <Icon name="refresh" size={12} /> Reset Filters
         </button>
-        <button type="button" className="btn btn-primary" onClick={() => onSearch?.(draft)}>
-          <Icon name="search" size={14} /> Search
+        <button type="button" className="btn btn-primary !h-[26px] !py-0 !px-2.5 !text-[11.5px]" onClick={() => onSearch?.(draft)}>
+          <Icon name="search" size={12} /> Search
         </button>
       </div>
 
-      <div className="card-body">
+      <div className="card-body !py-1.5 !px-2.5">
         {fromK && (
-          <div className="mb-4 flex flex-wrap items-center justify-end gap-x-5 gap-y-2">
+          <div className="mb-1.5 flex flex-wrap items-center justify-end gap-x-3 gap-y-0.5">
             {[[fromK, 'From Date'], [toK, 'To Date']].filter(([k]) => k).map(([k, label]) => (
-              <label key={k} className="flex items-center gap-2 text-[11.5px] font-semibold uppercase tracking-wide text-[#5d6b83]">
+              <label key={k} className="flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#5d6b83]">
                 {label}
-                <input type="date" className="f-input !w-[150px]" value={draft[k] || ''} onChange={(e) => set(k, e.target.value)} />
+                <input type="date" className="f-input !h-[30px] !py-0 !w-[130px] text-[12px]" value={draft[k] || ''} onChange={(e) => set(k, e.target.value)} />
               </label>
             ))}
           </div>
@@ -169,26 +170,26 @@ export default function EccomProductFilterCard({
         {groups.map((g) => {
           const shut = Boolean(folded[g.title]);
           return (
-            <div key={g.title} className="relative mb-3 rounded-md border border-line" style={{ borderLeft: '4px solid ' + g.color }}>
-              <div className="flex items-center gap-2.5 rounded-tr-md px-4 py-2.5" style={{ backgroundColor: g.color + '0d' }}>
-                <span className="flex h-7 w-7 items-center justify-center rounded" style={{ backgroundColor: g.color + '22', color: g.color }}>
-                  <Icon name={g.icon || 'filter'} size={14} />
+            <div key={g.title} className="relative mb-1.5 rounded-md border border-line last:mb-0" style={{ borderLeft: '4px solid ' + g.color }}>
+              <div className="flex items-center gap-2 rounded-tr-md px-2.5 py-0.5" style={{ backgroundColor: g.color + '0d' }}>
+                <span className="flex h-[18px] w-[18px] items-center justify-center rounded" style={{ backgroundColor: g.color + '22', color: g.color }}>
+                  <Icon name={g.icon || 'filter'} size={11} />
                 </span>
-                <span className="text-[13px] font-bold uppercase tracking-wide text-ink">{g.title}</span>
+                <span className="text-[11.5px] font-bold uppercase tracking-wide text-ink">{g.title}</span>
                 <span className="flex-1" />
                 <button
                   type="button"
                   aria-label={(shut ? 'Expand ' : 'Collapse ') + g.title}
-                  className="flex h-6 w-6 items-center justify-center rounded border border-line bg-white text-inkmuted hover:text-ink"
+                  className="flex h-[18px] w-[18px] items-center justify-center rounded border border-line bg-white text-inkmuted hover:text-ink"
                   onClick={() => setFolded((o) => ({ ...o, [g.title]: !shut }))}
                 >
-                  <Icon name={shut ? 'plus' : 'minus'} size={12} />
+                  <Icon name={shut ? 'plus' : 'minus'} size={9} />
                 </button>
               </div>
 
               {!shut && (
                 <>
-                  <div className="flex flex-wrap items-start gap-x-4 gap-y-3 px-4 pb-4 pt-3">
+                  <div className="flex flex-wrap items-start gap-x-3.5 gap-y-1 px-2.5 pb-1 pt-1">
                     {(g.fields || []).map((entry) => {
                       if (typeof entry === 'string' || !entry.range) {
                         const f = byKey.get(typeof entry === 'string' ? entry : entry.k);
@@ -204,17 +205,17 @@ export default function EccomProductFilterCard({
                       return (
                         <div key={lo} className="w-full max-w-[190px]">
                           <label className={GROUP_LABEL}>{entry.label}</label>
-                          <div className="flex gap-2">
+                          <div className="flex gap-1.5">
                             <input
                               type="text"
-                              className="f-input min-w-0 flex-1"
+                              className="f-input !h-[30px] !py-0 min-w-0 flex-1 text-[12.5px]"
                               placeholder="Start"
                               value={draft[lo] || ''}
                               onChange={(e) => set(lo, e.target.value)}
                             />
                             <input
                               type="text"
-                              className="f-input min-w-0 flex-1"
+                              className="f-input !h-[30px] !py-0 min-w-0 flex-1 text-[12.5px]"
                               placeholder="End"
                               value={draft[hi] || ''}
                               onChange={(e) => set(hi, e.target.value)}
@@ -224,9 +225,9 @@ export default function EccomProductFilterCard({
                       );
                     })}
                   </div>
-                  <div className="flex justify-end px-4 pb-3">
-                    <button type="button" className="btn" onClick={() => clearGroup(g)}>
-                      <Icon name="refresh" size={14} /> Clear
+                  <div className="flex justify-end px-2.5 pb-1 pt-0">
+                    <button type="button" className="btn !h-[22px] !py-0 !px-2 !text-[10.5px]" onClick={() => clearGroup(g)}>
+                      <Icon name="refresh" size={10} /> Clear
                     </button>
                   </div>
                 </>
