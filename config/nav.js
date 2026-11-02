@@ -556,6 +556,21 @@ export const NAV = [
 
 
 
+  {
+    label: 'INTER STORE SELL',
+    icon: LuStore,
+    children: [
+      { label: 'Delivery Challan', icon: LuFileCheck,
+        href: '/admin/transaction/interstoresell/deliverychallan' },
+      { label: 'Sales Invoice', icon: LuFileText,
+        href: '/admin/transaction/interstoresell/salesinvoice' },
+      { label: 'Received Debit Note', icon: LuFileMinus,
+        href: '/admin/transaction/interstoresell/receiveddebitnote' },
+      { label: 'Sales Return', icon: LuUndo2,
+        href: '/admin/transaction/interstoresell/salesreturn' },
+    ],
+  },
+
   /* A TOP-LEVEL group of its own, between Inter Company Sell and Reports, so
      the hierarchy is exactly:  Main Reports > Master Stock Report  - with no
      intermediate menu. It is deliberately NOT a child of Reports, and the
