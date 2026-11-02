@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Icon from './Icon';
+import ProductImage from './ProductImage';
 import { useScope } from './ScopeContext';
+import { useOptions } from './useOptions';
 import { computeStoreLine, computeStoreTotals, GST_MODE, num, r2 } from '@/lib/storeSell';
 
 /* ==========================================================================
@@ -23,6 +25,27 @@ import { computeStoreLine, computeStoreTotals, GST_MODE, num, r2 } from '@/lib/s
    Every figure shown here is a preview. The API recomputes the lines, the GST
    and the totals from the HSN > Tax master, so the saved document is the
    server's arithmetic, not the browser's.
+
+   HEADER, Inter Store Delivery Challan (matched to the Inter Company form):
+
+     Business          the branch BOTH stores belong to. Switching it switches
+                       the top bar's business, because the source store, the
+                       barcode stock and the stock points all hang off it -
+                       one source of truth rather than a second, contradictory
+                       selector on the form.
+     Location Name     the destination store - any other store of the
+                       company, across its branches (lib/storeLocations.js).
+                       The source store is the top bar's location and is
+                       shown read-only.
+     Customer GSTN     copied from the destination store's master record; the
+                       API re-derives it on save, so it is never trusted from
+                       the browser.
+     DC Date           as before, inside the selected financial year.
+     Stock Point       the dispatching store's point, scoped to that store.
+
+   SALES INVOICE. The Buying Store and Delivery Challan pickers are driven by
+   the challans that are ACTUALLY invoiceable - received, and with something
+   still unbilled - so neither list can offer a document the API will refuse.
    ========================================================================== */
 
 const TITLES = {
@@ -42,6 +65,15 @@ const DATE_KEY = {
 const today = () => new Date().toISOString().slice(0, 10);
 const money = (v) => Number(v || 0).toFixed(2);
 const qtyText = (v) => String(Math.round((Number(v) || 0) * 100) / 100);
+const fmtDate = (v) => (v ? new Date(v).toLocaleDateString('en-GB') : '-');
+/* the ref options arrive as plain objects; keep the extra master fields the
+   challan header needs (GSTN, state) without changing the shared option shape */
+const asStore = (o) => ({
+  value: String(o.value),
+  label: String(o.label || 'Store'),
+  gstin: String(o.gstin || ''),
+  state: String(o.state || ''),
+});
 
 export default function StoreSellDocForm({ kind }) {
   const router = useRouter();
@@ -57,46 +89,94 @@ export default function StoreSellDocForm({ kind }) {
   const [barcode, setBarcode] = useState('');
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState(null);
+
+  const [businesses, setBusinesses] = useState([]);
   const [stores, setStores] = useState([]);
-  const [upstream, setUpstream] = useState([]);
+  const [upstreamAll, setUpstreamAll] = useState([]);
   const [upstreamId, setUpstreamId] = useState('');
   const [upstreamDoc, setUpstreamDoc] = useState(null);
   const [loadingUpstream, setLoadingUpstream] = useState(false);
 
-  /* destination stores of this business - the top bar's location is the
-     SOURCE, so it is left out of the list */
+  /* ------------------------------------------------------------ business -- */
   useEffect(() => {
-    if (!scope.business) { setStores([]); return undefined; }
     let off = false;
-    fetch('/api/options?ref=companylocations&business=' + scope.business, { cache: 'no-store' })
+    fetch('/api/options?ref=business', { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((d) => { if (!off) setBusinesses(d.options || []); })
+      .catch(() => { if (!off) setBusinesses([]); });
+    return () => { off = true; };
+  }, []);
+
+  /* ------------------------------------------------- destination stores -- */
+  /* The destination is any OTHER store of this company - see
+     lib/storeLocations.js: the branch itself, its sibling branches and the
+     master rows left behind by a deleted branch. Asking for one business's
+     locations here is what used to leave the picker showing a single store
+     (or none) on a branch that keeps its stock in several places.
+     The top bar's location is the source, so it is left out of the list. */
+  const [storesLoading, setStoresLoading] = useState(false);
+  const [storesError, setStoresError] = useState('');
+  useEffect(() => {
+    if (kind !== 'challan' || !scope.business) { setStores([]); return undefined; }
+    let off = false;
+    setStoresLoading(true);
+    setStoresError('');
+    fetch('/api/options?ref=companylocations&groupStores=1&business=' + scope.business, { cache: 'no-store' })
       .then((r) => r.json())
       .then((d) => {
         if (off) return;
-        setStores((d.options || [])
-          .map((o) => [String(o.value), o.label])
-          .filter(([v]) => v !== String(scope.location || '')));
+        const list = (d.options || [])
+          .map(asStore)
+          .filter((o) => o.value !== String(scope.location || ''));
+        setStores(list);
+        /* one destination and nothing to choose - pick it, so the operator is
+           not asked a question with a single answer (same as the IC form) */
+        setHeader((h) => (list.some((o) => o.value === h.toLocationId)
+          ? h
+          : { ...h, toLocationId: list[0]?.value || '' }));
       })
-      .catch(() => { if (!off) setStores([]); });
+      .catch(() => {
+        if (off) return;
+        setStores([]);
+        setStoresError('Could not load the store list.');
+      })
+      .finally(() => { if (!off) setStoresLoading(false); });
     return () => { off = true; };
-  }, [scope.business, scope.location]);
+  }, [kind, scope.business, scope.location]);
+
+  /* ---------------------------------------------------------- stock point -- */
+  /* Same rule as the IC challan: stock points are locationScoped, so this is
+     the dispatching store's list. Auto-pick the first, and replace a choice
+     that no longer belongs to the current store. */
+  const stockPointOptions = useOptions('stockpoint', '', kind === 'challan');
+
+  useEffect(() => {
+    const options = stockPointOptions.options || [];
+    if (!options.length) return;
+    setHeader((h) => {
+      const chosen = String(h.stockPointId || '');
+      if (chosen && options.some((o) => String(o.value) === chosen)) return h;
+      return { ...h, stockPointId: options[0].value };
+    });
+  }, [stockPointOptions.options]);
 
   /* ---------------------------------------------------------- upstream -- */
 
   const loadUpstream = useCallback(async () => {
-    if (!scope.business || !scope.location) { setUpstream([]); return; }
+    if (kind === 'challan') return;
+    if (!scope.business || !scope.location) { setUpstreamAll([]); return; }
     setLoadingUpstream(true);
     try {
-      const qs = new URLSearchParams({
-        business: scope.business,
-        perPage: '200',
-      });
+      const qs = new URLSearchParams({ business: scope.business, perPage: '200' });
+      if (scope.finYear) qs.set('finYear', scope.finYear);
 
       /* The invoice is raised by the SELLING store, so its challans are the
-         ones it despatched - filtered by source `location`. The two
-         adjustments are raised by the BUYING store, so the invoices are the
-         ones addressed TO it - filtered by `toLocationId`. Asking for the
-         wrong side is what would leave both screens empty. */
-      if (kind === 'invoice') qs.set('location', scope.location);
+         ones it despatched - filtered by the SOURCE explicitly (`fromLocationId`,
+         not `location`, which the list screens match against either end of the
+         document). The two adjustments are raised by the BUYING store, so the
+         invoices are the ones addressed TO it - filtered by `toLocationId`.
+         Asking for the wrong side is what would leave both screens empty. */
+      if (kind === 'invoice') qs.set('fromLocationId', scope.location);
       else qs.set('toLocationId', scope.location);
 
       const url = kind === 'invoice'
@@ -105,7 +185,11 @@ export default function StoreSellDocForm({ kind }) {
 
       const r = await fetch(url, { cache: 'no-store' });
       const d = await r.json();
-      if (!r.ok) { setUpstream([]); setFlash({ type: 'err', msg: d.error || 'Could not load documents.' }); return; }
+      if (!r.ok) {
+        setUpstreamAll([]);
+        setFlash({ type: 'err', msg: d.error || 'Could not load documents.' });
+        return;
+      }
 
       const rows = (d.rows || []).filter((row) => {
         if (kind === 'invoice') {
@@ -115,16 +199,41 @@ export default function StoreSellDocForm({ kind }) {
         }
         return (row.items || []).some((l) => r2(num(l.qty) - num(l.returnedQty) - num(l.debitedQty)) > 0);
       });
-      setUpstream(rows);
+      setUpstreamAll(rows);
     } catch {
-      setUpstream([]);
+      setUpstreamAll([]);
       setFlash({ type: 'err', msg: 'Could not reach the server.' });
     } finally {
       setLoadingUpstream(false);
     }
-  }, [kind, scope.business, scope.location]);
+  }, [kind, scope.business, scope.location, scope.finYear]);
 
   useEffect(() => { loadUpstream(); }, [loadUpstream]);
+
+  /* The stores that actually have something to invoice - derived from the
+     eligible challans, so picking one can never produce an empty list. */
+  const buyingStores = useMemo(() => {
+    const seen = new Map();
+    upstreamAll.forEach((row) => {
+      const id = String(row.toLocationId || '');
+      if (!id || seen.has(id)) return;
+      seen.set(id, row.toLocationName || 'Store');
+    });
+    return [...seen.entries()].map(([value, label]) => ({ value, label }));
+  }, [upstreamAll]);
+
+  useEffect(() => {
+    if (kind !== 'invoice') return;
+    setHeader((h) => (buyingStores.some((s) => s.value === h.toLocationId)
+      ? h
+      : { ...h, toLocationId: buyingStores.length === 1 ? buyingStores[0].value : '' }));
+  }, [kind, buyingStores]);
+
+  const upstream = useMemo(() => (
+    kind === 'invoice' && header.toLocationId
+      ? upstreamAll.filter((row) => String(row.toLocationId) === header.toLocationId)
+      : upstreamAll
+  ), [kind, header.toLocationId, upstreamAll]);
 
   const pickUpstream = useCallback(async (id) => {
     setUpstreamId(id);
@@ -186,6 +295,8 @@ export default function StoreSellDocForm({ kind }) {
         discountPct: 0,
         roffDiscount: 0,
         gstPct: d.found.gstPct,
+        image: d.found.image || '',
+        remarks: '',
       }]);
       setBarcode('');
       setFlash(null);
@@ -200,19 +311,50 @@ export default function StoreSellDocForm({ kind }) {
 
   const removeLine = (i) => setLines((cur) => cur.filter((_, n) => n !== i));
 
+  /* ------------------------------------------------------- business switch -- */
+
+  /* The WHOLE document hangs off the business, so switching it switches the
+     top bar's business - the source store, its stock points and its barcodes
+     then re-resolve together and no contradictory pair is possible. */
+  const changeBusiness = (next) => {
+    /* the placeholder is not a business - clearing the top bar would leave the
+       whole form (source store, stock points, barcodes) with nothing to scope to */
+    if (!next || next === scope.business) return;
+    setHeader((h) => ({ ...h, toLocationId: '', stockPointId: '' }));
+    setUpstreamAll([]);
+    setUpstreamId('');
+    setUpstreamDoc(null);
+    setLines([]);
+    setFlash(null);
+    scope.setBusiness(next);
+  };
+
+  const changeBuyingStore = (next) => {
+    setHeader((h) => ({ ...h, toLocationId: next }));
+    setUpstreamId('');
+    setUpstreamDoc(null);
+    setLines([]);
+  };
+
   /* ------------------------------------------------------------- totals -- */
 
-  const mode = upstreamDoc?.gstMode || GST_MODE.CGST_SGST;
+  const sourceStore = (scope.locations || []).find((o) => String(o.value) === String(scope.location || ''));
+  const destStore = stores.find((o) => o.value === header.toLocationId);
+
+  /* Intra-state (CGST + SGST) unless the two stores record different states -
+     the same rule lib/storeGst.js applies on save, so the preview matches. */
+  const mode = useMemo(() => {
+    if (kind !== 'challan') return upstreamDoc?.gstMode || GST_MODE.CGST_SGST;
+    const a = String(sourceStore?.state || '').trim().toLowerCase();
+    const b = String(destStore?.state || '').trim().toLowerCase();
+    if (!a || !b) return GST_MODE.CGST_SGST;
+    return a === b ? GST_MODE.CGST_SGST : GST_MODE.IGST;
+  }, [kind, upstreamDoc, sourceStore, destStore]);
 
   const totals = useMemo(
     () => computeStoreTotals(lines, { mode }),
     [lines, mode]
   );
-
-  const headLabel = kind === 'challan' ? 'Destination Store'
-    : kind === 'invoice' ? 'Buying Store'
-    : kind === 'debitnote' ? 'Invoice Store'
-    : 'Invoice Store';
 
   async function save() {
     if (busy) return;
@@ -224,6 +366,7 @@ export default function StoreSellDocForm({ kind }) {
       let payload = null;
 
       if (kind === 'challan') {
+        if (!scope.business) { setFlash({ type: 'err', msg: 'Select a Business in the top bar first.' }); setBusy(false); return; }
         if (!header.toLocationId) { setFlash({ type: 'err', msg: 'Select the destination store.' }); setBusy(false); return; }
         if (!lines.length) { setFlash({ type: 'err', msg: 'Add at least one barcode.' }); setBusy(false); return; }
         url = '/api/is-delivery-challan';
@@ -246,10 +389,13 @@ export default function StoreSellDocForm({ kind }) {
               unitRate: num(l.unitRate),
               discountPct: num(l.discountPct),
               roffDiscount: num(l.roffDiscount),
+              image: l.image || '',
+              remarks: l.remarks || '',
             })),
           },
         };
       } else if (kind === 'invoice') {
+        if (!header.toLocationId) { setFlash({ type: 'err', msg: 'Select the Buying Store.' }); setBusy(false); return; }
         if (!upstreamId) { setFlash({ type: 'err', msg: 'Select the Delivery Challan to invoice.' }); setBusy(false); return; }
 
         /* PARTIAL INVOICING. Each line defaults to what is still unbilled, and
@@ -272,6 +418,7 @@ export default function StoreSellDocForm({ kind }) {
           location: scope.location,
           finYear: scope.finYear,
           data: {
+            toLocationId: header.toLocationId,
             deliveryChallanIds: [upstreamId],
             invoiceDate: header.invoiceDate,
             remarks: header.remarks,
@@ -332,6 +479,8 @@ export default function StoreSellDocForm({ kind }) {
     : 'salesreturn'
   );
 
+  const columns = kind === 'challan' ? 17 : 16;
+
   return (
     <div className="card">
       <div className="card-head">
@@ -352,84 +501,186 @@ export default function StoreSellDocForm({ kind }) {
         )}
 
         {/* -------------------------------------------------- header -- */}
-        <div className="grid gap-4 md:grid-cols-3">
-          {kind === 'challan' ? (
-            <label className="flex flex-col gap-1">
-              <span className="field-label">Destination Store <span className="f-req">*</span></span>
+        {kind === 'challan' ? (
+          <div className="form-grid-4">
+            <div>
+              <label className="f-label">Business<span className="f-req">*</span></label>
+              <select
+                className="f-input"
+                value={scope.business || ''}
+                onChange={(e) => changeBusiness(e.target.value)}
+              >
+                <option value="">--Select--</option>
+                {businesses.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+
+            <div>
+              <label className="f-label">Location Name<span className="f-req">*</span></label>
               <select
                 className="f-input"
                 value={header.toLocationId}
+                disabled={!scope.business || storesLoading}
                 onChange={(e) => setHeader((h) => ({ ...h, toLocationId: e.target.value }))}
               >
-                <option value="">Select...</option>
-                {stores.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+                <option value="">
+                  {!scope.business ? 'Select a business first'
+                    : storesLoading ? 'Loading stores...'
+                    : stores.length ? '--Select--'
+                    : 'No other store in this company'}
+                </option>
+                {stores.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
-            </label>
-          ) : (
-            <label className="flex flex-col gap-1">
-              <span className="field-label">{headLabel}</span>
+              <div className="f-hint">
+                {storesError || 'Every store of this company, except the source store'}
+              </div>
+            </div>
+
+            <div>
+              <label className="f-label">Customer GSTN</label>
+              <input
+                className="f-input bg-[#eff2f7] text-inkmuted"
+                readOnly
+                value={destStore?.gstin || ''}
+                placeholder="From the store master"
+              />
+            </div>
+
+            <div>
+              <label className="f-label">DC Date<span className="f-req">*</span></label>
+              <input
+                type="date"
+                className="f-input"
+                value={header.dcDate || ''}
+                onChange={(e) => setHeader((h) => ({ ...h, dcDate: e.target.value }))}
+              />
+            </div>
+
+            <div>
+              <label className="f-label">Stock Point<span className="f-req">*</span></label>
+              <select
+                className="f-input"
+                value={header.stockPointId}
+                onChange={(e) => setHeader((h) => ({ ...h, stockPointId: e.target.value }))}
+              >
+                <option value="">--Select--</option>
+                {(stockPointOptions.options || []).map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="f-label">Source Store</label>
+              <input
+                className="f-input bg-[#eff2f7] text-inkmuted"
+                readOnly
+                value={sourceStore?.label || ''}
+                placeholder="From the top bar"
+              />
+            </div>
+
+            <div>
+              <label className="f-label">Remarks</label>
               <input
                 className="f-input"
-                readOnly
-                value={upstreamDoc ? (upstreamDoc.toLocationName || '') : ''}
+                value={header.remarks}
+                onChange={(e) => setHeader((h) => ({ ...h, remarks: e.target.value }))}
               />
-            </label>
-          )}
+            </div>
+          </div>
+        ) : (
+          <div className="form-grid-4">
+            <div>
+              <label className="f-label">
+                {kind === 'invoice' ? 'Buying Store' : 'Invoice Store'}
+                {kind === 'invoice' && <span className="f-req">*</span>}
+              </label>
+              {kind === 'invoice' ? (
+                <>
+                  <select
+                    className="f-input"
+                    value={header.toLocationId}
+                    disabled={loadingUpstream}
+                    onChange={(e) => changeBuyingStore(e.target.value)}
+                  >
+                    <option value="">{loadingUpstream ? 'Loading stores...' : '--Select--'}</option>
+                    {buyingStores.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                  {!loadingUpstream && !buyingStores.length && (
+                    <div className="f-hint">No received Delivery Challan is waiting to be invoiced.</div>
+                  )}
+                </>
+              ) : (
+                <input
+                  className="f-input bg-[#eff2f7] text-inkmuted"
+                  readOnly
+                  value={upstreamDoc ? (upstreamDoc.toLocationName || '') : (sourceStore?.label || '')}
+                />
+              )}
+            </div>
 
-          <label className="flex flex-col gap-1">
-            <span className="field-label">
-              {kind === 'challan' ? 'DC Date' : kind === 'invoice' ? 'Invoice Date' : kind === 'debitnote' ? 'Debit Note Date' : 'Return Date'}
-              <span className="f-req">*</span>
-            </span>
-            <input
-              type="date"
-              className="f-input"
-              value={header[DATE_KEY[kind]] || ''}
-              onChange={(e) => setHeader((h) => ({ ...h, [DATE_KEY[kind]]: e.target.value }))}
-            />
-          </label>
+            <div>
+              <label className="f-label">
+                {kind === 'invoice' ? 'Invoice Date' : kind === 'debitnote' ? 'Debit Note Date' : 'Return Date'}
+                <span className="f-req">*</span>
+              </label>
+              <input
+                type="date"
+                className="f-input"
+                value={header[DATE_KEY[kind]] || ''}
+                onChange={(e) => setHeader((h) => ({ ...h, [DATE_KEY[kind]]: e.target.value }))}
+              />
+            </div>
 
-          <label className="flex flex-col gap-1">
-            <span className="field-label">{kind === 'challan' ? 'Remarks' : 'Reason / Remarks'}</span>
-            <input
-              className="f-input"
-              value={header.remarks}
-              onChange={(e) => setHeader((h) => ({ ...h, remarks: e.target.value }))}
-            />
-          </label>
-        </div>
+            <div>
+              <label className="f-label">Reason / Remarks</label>
+              <input
+                className="f-input"
+                value={header.remarks}
+                onChange={(e) => setHeader((h) => ({ ...h, remarks: e.target.value }))}
+              />
+            </div>
+          </div>
+        )}
 
         {/* ------------------------------------------- upstream picker -- */}
         {kind !== 'challan' && (
           <div className="grid gap-4 md:grid-cols-2">
-            <label className="flex flex-col gap-1">
-              <span className="field-label">
+            <div>
+              <label className="f-label">
                 {kind === 'invoice' ? 'Delivery Challan' : 'Sales Invoice'}
                 <span className="f-req">*</span>
-              </span>
+              </label>
               <select
                 className="f-input"
                 value={upstreamId}
-                disabled={loadingUpstream}
+                disabled={loadingUpstream || (kind === 'invoice' && !header.toLocationId)}
                 onChange={(e) => pickUpstream(e.target.value)}
               >
-                <option value="">{loadingUpstream ? 'Loading...' : 'Select...'}</option>
+                <option value="">
+                  {loadingUpstream ? 'Loading...'
+                    : upstream.length ? 'Select...'
+                    : kind === 'invoice' && header.toLocationId ? 'No invoiceable challan for this store'
+                    : 'No eligible documents'}
+                </option>
                 {upstream.map((row) => (
                   <option key={row._id} value={row._id}>
                     {(row.dcNo || row.invoiceNo)}
-                    {' - '}
+                    {' | '}
+                    {fmtDate(row.dcDate || row.invoiceDate)}
+                    {' | '}
                     {row.toLocationName || 'store'}
-                    {' - '}
+                    {' | '}
                     {money(row.netValue)}
                   </option>
                 ))}
               </select>
-            </label>
+            </div>
 
             {upstreamDoc && (
               <div className="text-[13px] text-inkmuted">
-                <div><b>Date</b> : {upstreamDoc.dcDate || upstreamDoc.invoiceDate
-                  ? new Date(upstreamDoc.dcDate || upstreamDoc.invoiceDate).toLocaleDateString('en-GB') : '-'}</div>
+                <div><b>Date</b> : {fmtDate(upstreamDoc.dcDate || upstreamDoc.invoiceDate)}</div>
                 <div><b>Financial Year</b> : {upstreamDoc.finYear || '-'}</div>
                 <div><b>GST</b> : {upstreamDoc.gstMode === 'igst' ? 'IGST' : 'CGST + SGST'}</div>
               </div>
@@ -475,13 +726,15 @@ export default function StoreSellDocForm({ kind }) {
                 <th className="!text-right" style={{ width: 90 }}>CGST</th>
                 <th className="!text-right" style={{ width: 90 }}>SGST</th>
                 <th className="!text-right" style={{ width: 100 }}>Net</th>
+                <th style={{ width: 180 }}>Narration</th>
+                <th style={{ width: 56 }}>Image</th>
                 {kind === 'challan' && <th style={{ width: 50 }}>Del</th>}
               </tr>
             </thead>
             <tbody>
               {!lines.length && (
                 <tr>
-                  <td colSpan={kind === 'challan' ? 15 : 14} className="dt-empty">
+                  <td colSpan={columns} className="dt-empty">
                     {kind === 'challan' ? 'Scan a barcode to add the first item.'
                       : 'Select a document above to load its lines.'}
                   </td>
@@ -537,6 +790,21 @@ export default function StoreSellDocForm({ kind }) {
                     <td className="!text-right">{money(c.cgst)}</td>
                     <td className="!text-right">{money(c.sgst)}</td>
                     <td className="!text-right font-semibold">{money(c.netAmount)}</td>
+                    <td>
+                      {kind === 'challan' ? (
+                        <input
+                          className="f-input !w-[170px]"
+                          type="text"
+                          placeholder="Narration"
+                          maxLength={200}
+                          value={l.remarks || ''}
+                          onChange={(e) => setLine(i, 'remarks', e.target.value)}
+                        />
+                      ) : (l.remarks || '-')}
+                    </td>
+                    <td>
+                      {l.image ? <ProductImage src={l.image} alt={l.itemName || l.itemCode} size={28} /> : '-'}
+                    </td>
                     {kind === 'challan' && (
                       <td>
                         <button type="button" className="act-btn act-red" title="Remove" onClick={() => removeLine(i)}>

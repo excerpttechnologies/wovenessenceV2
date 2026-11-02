@@ -60,7 +60,13 @@ export default function StoreReceivePanel() {
     setBusyId(String(row._id));
     setFlash(null);
     try {
-      const r = await fetch('/api/is-delivery-challan/' + row._id + '/receive', { method: 'POST' });
+      /* the route refuses a receipt that does not name the store taking the
+         goods - the top bar's company and store are that claim */
+      const r = await fetch('/api/is-delivery-challan/' + row._id + '/receive', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ business: scope.business, location: scope.location }),
+      });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) {
         setFlash({ type: 'err', msg: d.error || 'Could not receive this challan.' });

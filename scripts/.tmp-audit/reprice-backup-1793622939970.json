@@ -1,0 +1,188 @@
+[
+ {
+  "id": "6ae852fd955b53897467f11e",
+  "dcNo": "ISDC/0001",
+  "totals": {
+   "calc": [
+    {
+     "discount": 0,
+     "finalRate": 3860,
+     "beforeTax": 7720,
+     "igst": 0,
+     "cgst": 193,
+     "sgst": 193,
+     "netAmount": 8106
+    }
+   ],
+   "taxableValue": 7720,
+   "igstTotal": 0,
+   "cgstTotal": 193,
+   "sgstTotal": 193,
+   "totalQty": 2,
+   "headDiscount": 0,
+   "roundOff": 0,
+   "netValue": 8106,
+   "items": [
+    {
+     "lineId": "b772114d-ff2a-478f-9d94-c1ee866cf54b",
+     "barcodeNo": "10A1702",
+     "barcodeId": "6ad1c721673c334c0f9fa6dc",
+     "itemCode": "CRB",
+     "itemName": "APX 0.99 MTR CUT,(SM) (TZ) SILK BY TESTED ZARI, KATAN TISSUE WEAVE, PAITHANI DESIGN WEAVE FABRIC",
+     "hsn": "500790",
+     "uom": "Pc(s)",
+     "qty": 2,
+     "unitRate": 3860,
+     "discountPct": 0,
+     "roffDiscount": 0,
+     "gstPct": 5,
+     "remarks": "",
+     "image": "",
+     "billedQty": 0,
+     "returnedQty": 0,
+     "debitedQty": 0,
+     "stockMoves": [
+      {
+       "barcodeId": "6ad1c721673c334c0f9fa6dc",
+       "qty": 2
+      }
+     ],
+     "discount": 0,
+     "finalRate": 3860,
+     "beforeTax": 7720,
+     "igst": 0,
+     "cgst": 193,
+     "sgst": 193,
+     "netAmount": 8106
+    }
+   ]
+  },
+  "items": [
+   {
+    "lineId": "b772114d-ff2a-478f-9d94-c1ee866cf54b",
+    "barcodeNo": "10A1702",
+    "barcodeId": "6ad1c721673c334c0f9fa6dc",
+    "itemCode": "CRB",
+    "itemName": "APX 0.99 MTR CUT,(SM) (TZ) SILK BY TESTED ZARI, KATAN TISSUE WEAVE, PAITHANI DESIGN WEAVE FABRIC",
+    "hsn": "500790",
+    "uom": "Pc(s)",
+    "qty": 2,
+    "unitRate": 3860,
+    "discountPct": 0,
+    "roffDiscount": 0,
+    "gstPct": 5,
+    "remarks": "",
+    "image": "",
+    "billedQty": 0,
+    "returnedQty": 0,
+    "debitedQty": 0,
+    "stockMoves": [
+     {
+      "barcodeId": "6ad1c721673c334c0f9fa6dc",
+      "qty": 2
+     }
+    ],
+    "discount": 0,
+    "finalRate": 3860,
+    "beforeTax": 7720,
+    "igst": 0,
+    "cgst": 193,
+    "sgst": 193,
+    "netAmount": 8106
+   }
+  ]
+ },
+ {
+  "id": "6ae87e48955b538974689239",
+  "dcNo": "ISDC/0002",
+  "totals": {
+   "calc": [
+    {
+     "discount": 0,
+     "finalRate": 9980,
+     "beforeTax": 9980,
+     "igst": 0,
+     "cgst": 249.5,
+     "sgst": 249.5,
+     "netAmount": 10479
+    }
+   ],
+   "taxableValue": 9980,
+   "igstTotal": 0,
+   "cgstTotal": 249.5,
+   "sgstTotal": 249.5,
+   "totalQty": 1,
+   "headDiscount": 0,
+   "roundOff": 0,
+   "netValue": 10479,
+   "items": [
+    {
+     "lineId": "2b3cba6f-5d7c-4cfa-9ef4-ccd335243ea2",
+     "barcodeNo": "11A1179",
+     "barcodeId": "6ae87361955b538974688b5f",
+     "itemCode": "15-ORG",
+     "itemName": "HANDWOVEN CORA HAND CHAP DYE , BANARASI WEAVE SAREE",
+     "hsn": "50072010",
+     "uom": "Pc(s)",
+     "qty": 1,
+     "unitRate": 9980,
+     "discountPct": 0,
+     "roffDiscount": 0,
+     "gstPct": 5,
+     "remarks": "",
+     "image": "",
+     "billedQty": 0,
+     "returnedQty": 0,
+     "debitedQty": 0,
+     "stockMoves": [
+      {
+       "barcodeId": "6ae87361955b538974688b5f",
+       "qty": 1
+      }
+     ],
+     "discount": 0,
+     "finalRate": 9980,
+     "beforeTax": 9980,
+     "igst": 0,
+     "cgst": 249.5,
+     "sgst": 249.5,
+     "netAmount": 10479
+    }
+   ]
+  },
+  "items": [
+   {
+    "lineId": "2b3cba6f-5d7c-4cfa-9ef4-ccd335243ea2",
+    "barcodeNo": "11A1179",
+    "barcodeId": "6ae87361955b538974688b5f",
+    "itemCode": "15-ORG",
+    "itemName": "HANDWOVEN CORA HAND CHAP DYE , BANARASI WEAVE SAREE",
+    "hsn": "50072010",
+    "uom": "Pc(s)",
+    "qty": 1,
+    "unitRate": 9980,
+    "discountPct": 0,
+    "roffDiscount": 0,
+    "gstPct": 5,
+    "remarks": "",
+    "image": "",
+    "billedQty": 0,
+    "returnedQty": 0,
+    "debitedQty": 0,
+    "stockMoves": [
+     {
+      "barcodeId": "6ae87361955b538974688b5f",
+      "qty": 1
+     }
+    ],
+    "discount": 0,
+    "finalRate": 9980,
+    "beforeTax": 9980,
+    "igst": 0,
+    "cgst": 249.5,
+    "sgst": 249.5,
+    "netAmount": 10479
+   }
+  ]
+ }
+]

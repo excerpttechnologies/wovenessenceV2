@@ -49,13 +49,42 @@ export async function DELETE(req, { params }) {
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
+  /* Give the adjusted quantity back to the invoice line - guarded against
+     going below zero, exactly like the invoice's own release. */
   if (doc.salesInvoiceId) {
+    const released = [];
+
     for (const line of (doc.items || [])) {
-      await StoreSalesInvoice.collection.updateOne(
-        { _id: new Types.ObjectId(String(doc.salesInvoiceId)) },
-        { $inc: { 'items.$[l].debitedQty': -r2(line.qty) } },
+      const qty = r2(line.qty);
+      if (!(qty > 0) || !line.lineId) continue;
+
+      const res = await StoreSalesInvoice.collection.updateOne(
+        {
+          _id: new Types.ObjectId(String(doc.salesInvoiceId)),
+          items: { $elemMatch: { lineId: String(line.lineId), debitedQty: { $gte: qty } } },
+        },
+        { $inc: { 'items.$[l].debitedQty': -qty } },
         { arrayFilters: [{ 'l.lineId': String(line.lineId) }] }
       );
+
+      if (!res.modifiedCount) {
+        for (const undo of released) {
+          await StoreSalesInvoice.collection.updateOne(
+            { _id: new Types.ObjectId(String(doc.salesInvoiceId)) },
+            { $inc: { 'items.$[l].debitedQty': undo.qty } },
+            { arrayFilters: [{ 'l.lineId': String(undo.lineId) }] }
+          );
+        }
+        return json(
+          {
+            error: 'The Sales Invoice no longer records the quantity this note adjusted. '
+              + 'Nothing was deleted - reload and check the invoice.',
+          },
+          409
+        );
+      }
+
+      released.push({ lineId: String(line.lineId), qty });
     }
   }
 

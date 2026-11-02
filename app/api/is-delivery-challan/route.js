@@ -9,7 +9,8 @@ import { BarcodeLabel, BARCODE_STATUS } from '@/lib/barcodeLabel';
 import { nextSeriesNumber } from '@/lib/docnumber';
 import { resolveGstRate, gstModeForLocations } from '@/lib/storeGst';
 import { applyStoreTotals, GST_MODE } from '@/lib/storeSell';
-import { shipStoreStock, StoreStockError } from '@/lib/storeStock';
+import { shipStoreStock, assertStoreStockAvailable, StoreStockError } from '@/lib/storeStock';
+import { isDestinationStore, businessOfLocation } from '@/lib/storeLocations';
 import { listStoreDocs } from '@/lib/storeDocList';
 
 /* /api/is-delivery-challan - list + create for Inter Store Sell.
@@ -35,7 +36,10 @@ export async function GET(req) {
     searchFields: ['dcNo', 'toLocationName', 'remarks'],
     sortKeys: ['dcNo', 'dcDate', 'totalQty', 'netValue', 'status', 'receivedAt'],
     refs: ['locationId', 'toLocationId', 'stockPointId'],
-    idFields: ['businessId', 'locationId', 'toLocationId'],
+    /* raised BY the source store, addressed TO the destination store - the
+       list shows it to whichever of the two the top bar is on */
+    fromField: 'locationId',
+    toField: 'toLocationId',
   });
 }
 
@@ -78,7 +82,24 @@ export async function POST(req) {
 
   if (!source) return json({ error: 'The source store was not found.' }, 422);
   if (!destination) return json({ error: 'The destination store was not found.' }, 422);
-  if (destination.businessId && String(destination.businessId) !== String(body.business)) {
+
+  /* The source store must be a store of the business named in the top bar.
+     Nothing used to check this, so a document could be filed under one branch
+     while naming another branch's shop - its businessId/locationId pair then
+     disagreed, and every report grouping by business was off for it. */
+  const sourceBranch = await businessOfLocation(body.location);
+  if (sourceBranch && String(sourceBranch) !== String(body.business)) {
+    return json(
+      { error: 'That store belongs to another business - select the business that owns it in the top bar.' },
+      422
+    );
+  }
+
+  /* Same rule the picker offers: a store of this company - the branch itself,
+     a sibling branch, or a master row whose branch was deleted. A store of an
+     unrelated company is refused here as well, because this check is what an
+     honest dropdown cannot be relied on to enforce. */
+  if (!(await isDestinationStore(body.business, data.toLocationId))) {
     return json({ error: 'The destination store belongs to another business.' }, 422);
   }
 
@@ -105,11 +126,32 @@ export async function POST(req) {
             { businessId: { $exists: false } },
           ],
         },
+        /* The SOURCE store's row. One barcode can exist at several stores with
+           different item details and rates, and the line must describe the row
+           being shipped - the same scope the barcode lookup and the despatch
+           already use. */
+        {
+          $or: [
+            { locationId: String(body.location) },
+            { locationId: '' },
+            { locationId: { $exists: false } },
+          ],
+        },
       ],
     }).lean();
 
     const hsn = String(raw.hsn || row?.hsn || row?.hsnCode || '').trim();
     const unitRate = Number(raw.unitRate) || 0;
+
+    /* A despatch at zero value produces a document - and an invoice - worth
+       nothing, which is what the Inter Store challans raised before the
+       barcode lookup read the right price field were. The browser is not
+       trusted to have filled it, so an unset/negative rate is refused here. */
+    if (!(unitRate > 0)) {
+      errors['items.' + i] = 'Barcode ' + barcodeNo
+        + ' has no sale price - set its RSP / WSP or type a rate on the line.';
+      continue;
+    }
     const resolved = await resolveGstRate({
       businessId: body.business,
       hsnCode: hsn,
@@ -132,6 +174,9 @@ export async function POST(req) {
       roffDiscount: Number(raw.roffDiscount) || 0,
       /* looked up, never taken from the request */
       gstPct: resolved.gstPct,
+      /* line narration and the item photo, as entered / looked up */
+      remarks: String(raw.remarks || '').trim(),
+      image: String(raw.image || row?.imageUrl || ''),
       /* running adjustments, read by the invoice, debit note and return */
       billedQty: 0,
       returnedQty: 0,
@@ -141,6 +186,21 @@ export async function POST(req) {
   }
 
   if (Object.keys(errors).length) return json({ errors }, 422);
+
+  /* Refuse a short line BEFORE the document is created. The challan number is
+     reserved atomically at save, so a document that could not be shipped used
+     to burn one and leave a gap in the store's series. The guarded write in
+     shipStoreStock below is still what actually protects the stock. */
+  try {
+    await assertStoreStockAvailable({
+      businessId: body.business,
+      locationId: body.location,
+      lines: built,
+    });
+  } catch (err) {
+    if (err instanceof StoreStockError) return json({ error: err.message }, err.status);
+    throw err;
+  }
 
   const totals = applyStoreTotals(built, {
     discountPercent: data.discountPercent,

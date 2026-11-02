@@ -4,6 +4,7 @@ import { requireSession } from '@/lib/session';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import StoreDebitNote, { MODULE } from '@/models/StoreDebitNote';
 import StoreSalesInvoice from '@/models/StoreSalesInvoice';
+import { groupBusinessIds, businessOfLocation } from '@/lib/storeLocations';
 import { nextSeriesNumber } from '@/lib/docnumber';
 import { applyStoreTotals, GST_MODE, r2 } from '@/lib/storeSell';
 import { listStoreDocs } from '@/lib/storeDocList';
@@ -32,7 +33,10 @@ export async function GET(req) {
     searchFields: ['debitNoteNo', 'salesInvoiceNo', 'reason'],
     sortKeys: ['debitNoteNo', 'debitNoteDate', 'totalQty', 'netValue'],
     refs: ['locationId', 'fromLocationId'],
-    idFields: ['businessId', 'locationId', 'fromLocationId'],
+    /* raised BY the buying store (`locationId`), against the store that
+       issued the invoice (`fromLocationId`) */
+    fromField: 'fromLocationId',
+    toField: 'locationId',
   });
 }
 
@@ -54,13 +58,26 @@ export async function POST(req) {
   if (!isValidObjectId(data.salesInvoiceId)) return json({ error: 'Select the Sales Invoice being adjusted.' }, 422);
   if (!data.debitNoteDate) return json({ error: 'Debit Note Date is required.' }, 422);
 
+  /* the store raising the note must belong to the business named in the top
+     bar, or the document is filed under a branch that does not own its store */
+  const storeBranch = await businessOfLocation(body.location);
+  if (storeBranch && String(storeBranch) !== String(body.business)) {
+    return json(
+      { error: 'That store belongs to another business - select the business that owns it in the top bar.' },
+      422
+    );
+  }
+
   /* The BUYING store raises this note, so the invoice must be one ADDRESSED
-     TO this store - not merely one in this business. Without the
-     toLocationId condition any store could adjust any invoice. */
+     TO this store. The invoice was raised by the SELLING branch, which can be
+     another branch of the same company, so the branch scope is the company
+     group - not this one businessId. Without the toLocationId condition any
+     store could adjust any invoice. */
+  const groupIds = await groupBusinessIds(body.business);
   const invoice = await StoreSalesInvoice.findOne({
     _id: data.salesInvoiceId,
     module: 'interStoreSell',
-    businessId: body.business,
+    businessId: { $in: groupIds.length ? groupIds : [String(body.business)] },
     toLocationId: body.location,
   }).lean();
 

@@ -4,6 +4,7 @@ import { requireSession } from '@/lib/session';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import StoreDeliveryChallan, { DC_STATUS } from '@/models/StoreDeliveryChallan';
 import { receiveStoreStock } from '@/lib/storeStock';
+import { groupBusinessIds } from '@/lib/storeLocations';
 
 /* POST /api/is-delivery-challan/<id>/receive
 
@@ -32,6 +33,31 @@ export async function POST(req, { params }) {
     session, ...SCREEN, action: PERM.UPDATE, businessId: challan.businessId,
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
+
+  /* WHO IS RECEIVING. Receiving lands stock on the DESTINATION store's shelf,
+     so the operator has to be standing in that store. Without this, anybody
+     allowed to edit a challan could book another store's goods onto their own
+     location. The screen sends the top bar's company and store; both are
+     required, because a request that names neither can prove nothing. */
+  let body = {};
+  try { body = await req.json(); } catch { body = {}; }
+
+  if (!isValidObjectId(body.business)) return json({ error: 'Select a business in the top bar first.' }, 422);
+  if (!isValidObjectId(body.location)) {
+    return json({ error: 'Select the store receiving these goods in the top bar.' }, 422);
+  }
+
+  if (String(challan.toLocationId || '') !== String(body.location)) {
+    return json({ error: 'This challan is addressed to another store - only the destination store can receive it.' }, 403);
+  }
+
+  /* the seller's branch and the buyer's may differ, so the company is the
+     branch group rather than one businessId */
+  const groupIds = await groupBusinessIds(body.business);
+  const sellerId = String(challan.businessId || '');
+  if (!groupIds.includes(sellerId) && sellerId !== String(body.business)) {
+    return json({ error: 'This challan does not belong to your company.' }, 403);
+  }
 
   if (challan.status === DC_STATUS.CANCELLED) {
     return json({ error: 'This challan was cancelled.' }, 409);

@@ -20,8 +20,16 @@ import { escapeRegex } from '@/lib/validate';
 const SCREEN = { screen: SCREENS.IS_DELIVERY_CHALLAN, label: 'inter store delivery challans' };
 const json = (d, s = 200) => Response.json(d, { status: s });
 
+/* The price on the BARCODE row. retailPrice is the RSP - lib/itemsSheet.js
+   writes one column under both names - and it is what the Inter Company
+   lookup uses too (`item.rsp || barcodeRow.retailPrice`). Reading `rsp` /
+   `rate` / `saleRate` here returned 0 on every scan, because those live on
+   the Item master and this query only reads barcode rows: every Inter Store
+   challan was raised at zero value. The rest are fallbacks, in the order the
+   other documents fall back. */
 const rateOf = (row) => Number(
-  row?.rsp || row?.wsp || row?.dp || row?.mrp || row?.rate || row?.saleRate || row?.purchaseRate || 0
+  row?.retailPrice || row?.rsp || row?.offerPrice || row?.wspPrice
+  || row?.dpPrice || row?.purRate || 0
 ) || 0;
 
 export async function GET(req) {
@@ -91,6 +99,8 @@ export async function GET(req) {
       uom: first.uom || first.uomType || '',
       availableQty,
       unitRate,
+      /* the staff photo on the barcode row, shown as the line thumbnail */
+      image: String(first.imageUrl || ''),
       gstPct: resolved.gstPct,
     },
   });

@@ -65,27 +65,74 @@ export async function DELETE(req, { params }) {
     );
   }
 
-  /* give the billed quantities back to their challans */
+  /* Give the billed quantities back to their challans. GUARDED: the release
+     is a compare-and-set against the quantity this invoice claimed, so a stale
+     or repeated delete cannot push a line below zero - a negative billedQty
+     would let the same unit be billed a second time. If any line no longer
+     matches, the ones already released are put back and nothing is deleted. */
+  const released = [];
+
   for (const line of (invoice.items || [])) {
     if (!line.challanId || !line.challanLineId) continue;
-    await StoreDeliveryChallan.collection.updateOne(
-      { _id: new Types.ObjectId(String(line.challanId)) },
-      { $inc: { 'items.$[l].billedQty': -r2(line.qty) } },
+    const qty = r2(line.qty);
+    if (!(qty > 0)) continue;
+
+    const res = await StoreDeliveryChallan.collection.updateOne(
+      {
+        _id: new Types.ObjectId(String(line.challanId)),
+        items: { $elemMatch: { lineId: String(line.challanLineId), billedQty: { $gte: qty } } },
+      },
+      { $inc: { 'items.$[l].billedQty': -qty } },
       { arrayFilters: [{ 'l.lineId': String(line.challanLineId) }] }
     );
+
+    if (!res.modifiedCount) {
+      for (const undo of released) {
+        await StoreDeliveryChallan.collection.updateOne(
+          { _id: new Types.ObjectId(String(undo.challanId)) },
+          { $inc: { 'items.$[l].billedQty': undo.qty } },
+          { arrayFilters: [{ 'l.lineId': String(undo.lineId) }] }
+        );
+      }
+      return json(
+        {
+          error: 'Challan ' + (line.dcNo || '') + ' no longer records this invoice quantity. '
+            + 'Nothing was deleted - reload and check the challan.',
+        },
+        409
+      );
+    }
+
+    released.push({ challanId: line.challanId, lineId: String(line.challanLineId), qty });
   }
 
-  /* a challan with nothing billed again is back to "received" */
+  /* A challan with nothing billed again is back to "received". One that
+     ANOTHER invoice still bills must point at that invoice: leaving it naming
+     the invoice just deleted made it un-editable and un-deletable for good,
+     because both routes refuse while `salesInvoiceId` is set. */
   for (const challanId of (invoice.deliveryChallanIds || [])) {
     const challan = await StoreDeliveryChallan.findById(challanId).lean();
     if (!challan) continue;
     const stillBilled = (challan.items || []).some((l) => r2(l.billedQty) > 0);
+
     if (!stillBilled) {
       await StoreDeliveryChallan.collection.updateOne(
         { _id: challan._id },
         { $set: { salesInvoiceId: null, status: DC_STATUS.RECEIVED } }
       );
+      continue;
     }
+
+    const survivor = await StoreSalesInvoice.findOne({
+      _id: { $ne: invoice._id },
+      module: 'interStoreSell',
+      deliveryChallanIds: challan._id,
+    }).select('_id').lean();
+
+    await StoreDeliveryChallan.collection.updateOne(
+      { _id: challan._id },
+      { $set: { salesInvoiceId: survivor ? survivor._id : null } }
+    );
   }
 
   await StoreSalesInvoice.findByIdAndDelete(id);

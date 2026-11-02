@@ -4,6 +4,7 @@ import { requireSession } from '@/lib/session';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import StoreSalesReturn, { MODULE } from '@/models/StoreSalesReturn';
 import StoreSalesInvoice from '@/models/StoreSalesInvoice';
+import { groupBusinessIds, businessOfLocation } from '@/lib/storeLocations';
 import { nextSeriesNumber } from '@/lib/docnumber';
 import { applyStoreTotals, GST_MODE, r2 } from '@/lib/storeSell';
 import { returnStoreStock, StoreStockError } from '@/lib/storeStock';
@@ -34,7 +35,10 @@ export async function GET(req) {
     searchFields: ['returnNo', 'salesInvoiceNo', 'reason'],
     sortKeys: ['returnNo', 'returnDate', 'totalQty', 'netValue'],
     refs: ['locationId', 'fromLocationId'],
-    idFields: ['businessId', 'locationId', 'fromLocationId'],
+    /* raised BY the buying store (`locationId`), against the store that
+       issued the invoice (`fromLocationId`) */
+    fromField: 'fromLocationId',
+    toField: 'locationId',
   });
 }
 
@@ -56,11 +60,23 @@ export async function POST(req) {
   if (!isValidObjectId(data.salesInvoiceId)) return json({ error: 'Select the original Sales Invoice.' }, 422);
   if (!data.returnDate) return json({ error: 'Return Date is required.' }, 422);
 
-  /* only the store the invoice was ADDRESSED TO can return its goods */
+  /* the returning store must belong to the business named in the top bar */
+  const storeBranch = await businessOfLocation(body.location);
+  if (storeBranch && String(storeBranch) !== String(body.business)) {
+    return json(
+      { error: 'That store belongs to another business - select the business that owns it in the top bar.' },
+      422
+    );
+  }
+
+  /* only the store the invoice was ADDRESSED TO can return its goods. The
+     invoice belongs to the SELLING branch, which can be another branch of the
+     same company, so the branch scope is the company group. */
+  const groupIds = await groupBusinessIds(body.business);
   const invoice = await StoreSalesInvoice.findOne({
     _id: data.salesInvoiceId,
     module: 'interStoreSell',
-    businessId: body.business,
+    businessId: { $in: groupIds.length ? groupIds : [String(body.business)] },
     toLocationId: body.location,
   }).lean();
 
@@ -172,6 +188,8 @@ export async function POST(req) {
       invoice,
       lines: lines.map((l) => ({ barcodeNo: l.barcodeNo, qty: l.qty })),
       user: session,
+      /* the movements this writes belong to the return, not to the invoice */
+      returnDoc: created,
     });
   } catch (err) {
     for (const claim of applied) {

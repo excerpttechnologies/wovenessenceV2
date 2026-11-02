@@ -8,6 +8,7 @@ import CompanyLocation from '@/models/CompanyLocation';
 import { nextSeriesNumber } from '@/lib/docnumber';
 import { applyStoreTotals, GST_MODE, r2 } from '@/lib/storeSell';
 import { listStoreDocs } from '@/lib/storeDocList';
+import { businessOfLocation } from '@/lib/storeLocations';
 
 /* /api/is-sales-invoice - list + raise.
 
@@ -38,7 +39,10 @@ export async function GET(req) {
     searchFields: ['invoiceNo', 'toLocationName', 'remarks'],
     sortKeys: ['invoiceNo', 'invoiceDate', 'totalQty', 'netValue', 'status'],
     refs: ['locationId', 'toLocationId'],
-    idFields: ['businessId', 'locationId', 'toLocationId'],
+    /* raised BY the selling store, addressed TO the buying store - visible
+       from either end of the transfer */
+    fromField: 'locationId',
+    toField: 'toLocationId',
   });
 }
 
@@ -62,6 +66,15 @@ export async function POST(req) {
   if (!challanIds.length) return json({ error: 'Select at least one Delivery Challan to invoice.' }, 422);
   if (!data.invoiceDate) return json({ error: 'Invoice Date is required.' }, 422);
 
+  /* the selling store must belong to the business named in the top bar */
+  const sellerBranch = await businessOfLocation(body.location);
+  if (sellerBranch && String(sellerBranch) !== String(body.business)) {
+    return json(
+      { error: 'The selling store belongs to another business - select that business in the top bar.' },
+      422
+    );
+  }
+
   const challans = await StoreDeliveryChallan.find({
     _id: { $in: challanIds },
     module: 'interStoreSell',
@@ -71,6 +84,19 @@ export async function POST(req) {
 
   if (challans.length !== challanIds.length) {
     return json({ error: 'One of the selected challans was not found for this store.' }, 422);
+  }
+
+  /* The buying store chosen on the form must be the store the challans were
+     addressed to - a submit that names another one was built from a stale
+     list. */
+  if (data.toLocationId && isValidObjectId(data.toLocationId)) {
+    const wrongStore = challans.find((c) => String(c.toLocationId) !== String(data.toLocationId));
+    if (wrongStore) {
+      return json(
+        { error: 'Challan ' + (wrongStore.dcNo || '') + ' was not despatched to the selected Buying Store.' },
+        422
+      );
+    }
   }
 
   const notReceived = challans.find((c) => !c.receivedAt);
