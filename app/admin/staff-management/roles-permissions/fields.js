@@ -179,9 +179,6 @@ const RULES = {
       Sell: FULL,
       'Stock Transfers': FULL,
       'Inter Company Sell': WRITE,
-      /* the new GST-enabled store-to-store module (31-10-2026) - seeded with
-         the same posture as Inter Company Sell: raise and edit, no delete */
-      'Inter Store Sell': WRITE,
       'Main Reports': READ_DL,
       Reports: READ_DL,
       'Staff Management': READ,
@@ -211,7 +208,6 @@ const RULES = {
       Sell: READ,
       'Stock Transfers': ['read', 'update'],
       'Inter Company Sell': ['read', 'update'],
-      'Inter Store Sell': ['read', 'update'],
       'Main Reports': READ,
       Reports: READ,
       'Cash Register': READ,

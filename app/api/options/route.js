@@ -5714,7 +5714,6 @@
 import { isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
-import { destinationStores } from '@/lib/storeLocations';
  
 /* /api/options?ref=<name>&business=<id>
    Feeds every `ref` dropdown in the app. Replaces the `options` branch of the
@@ -5741,6 +5740,11 @@ const REFS = {
   companylocations:          { load: () => import('@/models/CompanyLocation'), includeAll: true },
   ledgergroups:              { load: () => import('@/models/LedgerGroup') },
   ledger:                    { load: () => import('@/models/Ledger') },
+  /* Accounts module: the CHART of accounts a journal line posts to. Not the
+     party Ledger above - see the note at the top of models/AccountsMaster.js.
+     The account code is appended for display and searched, so a bookkeeper
+     who knows the code can type it. */
+  accounts:                  { load: () => import('@/models/AccountsMaster'), label: 'accountName', codeField: 'accountCode', locationScoped: true },
   docsetup:                  { load: () => import('@/models/DocSetup') },
   purchasegroup:             { load: () => import('@/models/PurchaseGroup') },
   /* locationScoped: a stock point belongs to ONE location, so offering the
@@ -6010,18 +6014,6 @@ export async function GET(req) {
   const entry = REFS[ref];
   await dbConnect();
 
-  /* STORES OF THE WHOLE COMPANY - Inter Store Sell's destination picker.
-
-     The plain `companylocations` ref answers with ONE branch's locations,
-     which is right for the top bar and for master data, but wrong for a
-     transfer between the company's stores: a group with sub-branches has
-     locations under each of them, and rows left behind by a deleted branch
-     matched no branch at all. Opt-in, because every other caller wants its
-     own branch's list - see lib/storeLocations.js. */
-  if (ref === 'companylocations' && sp.get('groupStores') === '1') {
-    return json(await destinationStores(sp.get('business')));
-  }
-
   if (ref === 'supplier-code') {
     const { Supplier } = await import('@/lib/contacts');
     const Grc = (await import('@/models/Grc')).default;
@@ -6243,13 +6235,6 @@ export async function GET(req) {
       /* which location the row belongs to ('' = shared by the whole
          business), so a form can pick the row bound to the header LOCATION */
       ...(entry.locationScoped ? { locationId: r.locationId ? String(r.locationId) : '' } : {}),
-      /* A location's own tax identity. The Inter Store challan shows the
-         destination's GSTN and decides IGST vs CGST+SGST from the two
-         stores' states; carrying both here saves a second request per
-         selection, and nothing else reads them. */
-      ...(ref === 'companylocations'
-        ? { gstin: String(r.gstin ?? ''), state: String(r.state ?? '') }
-        : {}),
     })),
   });
 }

@@ -1053,6 +1053,7 @@ import {
 import { purchasePriceError, normalisePurchasePrice } from '@/lib/purchasePrice';
 import { saveBatchTypeOf } from '@/lib/barcodeUnits';
 import { grcTotals } from '@/lib/grcMoney';
+import { trySyncGrcPosting, reverseGrcJournal } from '@/lib/accounting/posting';
 
 /* /api/barcode-generation
 
@@ -1637,6 +1638,12 @@ export const POST = handler(async (req) => {
   /* a validation short-circuit inside the transaction returns a Response */
   if (result instanceof Response) return result;
 
+  /* Barcode generation is where a GRC's priced rows become final, so it is
+     where the receipt's journal is posted. AFTER the transaction commits and
+     deliberately non-fatal: accounting must never roll back stock, and a
+     posting failure is stored on the GRC for retry. */
+  await trySyncGrcPosting(result.grcId, { actor: session });
+
   return json({ ok: true, ...result });
 });
 
@@ -1667,7 +1674,11 @@ export const DELETE = handler(async (req) => {
   }
 
   if (body?.grcId) {
-    return withTransaction(async (dbSession) => {
+    /* Read before the delete so the journal can still name the document it
+       is reversing (the row is gone by the time the transaction returns). */
+    const grcBefore = await Grc.findById(body.grcId).select('businessId grcNumber').lean();
+
+    const result = await withTransaction(async (dbSession) => {
       const units = await BarcodeLabel.find({ grcId: body.grcId }).session(dbSession || null).lean();
 
       const moved = units.filter((u) => u.status && u.status !== BARCODE_STATUS.IN_STOCK);
@@ -1690,12 +1701,18 @@ export const DELETE = handler(async (req) => {
 
       await Grc.findByIdAndDelete(body.grcId, dbSession ? { session: dbSession } : {});
       await BarcodeLabel.deleteMany({ grcId: body.grcId }, dbSession ? { session: dbSession } : {});
-      return json({ ok: true });
+      return { ok: true };
     });
+
+    if (result instanceof Response) return result;
+
+    /* The receipt is gone; its journal is offset rather than erased. */
+    await reverseGrcJournal(grcBefore, { reason: 'GRC deleted' });
+    return json(result);
   }
 
   if (body?.id) {
-    return withTransaction(async (dbSession) => {
+    const result = await withTransaction(async (dbSession) => {
       const unit = await BarcodeLabel.findById(body.id).session(dbSession || null).lean();
       if (!unit) return json({ ok: true });
 
@@ -1715,8 +1732,17 @@ export const DELETE = handler(async (req) => {
         const rest = await BarcodeLabel.find({ grcId: unit.grcId }).session(dbSession || null).lean();
         await Grc.findByIdAndUpdate(unit.grcId, grcTotals(rest), dbSession ? { session: dbSession } : {});
       }
-      return json({ ok: true });
+      return { ok: true, grcId: unit.grcId ? String(unit.grcId) : null };
     });
+
+    if (result instanceof Response) return result;
+
+    /* One barcode off a receipt changes its value, so its journal is brought
+       back in step (reversed and re-written) after the stock has moved. */
+    if (result.grcId && isValidObjectId(result.grcId)) {
+      await trySyncGrcPosting(result.grcId, { actor: session });
+    }
+    return json({ ok: true });
   }
 
   return json({ error: 'id or grcId required', code: 'BAD_INPUT' }, 400);

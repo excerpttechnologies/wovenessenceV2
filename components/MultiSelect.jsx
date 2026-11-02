@@ -7,7 +7,7 @@ import Icon from './Icon';
 export default function MultiSelect({
   options = [], value, onChange, mode = 'multi',
   placeholder = 'Select...', disabled = false, loading = false, error = '', emptyText = '', onSearch,
-  maxOptions = 200, className = '',
+  maxOptions = 200,
 }) {
   const [open, setOpen] = useState(false);
   const [term, setTerm] = useState('');
@@ -43,11 +43,11 @@ export default function MultiSelect({
   return (
     <div className="relative" ref={box}>
       <div
-        className={'ms-control ' + (disabled ? 'bg-[#f2f4f8]' : '') + (className ? ' ' + className : '')}
+        className={'ms-control ' + (disabled ? 'bg-[#f2f4f8]' : '')}
         onClick={() => !disabled && setOpen(true)}
       >
         {mode === 'multi' && selected.map((s) => (
-          <span key={s.value} className={'ms-chip ' + (className.includes('!h-[30px]') ? '!py-0 !px-1.5 !text-[11px]' : '')}>
+          <span key={s.value} className="ms-chip">
             {s.label}
             <button type="button" onClick={(e) => { e.stopPropagation(); drop(s.value); }}>
               <Icon name="x" size={11} />
@@ -56,11 +56,11 @@ export default function MultiSelect({
         ))}
 
         {mode === 'single' && selected && !open && (
-          <span className={'px-1 text-ink truncate leading-tight ' + (className.includes('!text-') ? '' : 'text-[13.5px]')}>{selected.label}</span>
+          <span className="px-1 text-[13.5px] text-ink">{selected.label}</span>
         )}
 
         <input
-          className={'ms-input ' + (className.includes('!h-[30px]') ? '!h-[22px]' : '')}
+          className="ms-input"
           value={term}
           disabled={disabled}
           placeholder={(mode === 'multi' ? selected.length : selected) ? '' : placeholder}

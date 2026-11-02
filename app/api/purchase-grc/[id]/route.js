@@ -9,6 +9,7 @@ import { validate } from '@/lib/validate';
 import { FORM } from '@/app/admin/transaction/purchase/grc/form';
 import { nextDocNumber } from '@/lib/docnumber';
 import { itemPriceErrors } from '@/lib/purchasePrice';
+import { trySyncGrcPosting, reverseGrcPosting } from '@/lib/accounting/posting';
 
 /* header fields AND the totals rows - the totals card holds real stored
    numbers (taxable value, round off, net value, the editable discounts).
@@ -94,6 +95,11 @@ export async function PUT(req, { params }) {
   const updated = await Grc.findByIdAndUpdate(id, doc, { new: true, runValidators: true });
   if (!updated) return json({ error: 'Not found' }, 404);
 
+  /* An edited GRC may carry a different value. The sync keeps the books in
+     step: unchanged value -> nothing happens; changed value -> the old
+     journal is reversed and a new one written. */
+  await trySyncGrcPosting(id, { actor: session });
+
   return json({ ok: true, id });
 }
 
@@ -134,6 +140,12 @@ export async function POST(req, { params }) {
   });
   grc.purchaseInvoiceId = invoice._id;
   await grc.save();
+
+  /* Billing the GRC is the point its value is final, so its journal is
+     confirmed here too - a GRC whose posting failed earlier (no mapping yet)
+     gets another attempt rather than staying out of the books forever. */
+  await trySyncGrcPosting(id, { actor: session });
+
   return json({ ok: true, id: String(invoice._id), purchaseInvoiceNo: invoice.purchaseInvoiceNo });
 }
 
@@ -146,6 +158,12 @@ export async function DELETE(req, { params }) {
 
   const no = await grcDenied(session, id, [PERM.DELETE]);
   if (no) return no;
+
+  /* Cancelling a receipt takes its value out of the books by REVERSING the
+     journal, not by deleting it - the stock and the money that moved are
+     history, and history is offset, never erased. Done before the document
+     goes, while it still carries the figures the journal was built from. */
+  await reverseGrcPosting(id, { reason: 'GRC cancelled' });
 
   await Grc.findByIdAndDelete(id);
   return json({ ok: true });

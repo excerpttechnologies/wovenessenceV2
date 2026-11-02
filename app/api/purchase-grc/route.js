@@ -13,6 +13,7 @@ import { itemPriceErrors } from '@/lib/purchasePrice';
 import { FORM } from '@/app/admin/transaction/purchase/grc/form';
 import { screenDenial, screenDenialAnyAction, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { sortedPage } from '@/lib/listSort';
+import { trySyncGrcPosting } from '@/lib/accounting/posting';
 
 const GRC_SCREEN = { screen: SCREENS.GRC, label: 'GRC' };
 
@@ -359,6 +360,12 @@ export async function POST(req) {
   }
 
   const created = await Grc.create(doc);
+
+  /* Accounting is downstream of the receipt: the GRC is saved first, then its
+     journal is written. A posting that cannot be made (no account mapping
+     yet) is recorded on the GRC and can be retried - it never turns a saved
+     receipt into an error page. */
+  await trySyncGrcPosting(created._id, { actor: session });
 
   return json({ ok: true, id: String(created._id), grcNumber: created.grcNumber });
 }

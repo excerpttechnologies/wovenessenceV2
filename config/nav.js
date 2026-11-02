@@ -526,13 +526,9 @@ export const NAV = [
     label: 'Inter Company Sell',
     icon: LuHouse,
     children: [
-      /* LABELS ONLY (31-10-2026). "Consignment" is the goods being SENT and
-         "Consignment Receive" the goods being RECEIVED - the two halves of
-         the same consignment. The hrefs, permission keys and workflows are
-         untouched, so every bookmark and saved matrix row still resolves. */
-      { label: 'Consignment Given', icon: LuFileCheck,
+      { label: 'Consignment', icon: LuFileCheck,
         href: '/admin/transaction/intercompanysell/deliverychallan' },
-      { label: 'Consignment Receive', icon: LuPackageCheck,
+      { label: 'Receive Delivery Challan', icon: LuPackageCheck,
         href: '/admin/transaction/intercompanysell/receivedeliverychallan' },
       /* Consignment billing: the sender invoices the units its receivers
          have SOLD - not the whole challan, which is what the older hidden
@@ -541,7 +537,7 @@ export const NAV = [
         href: '/admin/transaction/intercompanysell/sales-invoice' },
       /* the receiver saves the sender's Sales Invoice as its purchase -
          static page for now (14-10-2026) */
-      { label: 'Auto Purchases Received', icon: LuPackageCheck,
+      { label: 'Auto Purchases Receiveds', icon: LuPackageCheck,
         href: '/admin/transaction/intercompanysell/auto-purchase-receiveds' },
       /* the returns of IC challans, moved out of Receive Delivery
          Challan's Returns tab onto a page of their own */
@@ -559,35 +555,6 @@ export const NAV = [
   },
 
 
-
-  /* INTER STORE SELL (31-10-2026).
-
-     A SEPARATE module from Inter Company Sell, sitting immediately above Main
-     Reports as asked. The difference is the tax treatment, not the menu:
-
-       Inter Company Sell  - stock moves between BUSINESSES, no GST.
-       Inter Store Sell    - stock moves between two STORES (locations) of the
-                             same business, and every document here is
-                             GST-enabled.
-
-     All four screens live under app/admin/transaction/interstoresell and are
-     built on their own collections (models/Store*.js), so a query for one
-     module can never return the other's records. `module` is stamped on every
-     document as a second, explicit discriminator. */
-  {
-    label: 'Inter Store Sell',
-    icon: LuStore,
-    children: [
-      { label: 'Delivery Challan', icon: LuFileCheck,
-        href: '/admin/transaction/interstoresell/deliverychallan' },
-      { label: 'Sales Invoice', icon: LuFileText,
-        href: '/admin/transaction/interstoresell/salesinvoice' },
-      { label: 'Received Debit Note', icon: LuFileMinus,
-        href: '/admin/transaction/interstoresell/receiveddebitnote' },
-      { label: 'Sales Return', icon: LuUndo2,
-        href: '/admin/transaction/interstoresell/salesreturn' },
-    ],
-  },
 
   /* A TOP-LEVEL group of its own, between Inter Company Sell and Reports, so
      the hierarchy is exactly:  Main Reports > Master Stock Report  - with no
@@ -719,11 +686,39 @@ export const NAV = [
   //   children: [],
   // },
  
-  // {
-  //   label: 'Accounts',
-  //   icon: LuWalletCards,
-  //   children: [],
-  // },
+  /* ==========================================================================
+     ACCOUNTS (31-10-2026).
+
+     A group of its own rather than entries inside Reports or Setting: the
+     chart, the journal and its settings are where the books are KEPT, and
+     the six reports read those books. Deliberately separate from the older
+     "Ledger Transaction" screen below, which derives a Dr / Cr list from the
+     documents themselves and posts nothing - see its own note.
+     ========================================================================== */
+  {
+    label: 'Accounts',
+    icon: LuWalletCards,
+    children: [
+      { label: 'Chart of Accounts', icon: LuBookOpen,
+        href: '/admin/accounting/chart-of-accounts' },
+      { label: 'Journal Entries', icon: LuFileCheck,
+        href: '/admin/accounting/journal' },
+      { label: 'Accounting Settings', icon: LuSettings,
+        href: '/admin/accounting/settings' },
+      { label: 'Ledger', icon: LuBookMarked,
+        href: '/admin/accounting/reports/ledger' },
+      { label: 'Trial Balance', icon: LuChartNoAxesColumn,
+        href: '/admin/accounting/reports/trial-balance' },
+      { label: 'Profit & Loss', icon: LuChartNoAxesColumn,
+        href: '/admin/accounting/reports/profit-loss' },
+      { label: 'Balance Sheet', icon: LuLayers3,
+        href: '/admin/accounting/reports/balance-sheet' },
+      { label: 'GST Ledger', icon: LuPercent,
+        href: '/admin/accounting/reports/gst-ledger' },
+      { label: 'Bank & Cash', icon: LuWalletCards,
+        href: '/admin/accounting/reports/bank-cash' },
+    ],
+  },
  
   {
     label: 'Cash Register',

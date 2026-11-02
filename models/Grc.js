@@ -62,6 +62,27 @@ const GrcSchema = new mongoose.Schema(
     /* set when this document is converted downstream; null = still available */
     purchaseInvoiceId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
 
+    /* ---- accounting posting state (added with the Accounts module) ----
+       Additive only: nothing above this block changes, and a GRC that has
+       never been posted keeps the same fields it always had.
+
+         pending  - raised, not posted yet (no value, or no account mapping)
+         posted   - its journal is in the books
+         failed   - posting was attempted and refused; accountingError says why
+         reversed - its journal was reversed (the GRC was cancelled)
+
+       This is what a retry looks at. It is never used to decide whether the
+       document itself is valid - a posting failure must not fail a receipt. */
+    accountingStatus: {
+      type: String,
+      enum: ['pending', 'posted', 'failed', 'reversed'],
+      default: 'pending',
+      index: true,
+    },
+    accountingJournalId: { type: mongoose.Schema.Types.ObjectId, default: null },
+    accountingError: { type: String, default: '' },
+    accountingPostedAt: { type: Date, default: null },
+
     /* line items are free-form per document type */
     items: { type: mongoose.Schema.Types.Mixed, default: [] },
     voucherRows: { type: mongoose.Schema.Types.Mixed, default: [] },
