@@ -6,7 +6,7 @@
 // // // // // import ModalForm from "./ModalForm";
 // // // // // import FilterPanel from "./FilterPanel";
 // // // // // import { useScope } from "./ScopeContext";
-// // // // // import { fmt, toCsv, toXlsHtml, download, printTable } from "@/lib/format";
+// // // // // import { fmt, toCsv, toXlsHtml, download, printTable, exportFullData, formatFileSize } from "@/lib/format";
 
 // // // // // /* ==========================================================================
 // // // // //    Generic list card.
@@ -451,7 +451,7 @@
 // // // // import ModalForm from "./ModalForm";
 // // // // import FilterPanel from "./FilterPanel";
 // // // // import { useScope } from "./ScopeContext";
-// // // // import { fmt, toCsv, toXlsHtml, download, printTable } from "@/lib/format";
+// // // // import { fmt, toCsv, toXlsHtml, download, printTable, exportFullData, formatFileSize } from "@/lib/format";
 
 // // // // /* ==========================================================================
 // // // //    Generic list card.
@@ -930,7 +930,7 @@
 // // // import ModalForm from "./ModalForm";
 // // // import FilterPanel from "./FilterPanel";
 // // // import { useScope } from "./ScopeContext";
-// // // import { fmt, toCsv, toXlsHtml, download, printTable } from "@/lib/format";
+// // // import { fmt, toCsv, toXlsHtml, download, printTable, exportFullData, formatFileSize } from "@/lib/format";
 
 // // // /* ==========================================================================
 // // //    Generic list card.
@@ -1447,7 +1447,7 @@
 // // import ModalForm from "./ModalForm";
 // // import FilterPanel from "./FilterPanel";
 // // import { useScope } from "./ScopeContext";
-// // import { fmt, toCsv, toXlsHtml, download, printTable } from "@/lib/format";
+// // import { fmt, toCsv, toXlsHtml, download, printTable, exportFullData, formatFileSize } from "@/lib/format";
  
 // // /* ==========================================================================
 // //    Generic list card.
@@ -2156,7 +2156,7 @@
 // import ShareDocDialog from "./ShareDocDialog";
 // import GrtPrintDocument from "./GrtPrintDocument";
 // import { useScope } from "./ScopeContext";
-// import { fmt, toCsv, toXlsHtml, download, printTable } from "@/lib/format";
+// import { fmt, toCsv, toXlsHtml, download, printTable, exportFullData, formatFileSize } from "@/lib/format";
  
 // /* ==========================================================================
 //    Generic list card.
@@ -3092,7 +3092,7 @@ import ShareDocDialog from "./ShareDocDialog";
 import GrtPrintDocument from "./GrtPrintDocument";
 import { useScope } from "./ScopeContext";
 import NumberedPager, { SortHeader } from "./NumberedPager";
-import { fmt, toCsv, toXlsHtml, download, printTable } from "@/lib/format";
+import { fmt, toCsv, toXlsHtml, download, printTable, exportFullData, formatFileSize } from "@/lib/format";
  
 /* ==========================================================================
    Generic list card.
@@ -3211,6 +3211,8 @@ export default function ListView({ cfg, slug }) {
   const numberedPager = cfg.pager === "numbered";
   const [perPage, setPerPage] = useState(null);
   const [sort, setSort] = useState({ key: null, dir: null });
+  const [exporting, setExporting] = useState(false);
+  const [exportMessage, setExportMessage] = useState(null);
   const [modal, setModal] = useState(false);
   const [filters, setFilters] = useState({});
   const [menuFor, setMenuFor] = useState(null);
@@ -3599,6 +3601,56 @@ export default function ListView({ cfg, slug }) {
     );
   const exportHeaders = () => visible.map((c) => c.t);
   const fileBase = String(slugPath).replace(/\//g, "-");
+
+  /* Full-database export for this screen. The existing Excel/CSV buttons keep
+     exporting the page on screen; this reads the same endpoint page by page on
+     the server and writes every field on the documents. */
+  function fullExportParams(mode) {
+    const params = {};
+    if (business) params.business = business;
+    if (location) params.location = location;
+    if (finYear) params.finYear = finYear;
+    if (mode !== "all") {
+      if (search) params.search = search;
+      Object.entries(filters).forEach(([k, v]) => { if (v) params[k] = v; });
+    }
+    if (sort.key && sort.dir) {
+      params.sortBy = sort.key;
+      params.sortDir = sort.dir;
+    }
+    Object.entries(cfg.fixedQuery || {}).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== "") params[k] = String(v);
+    });
+    return params;
+  }
+
+  async function runFullExport(mode) {
+    if (exporting) return;
+    if (scopePending || noBusiness) {
+      setExportMessage({ tone: "err", text: "Select a business before exporting." });
+      return;
+    }
+    setExporting(true);
+    setExportMessage(null);
+    try {
+      const result = await exportFullData({
+        endpoint: cfg.fullExport?.endpoint || cfg.endpoint,
+        params: fullExportParams(mode),
+        title: cfg.fullExport?.title || cfg.title,
+        fileBase: cfg.fullExport?.fileBase || slugPath,
+      });
+      const size = formatFileSize(result.bytes);
+      setExportMessage({
+        tone: result.truncated ? "warn" : "ok",
+        text: `${result.filename}${size ? ` (${size})` : ""} - ${result.rows.toLocaleString("en-IN")} record${result.rows === 1 ? "" : "s"}.`
+          + (result.truncated ? " The server capped the export; narrow the filter to take the rest." : ""),
+      });
+    } catch (e) {
+      setExportMessage({ tone: "err", text: `Could not build the full export - ${e.message || "the server did not answer."}` });
+    } finally {
+      setExporting(false);
+    }
+  }
  
   async function remove(id) {
     if (!window.confirm("Delete this record?")) return;
@@ -3738,7 +3790,16 @@ export default function ListView({ cfg, slug }) {
             onExportPdf={() =>
               printTable(cfg.title, exportHeaders(), exportRows())
             }
+            onExportFull={runFullExport}
+            exporting={exporting}
+            exportingLabel={`Building the full ${cfg.title} export...`}
           />
+
+          {exportMessage && (
+            <div className={'mt-2 text-[12.5px] ' + (exportMessage.tone === 'err' ? 'text-danger' : exportMessage.tone === 'warn' ? 'text-[#9a6700]' : 'text-okgreen')}>
+              {exportMessage.text}
+            </div>
+          )}
  
           <div className="mt-3 overflow-x-auto">
             <table className="dt">

@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Icon from './Icon';
 import { useScope } from './ScopeContext';
-import { fmt, toCsv, toXlsHtml, download, printTable } from '@/lib/format';
+import { fmt, toCsv, toXlsHtml, download, printTable, exportFullData, formatFileSize } from '@/lib/format';
 import { FILTERS, COLUMNS, PER_PAGE } from '@/app/admin/ledger-transaction/fields';
 
 /* ==========================================================================
@@ -26,6 +26,8 @@ export default function LedgerTransactionView() {
   const [state, setState] = useState({ rows: [], total: 0, page: 1, pages: 1, capped: false });
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
+  const [exportMessage, setExportMessage] = useState(null);
 
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
 
@@ -58,6 +60,36 @@ export default function LedgerTransactionView() {
   const cellText = (row, col) => (col.f ? fmt(col.f, row[col.k]) : (row[col.k] ?? ''));
   const exportHeaders = () => COLUMNS.map((c) => c.t);
   const exportRows = () => state.rows.map((r) => COLUMNS.map((c) => cellText(r, c)));
+
+  async function runFullExport(mode) {
+    if (exporting) return;
+    if (!business) {
+      setExportMessage({ tone: 'err', text: 'Select a business before exporting.' });
+      return;
+    }
+    setExporting(true);
+    setExportMessage(null);
+    try {
+      const params = { business, location: location || '', finYear: finYear || '' };
+      if (mode !== 'all') Object.entries(applied).forEach(([k, v]) => { if (v) params[k] = v; });
+      const result = await exportFullData({
+        endpoint: '/api/ledger-transaction',
+        params,
+        title: 'Ledger Transactions',
+        fileBase: 'Ledger_Transactions',
+      });
+      const size = formatFileSize(result.bytes);
+      setExportMessage({
+        tone: result.truncated ? 'warn' : 'ok',
+        text: `${result.filename}${size ? ` (${size})` : ''} - ${result.rows.toLocaleString('en-IN')} record${result.rows === 1 ? '' : 's'}.`
+          + (result.truncated ? ' The server capped the export; narrow the filter to take the rest.' : ''),
+      });
+    } catch (e) {
+      setExportMessage({ tone: 'err', text: `Could not build the full export - ${e.message || 'the server did not answer.'}` });
+    } finally {
+      setExporting(false);
+    }
+  }
 
   return (
     <>
@@ -142,7 +174,29 @@ export default function LedgerTransactionView() {
             >
               <Icon name="file" size={14} /> Export to PDF
             </button>
+            <button
+              type="button" className="btn btn-primary"
+              disabled={exporting}
+              onClick={() => runFullExport('filtered')}
+              title="Every field on the underlying documents, for every row the filter matches"
+            >
+              <Icon name="file" size={14} /> {exporting ? 'Building...' : 'Export All Fields'}
+            </button>
+            <button
+              type="button" className="btn"
+              disabled={exporting}
+              onClick={() => runFullExport('all')}
+              title="Every accessible ledger entry, every field; ignores the filter card"
+            >
+              <Icon name="file" size={14} /> Export Every Record
+            </button>
           </div>
+
+          {exportMessage && (
+            <div className={'mt-2 text-[12.5px] ' + (exportMessage.tone === 'err' ? 'text-danger' : exportMessage.tone === 'warn' ? 'text-[#9a6700]' : 'text-okgreen')}>
+              {exportMessage.text}
+            </div>
+          )}
 
           {/* the exports carry the page on screen, not the whole result set -
               the same limitation every other list in this project has */}

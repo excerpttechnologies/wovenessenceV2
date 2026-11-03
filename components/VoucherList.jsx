@@ -6,7 +6,7 @@ import VoucherForm from './VoucherForm';
 import ConfirmDialog from './ConfirmDialog';
 import { useScope } from './ScopeContext';
 import NumberedPager, { SortHeader } from './NumberedPager';
-import { fmt, toCsv, toXlsHtml, download, printTable } from '@/lib/format';
+import { fmt, toCsv, toXlsHtml, download, printTable, exportFullData, formatFileSize } from '@/lib/format';
 import { STATUS_OPTS } from '@/app/admin/voucher/fields';
 
 /* ==========================================================================
@@ -42,6 +42,8 @@ export default function VoucherList({ spec }) {
   const [pendingDelete, setPendingDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
+  const [exporting, setExporting] = useState(false);
+  const [exportMessage, setExportMessage] = useState(null);
 
   const load = useCallback(async () => {
     if (!business) { setLoading(false); return; }
@@ -77,6 +79,54 @@ export default function VoucherList({ spec }) {
   const cell = (row, col) => (col.f ? fmt(col.f, row[col.k]) : (row[col.k] ?? ''));
   const exportHeaders = () => visible.map((c) => c.t);
   const exportRows = () => state.rows.map((r) => visible.map((c) => cell(r, c)));
+
+  /* Full-database export. The server walks /api/voucher, which is the same
+     endpoint this list uses, so `type` and the voucher filters are identical.
+     "All accessible" drops the search and filter card but keeps the voucher
+     type (Receipt, Payment or Contra) and the scope. */
+  function fullExportParams(mode) {
+    const params = { type: spec.type };
+    if (business) params.business = business;
+    if (location) params.location = location;
+    if (finYear) params.finYear = finYear;
+    if (mode !== 'all') {
+      if (search) params.search = search;
+      Object.entries(applied).forEach(([k, v]) => { if (v) params[k] = v; });
+    }
+    if (sort.key && sort.dir) {
+      params.sortBy = sort.key;
+      params.sortDir = sort.dir;
+    }
+    return params;
+  }
+
+  async function runFullExport(mode) {
+    if (exporting) return;
+    if (!business) {
+      setExportMessage({ tone: 'err', text: 'Select a business before exporting.' });
+      return;
+    }
+    setExporting(true);
+    setExportMessage(null);
+    try {
+      const result = await exportFullData({
+        endpoint: ENDPOINT,
+        params: fullExportParams(mode),
+        title: spec.title,
+        fileBase: `${spec.slug}_${spec.type}`,
+      });
+      const size = formatFileSize(result.bytes);
+      setExportMessage({
+        tone: result.truncated ? 'warn' : 'ok',
+        text: `${result.filename}${size ? ` (${size})` : ''} - ${result.rows.toLocaleString('en-IN')} record${result.rows === 1 ? '' : 's'}.`
+          + (result.truncated ? ' The server capped the export; narrow the filter to take the rest.' : ''),
+      });
+    } catch (e) {
+      setExportMessage({ tone: 'err', text: `Could not build the full export - ${e.message || 'the server did not answer.'}` });
+    } finally {
+      setExporting(false);
+    }
+  }
 
   /* Opens the confirmation. The delete itself is confirmDelete, below. */
   function remove(row) {
@@ -206,7 +256,16 @@ export default function VoucherList({ spec }) {
                 toXlsHtml(spec.title, exportHeaders(), exportRows()),
                 'application/vnd.ms-excel')}
             onExportPdf={() => printTable(spec.title, exportHeaders(), exportRows())}
+            onExportFull={runFullExport}
+            exporting={exporting}
+            exportingLabel={`Building the full ${spec.title} export...`}
           />
+
+          {exportMessage && (
+            <div className={'mt-2 text-[12.5px] ' + (exportMessage.tone === 'err' ? 'text-danger' : exportMessage.tone === 'warn' ? 'text-[#9a6700]' : 'text-okgreen')}>
+              {exportMessage.text}
+            </div>
+          )}
 
           <div className="mt-3 overflow-x-auto">
             <table className="dt dt-nowrap-head">

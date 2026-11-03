@@ -2532,7 +2532,8 @@ import { useScope } from "./ScopeContext";
 import NumberedPager, { SortHeader } from "./NumberedPager";
 import Modal from "./Modal";
 import ConfirmDialog from "./ConfirmDialog";
-import { fmt, toCsv, toXlsHtml, download, printTable } from "@/lib/format";
+import { fmt, toCsv, toXlsHtml, download, printTable, exportFullData, formatFileSize } from "@/lib/format";
+import { isListEndpointAllowed } from "@/lib/export/registry";
  
 /* ==========================================================================
    Generic list card.
@@ -3094,6 +3095,18 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
   const EXPORT_PAGE = 500;     // rows per request while collecting
   const EXPORT_MAX = 50000;    // refuse to build a file bigger than this
   const [exporting, setExporting] = useState(false);
+  const [exportingLabel, setExportingLabel] = useState("");
+  const [exportMessage, setExportMessage] = useState(null);
+  /* Full export is on for every ListView unless a screen opts out. Selection
+     is opt-in (cfg.fullExport.selectable === true) because a tick column
+     changes the table on every one of the ~55 list screens. */
+  /* ...and only where the server will actually accept it: lib/export/registry.js
+     allows a closed list of list endpoints, so a screen pointed at anything
+     else would offer a menu that answers 400. */
+  const fullExportEnabled = cfg.fullExport !== false
+    && isListEndpointAllowed(cfg.fullExport?.endpoint || cfg.endpoint);
+  const canSelect = Boolean(cfg.fullExport && cfg.fullExport.selectable === true);
+  const [selected, setSelected] = useState(() => new Set());
 
   async function fetchAllRows() {
     /* THE SCOPE GATE APPLIES HERE TOO. An unscoped request is answered with
@@ -3149,6 +3162,7 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
        would fetch the whole set twice and hand back two files. */
     if (exporting) return;
     setExporting(true);
+    setExportingLabel("Collecting every row the filter matches for the download...");
     try {
       const { rows, labels, truncated } = await fetchAllRows();
       const headers = exportHeaders();
@@ -3171,7 +3185,113 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
       setError(`Could not build the export - ${e.message || "the server did not answer."}`);
     } finally {
       setExporting(false);
+      setExportingLabel("");
     }
+  }
+
+  /* ------------------------------------------------------------------
+     FULL-DATABASE EXPORT.
+
+     Mode B is the same query as above, but the server writes a real .xlsx
+     from every field on the documents rather than the columns on screen.
+     The request goes to /api/export/full, which pages the SAME endpoint the
+     list uses - so the filter, permission and company/location rules cannot
+     drift from what the screen shows.
+
+     "All accessible" deliberately drops search and the filter card. It keeps
+     the company, location, financial year and cfg.fixedQuery, because those
+     are the screen's scope, not a filter the operator typed.
+     ------------------------------------------------------------------ */
+  function fullExportParams(mode) {
+    const params = {};
+    if (business) params.business = business;
+    if (location) params.location = location;
+    if (finYear) params.finYear = finYear;
+    if (mode !== "all") {
+      if (search) params.search = search;
+      Object.entries(filters).forEach(([k, v]) => { if (v) params[k] = v; });
+    }
+    if (sort.key && sort.dir) {
+      params.sortBy = sort.key;
+      params.sortDir = sort.dir;
+    }
+    Object.entries(cfg.fixedQuery || {}).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== "") params[k] = String(v);
+    });
+    return params;
+  }
+
+  async function runFullExport(mode) {
+    if (exporting) return;
+    if (scopePending || noBusiness) {
+      setExportMessage({ tone: "err", text: "Select a business before exporting." });
+      return;
+    }
+    if (cfg.searchOnly && Object.keys(filters).length === 0) {
+      setExportMessage({ tone: "err", text: "Use the filter above to choose the records to export." });
+      return;
+    }
+    if (mode === "selected" && selected.size === 0) {
+      setExportMessage({ tone: "err", text: "Tick at least one row before exporting selected records." });
+      return;
+    }
+
+    const label = mode === "all"
+      ? "Building the full export for every record this screen can read..."
+      : mode === "selected"
+        ? `Building the full export for ${selected.size} selected record${selected.size === 1 ? "" : "s"}...`
+        : "Building the full export for every row the filter matches...";
+
+    setExporting(true);
+    setExportingLabel(label);
+    setExportMessage(null);
+    try {
+      const result = await exportFullData({
+        endpoint: cfg.fullExport?.endpoint || cfg.endpoint,
+        params: fullExportParams(mode),
+        title: cfg.fullExport?.title || cfg.title,
+        fileBase: cfg.fullExport?.fileBase || slugPath,
+        selectedIds: mode === "selected" ? [...selected] : [],
+      });
+      const size = formatFileSize(result.bytes);
+      setExportMessage({
+        tone: result.truncated ? "warn" : "ok",
+        text: `${result.filename}${size ? ` (${size})` : ""} - ${result.rows.toLocaleString("en-IN")} record${result.rows === 1 ? "" : "s"}`
+          + (result.columns ? `, ${result.columns.toLocaleString("en-IN")} field${result.columns === 1 ? "" : "s"}` : "")
+          + "."
+          + (result.truncated ? " The server capped the export; narrow the filter to take the rest." : ""),
+      });
+    } catch (e) {
+      setExportMessage({
+        tone: "err",
+        text: `Could not build the full export - ${e.message || "the server did not answer."}`,
+      });
+    } finally {
+      setExporting(false);
+      setExportingLabel("");
+    }
+  }
+
+  const pageIds = (state.rows || []).map((row) => String(row?._id ?? "")).filter(Boolean);
+  const allPageSelected = pageIds.length > 0 && pageIds.every((id) => selected.has(id));
+  const somePageSelected = pageIds.some((id) => selected.has(id));
+
+  function toggleSelected(id) {
+    if (!id) return;
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function togglePageSelected() {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (allPageSelected) pageIds.forEach((id) => next.delete(id));
+      else pageIds.forEach((id) => next.add(id));
+      return next;
+    });
   }
  
   /* Opens the confirmation. The delete itself is confirmDelete, below. */
@@ -3410,11 +3530,19 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
             onExportCsv={() => runExport("csv")}
             onExportExcel={() => runExport("excel")}
             onExportPdf={() => runExport("pdf")}
+            onExportFull={fullExportEnabled ? runFullExport : null}
+            showSelectedExport={canSelect}
+            selectedCount={selected.size}
           />
- 
+  
           {exporting && (
             <div className="mt-2 text-[12.5px] text-inkmuted">
-              Collecting every row the filter matches for the download...
+              {exportingLabel || "Collecting every row the filter matches for the download..."}
+            </div>
+          )}
+          {exportMessage && (
+            <div className={"mt-2 text-[12.5px] " + (exportMessage.tone === "err" ? "text-danger" : exportMessage.tone === "warn" ? "text-[#9a6700]" : "text-okgreen")}>
+              {exportMessage.text}
             </div>
           )}
 
@@ -3422,6 +3550,18 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
             <table className={"dt" + (cfg.nowrapHead ? " dt-nowrap-head" : "")}>
               <thead>
                 <tr>
+                  {canSelect && (
+                    <th className="!text-center" style={{ width: 36 }}>
+                      <input
+                        type="checkbox"
+                        aria-label="Select every row on this page"
+                        checked={allPageSelected}
+                        ref={(el) => { if (el) el.indeterminate = !allPageSelected && somePageSelected; }}
+                        onChange={togglePageSelected}
+                        disabled={pageIds.length === 0}
+                      />
+                    </th>
+                  )}
                   {actionPos === "left" && <th>Action</th>}
                   {cfg.serialNumber && <th>#</th>}
                   {visible.map((c, i) => (
@@ -3449,14 +3589,14 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
               >
                 {((loading && state.rows.length === 0) || scopePending) && (
                   <tr>
-                    <td colSpan={visible.length + 1 + (cfg.serialNumber ? 1 : 0)} className="dt-empty">
+                    <td colSpan={visible.length + 1 + (cfg.serialNumber ? 1 : 0) + (canSelect ? 1 : 0)} className="dt-empty">
                       <span className="spin" />
                     </td>
                   </tr>
                 )}
                 {!loading && !scopePending && error && (
                   <tr>
-                    <td colSpan={visible.length + 1 + (cfg.serialNumber ? 1 : 0)} className="dt-empty text-danger">
+                    <td colSpan={visible.length + 1 + (cfg.serialNumber ? 1 : 0) + (canSelect ? 1 : 0)} className="dt-empty text-danger">
                       {error}{" "}
                       <button type="button" className="underline" onClick={load}>
                         Retry
@@ -3466,21 +3606,21 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
                 )}
                 {!loading && !scopePending && !error && noBusiness && (
                   <tr>
-                    <td colSpan={visible.length + 1 + (cfg.serialNumber ? 1 : 0)} className="dt-empty">
+                    <td colSpan={visible.length + 1 + (cfg.serialNumber ? 1 : 0) + (canSelect ? 1 : 0)} className="dt-empty">
                       Select a business to view this list.
                     </td>
                   </tr>
                 )}
                 {!loading && !scopePending && !error && !noBusiness && !searched && (
                   <tr>
-                    <td colSpan={visible.length + 1 + (cfg.serialNumber ? 1 : 0)} className="dt-empty">
+                    <td colSpan={visible.length + 1 + (cfg.serialNumber ? 1 : 0) + (canSelect ? 1 : 0)} className="dt-empty">
                       Use the filter above to search.
                     </td>
                   </tr>
                 )}
                 {!loading && !scopePending && !error && !noBusiness && searched && state.rows.length === 0 && (
                   <tr>
-                    <td colSpan={visible.length + 1 + (cfg.serialNumber ? 1 : 0)} className="dt-empty">
+                    <td colSpan={visible.length + 1 + (cfg.serialNumber ? 1 : 0) + (canSelect ? 1 : 0)} className="dt-empty">
                       No Data..
                     </td>
                   </tr>
@@ -3648,6 +3788,16 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
                     );
                     return (
                       <tr key={row._id}>
+                        {canSelect && (
+                          <td className="!text-center">
+                            <input
+                              type="checkbox"
+                              aria-label={`Select record ${row._id}`}
+                              checked={selected.has(String(row._id))}
+                              onChange={() => toggleSelected(String(row._id))}
+                            />
+                          </td>
+                        )}
                         {actionPos === "left" && actions}
                         {cfg.serialNumber && <td>{(page - 1) * (numberedPager ? (perPage || state.perPage || PER_PAGE) : PER_PAGE) + rowIndex + 1}</td>}
                         {visible.map((c, i) => (

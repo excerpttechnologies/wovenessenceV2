@@ -4378,6 +4378,7 @@ import GrcBarcodeLabelSheet from "./GrcBarcodeLabel";
    from, so the preview here cannot be measured differently. */
 import { labelRun } from "@/lib/barcodeLabelGeometry";
 import { useOptions } from "./useOptions";
+import { exportRowsData, formatFileSize } from "@/lib/format";
 import { useBarcodeLookup } from "./useScanner";
 import Icon from "./Icon";
 import { computeSampleBarcode } from "@/lib/barcodeFormat";
@@ -7690,6 +7691,8 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
 
   const [rows, setRows] = useState([]);
   const [activeTab, setActiveTab] = useState("items");
+  const [fullExporting, setFullExporting] = useState(false);
+  const [fullExportMessage, setFullExportMessage] = useState(null);
   const [showSaveConfirm, setShowSaveConfirm] = useState(false);
   const [showPrint, setShowPrint] = useState(false);
   const [printRows, setPrintRows] = useState([]);
@@ -7938,6 +7941,51 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(sheetRows), EXPORT_SNAPSHOT_SHEET);
     workbook.Workbook = { Sheets: [{ Hidden: 0 }, { Hidden: 2 }] };
     XLSX.writeFile(workbook, "barcode-items-template.xlsx");
+  }
+
+  /* Full-data export, separate from the template export above.
+
+     Export Excel writes a FIXED, importable template: its columns are the
+     ITEMS grid's fields plus the custom columns, and the hidden snapshot sheet
+     is there so a re-import can tell which cells were edited. It is a
+     round-trip file, not a report.
+
+     This writes every field on every row in the grid, including nested
+     customFields and any legacy key a row still carries, through the same
+     server workbook the database exports use (frozen header, AutoFilter,
+     typed date/number cells, everything identifier-shaped kept as text).
+     Header and index are deliberately NOT included: neither is part of the
+     item rows, and both would become meaningless columns in the file. */
+  async function exportFullRowsToExcel() {
+    if (fullExporting) return;
+    if (!validRows.length) {
+      setFullExportMessage({ tone: "err", text: "There are no item rows to export." });
+      return;
+    }
+    setFullExporting(true);
+    setFullExportMessage(null);
+    try {
+      const result = await exportRowsData({
+        rows: validRows,
+        title: "GCR Barcode Items",
+        fileBase: "GCR_Barcode_Items",
+        filters: "Rows on the barcode generation screen",
+      });
+      const size = formatFileSize(result.bytes);
+      setFullExportMessage({
+        tone: "ok",
+        text: `${result.filename}${size ? ` (${size})` : ""} - ${result.rows.toLocaleString("en-IN")} item row${result.rows === 1 ? "" : "s"}`
+          + (result.columns ? `, ${result.columns.toLocaleString("en-IN")} field${result.columns === 1 ? "" : "s"}` : "")
+          + ".",
+      });
+    } catch (error) {
+      setFullExportMessage({
+        tone: "err",
+        text: `Could not build the full export - ${error.message || "the server did not answer."}`,
+      });
+    } finally {
+      setFullExporting(false);
+    }
   }
 
   async function importRowsFromExcel(event) {
@@ -8562,6 +8610,9 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
             <button type="button" onClick={exportRowsToExcel} disabled={validRows.length === 0} className="flex items-center gap-1 rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50" title="Export all item fields to Excel">
               <Icon name="file" size={14} /> Export Excel
             </button>
+            <button type="button" onClick={exportFullRowsToExcel} disabled={validRows.length === 0 || fullExporting} className="flex items-center gap-1 rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50" title="Every field on every item row, as a real .xlsx (not the import template)">
+              <Icon name="file" size={14} /> {fullExporting ? "Building..." : "Full Data Export"}
+            </button>
             {/* The picker could only ever be reached by adding another item
                 and pressing Submit & Print Label. Re-opening a GRC to reprint
                 a damaged sticker - the ordinary reason to come back to this
@@ -8572,6 +8623,20 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
             <span className="rounded border border-gray-300 bg-gray-50 px-2 py-1">Pc(s) {totals.pcs}</span>
           </div>
         </div>
+
+        {/* Outcome of the full-data export, beside the button that started it:
+            the file downloads on its own, so without this line a refusal (no
+            rows, not signed in, rows too large) would look like nothing
+            happened at all. */}
+        {fullExportMessage && (
+          <div
+            className={"mt-2 rounded border px-2 py-1 text-xs " + (fullExportMessage.tone === "err"
+              ? "border-red-200 bg-red-50 text-red-800"
+              : "border-green-200 bg-green-50 text-green-800")}
+          >
+            {fullExportMessage.text}
+          </div>
+        )}
 
         {importMessage && (() => {
           /* Colour the banner based on what happened:

@@ -129,8 +129,30 @@ export default function Toolbar({
      hand back two files. Defaults false, so callers that have not been
      told about it behave exactly as before. */
   exporting = false,
+  /* Full-database export. When a screen passes onExportFull, a "Full export"
+     control sits beside the existing Excel button and offers the four choices
+     the export system supports. The Excel button itself is untouched, so a
+     screen that does not pass the new props behaves exactly as before.
+       onExportFull(mode)  mode = 'filtered' | 'all' | 'selected'
+       showSelectedExport  true only where the list can actually select rows
+       selectedCount       rows ticked on screen
+       exportingLabel      progress wording shown beside the control */
+  onExportFull = null,
+  showSelectedExport = false,
+  selectedCount = 0,
+  exportingLabel = '',
 }) {
   const [pop, setPop] = useState(false);
+  const [exportPop, setExportPop] = useState(false);
+
+  function chooseExport(mode) {
+    setExportPop(false);
+    if (mode === 'view') {
+      if (onExportExcel) onExportExcel();
+      return;
+    }
+    if (onExportFull) onExportFull(mode);
+  }
 
   return (
     <>
@@ -170,6 +192,64 @@ export default function Toolbar({
               for screen readers. */}
           {showCsv && <button type="button" className="exp-btn exp-csv" title={exporting ? "Collecting rows..." : "Export to CSV"} aria-label="Export to CSV" disabled={exporting} onClick={onExportCsv}><FaFileCsv size={18} /></button>}
           {showExcel && <button type="button" className="exp-btn exp-xls" title={exporting ? "Collecting rows..." : "Export to Excel"} aria-label="Export to Excel" disabled={exporting} onClick={onExportExcel}><FaFileExcel size={18} /></button>}
+          {onExportFull && (
+            <div className="relative">
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setExportPop((open) => !open)}
+                disabled={exporting}
+                aria-haspopup="menu"
+                aria-expanded={exportPop}
+                title={exporting ? (exportingLabel || 'Building the full export...') : 'Export every field, not just the visible columns'}
+              >
+                <FaFileExcel size={14} />
+                <span>Full export</span>
+                <span aria-hidden="true" className="text-[10px] leading-none">▾</span>
+              </button>
+              {exportPop && (
+                <div
+                  role="menu"
+                  className="absolute left-0 z-50 mt-1 w-[300px] rounded-md border border-linestrong bg-white p-1.5 shadow-pop"
+                >
+                  <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-inkmuted">Export</div>
+                  <button type="button" role="menuitem" className="block w-full rounded px-2 py-1.5 text-left text-[13px] hover:bg-canvas" onClick={() => chooseExport('view')}>
+                    Export Current View
+                    <span className="block text-[11px] text-inkmuted">The columns on this screen, as before.</span>
+                  </button>
+                  <div className="my-1 border-t border-line" />
+                  <button type="button" role="menuitem" className="block w-full rounded px-2 py-1.5 text-left text-[13px] hover:bg-canvas" onClick={() => chooseExport('filtered')}>
+                    Export Filtered Data - All Fields
+                    <span className="block text-[11px] text-inkmuted">Every matching record, every MongoDB field.</span>
+                  </button>
+                  <button type="button" role="menuitem" className="block w-full rounded px-2 py-1.5 text-left text-[13px] hover:bg-canvas" onClick={() => chooseExport('all')}>
+                    Export All Accessible Records - All Fields
+                    <span className="block text-[11px] text-inkmuted">Ignores search and filters; keeps company/location scope.</span>
+                  </button>
+                  {showSelectedExport && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="block w-full rounded px-2 py-1.5 text-left text-[13px] hover:bg-canvas disabled:cursor-not-allowed disabled:opacity-50"
+                      onClick={() => chooseExport('selected')}
+                      disabled={exporting || selectedCount === 0}
+                    >
+                      Export Selected Records - All Fields
+                      <span className="block text-[11px] text-inkmuted">
+                        {selectedCount ? `${selectedCount} selected` : 'Tick rows in the list first.'}
+                      </span>
+                    </button>
+                  )}
+                  <p className="mt-1 border-t border-line px-2 py-1 text-[11px] text-inkmuted">
+                    Written as a real .xlsx with a frozen header, filters and all fields.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+          {exporting && exportingLabel && (
+            <span className="text-[12px] text-inkmuted">{exportingLabel}</span>
+          )}
           {showPdf && <button type="button" className="exp-btn exp-pdf" title={exporting ? "Collecting rows..." : "Export to PDF"} aria-label="Export to PDF" disabled={exporting} onClick={onExportPdf}><FaFilePdf size={18} /></button>}
         </div>
 

@@ -20,6 +20,9 @@ const CONFIG = {
   actionPosition: "right",
   actionVariant: "icons",
   actionIcons: ["view", "edit", "delete"],
+  /* Full-database export: every field on the supplier document, not only the
+     six columns below. The tick column enables "Export Selected Records". */
+  fullExport: { title: "Supplier Master", fileBase: "Supplier_Master", selectable: true },
   columns: [
     { k: "businessName", t: "Business Name" },
     { k: "contactId", t: "Supplier No" },

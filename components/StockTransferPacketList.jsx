@@ -6,7 +6,7 @@ import Toolbar from './Toolbar';
 import StockTransferPacketView from './StockTransferPacketView';
 import { useScope } from './ScopeContext';
 import NumberedPager, { SortHeader } from './NumberedPager';
-import { fmt, toCsv, toXlsHtml, download, printTable } from '@/lib/format';
+import { fmt, toCsv, toXlsHtml, download, printTable, exportFullData, formatFileSize } from '@/lib/format';
 
 /* ==========================================================================
    Transfer Stock Packets - list.
@@ -52,6 +52,8 @@ export default function StockTransferPacketList() {
   const [viewing, setViewing] = useState(null);
   const [challanStatus, setChallanStatus] = useState({}); /* id -> challan data */
   const [creatingChallan, setCreatingChallan] = useState(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportMessage, setExportMessage] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -114,6 +116,51 @@ export default function StockTransferPacketList() {
 
   const exportRows = () => state.rows.map((r) => visible.map((c) => cellText(r, c)));
   const exportHeaders = () => visible.map((c) => c.t);
+
+  function fullExportParams(mode) {
+    const params = {};
+    if (business) params.business = business;
+    if (location) params.location = location;
+    if (finYear) params.finYear = finYear;
+    if (mode !== 'all') {
+      if (search) params.search = search;
+      if (applied.startDate) params.startDate = applied.startDate;
+      if (applied.endDate) params.endDate = applied.endDate;
+    }
+    if (sort.key && sort.dir) {
+      params.sortBy = sort.key;
+      params.sortDir = sort.dir;
+    }
+    return params;
+  }
+
+  async function runFullExport(mode) {
+    if (exporting) return;
+    if (!business) {
+      setExportMessage({ tone: 'err', text: 'Select a business before exporting.' });
+      return;
+    }
+    setExporting(true);
+    setExportMessage(null);
+    try {
+      const result = await exportFullData({
+        endpoint: ENDPOINT,
+        params: fullExportParams(mode),
+        title: 'Transfer Stock Packets',
+        fileBase: 'Stock_Transfer_Packet',
+      });
+      const size = formatFileSize(result.bytes);
+      setExportMessage({
+        tone: result.truncated ? 'warn' : 'ok',
+        text: `${result.filename}${size ? ` (${size})` : ''} - ${result.rows.toLocaleString('en-IN')} record${result.rows === 1 ? '' : 's'}.`
+          + (result.truncated ? ' The server capped the export; narrow the filter to take the rest.' : ''),
+      });
+    } catch (e) {
+      setExportMessage({ tone: 'err', text: `Could not build the full export - ${e.message || 'the server did not answer.'}` });
+    } finally {
+      setExporting(false);
+    }
+  }
 
   async function remove(id) {
     if (!window.confirm('Delete this record?')) return;
@@ -240,7 +287,16 @@ export default function StockTransferPacketList() {
               )
             }
             onExportPdf={() => printTable('Transfer Stock Packets', exportHeaders(), exportRows())}
+            onExportFull={runFullExport}
+            exporting={exporting}
+            exportingLabel="Building the full Transfer Stock Packets export..."
           />
+
+          {exportMessage && (
+            <div className={'mt-2 text-[12.5px] ' + (exportMessage.tone === 'err' ? 'text-danger' : exportMessage.tone === 'warn' ? 'text-[#9a6700]' : 'text-okgreen')}>
+              {exportMessage.text}
+            </div>
+          )}
 
           <div className="mt-3 overflow-x-auto">
             <table className="dt dt-nowrap-head">

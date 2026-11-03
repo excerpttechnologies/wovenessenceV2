@@ -4,7 +4,7 @@ import Icon from './Icon';
 import Toolbar from './Toolbar';
 import { useScope } from './ScopeContext';
 import NumberedPager, { SortHeader } from './NumberedPager';
-import { fmt, toCsv, toXlsHtml, download, printTable } from '@/lib/format';
+import { fmt, toCsv, toXlsHtml, download, printTable, exportFullData, formatFileSize } from '@/lib/format';
 import {
   TYPE_OPTS, SUBTYPE_OPTS, PERIOD_FIELDS, NOTE,
   buildPeriods, sampleBarcode, canCopy, COPY_KEYS,
@@ -349,6 +349,8 @@ export default function BarcodeSettingsView() {
      so the endpoint's own default page size is kept. */
   const [perPage, setPerPage] = useState(null);
   const [sort, setSort] = useState({ key: null, dir: null });
+  const [exporting, setExporting] = useState(false);
+  const [exportMessage, setExportMessage] = useState(null);
 
   /* HIDING ONLY - the route checks every request for itself. can() answers
      true whenever it does not positively know otherwise, so an ungoverned
@@ -389,6 +391,48 @@ export default function BarcodeSettingsView() {
   const cell = (row, col) => (col.f ? fmt(col.f, row[col.k]) : (row[col.k] ?? ''));
   const exportRows = () => state.rows.map((r) => visible.map((c) => cell(r, c)));
   const exportHeaders = () => visible.map((c) => c.t);
+
+  function fullExportParams(mode) {
+    const params = {};
+    if (business) params.business = business;
+    if (finYear) params.finYear = finYear;
+    if (mode !== 'all') {
+      if (search) params.search = search;
+      if (sort.key && sort.dir) {
+        params.sortBy = sort.key;
+        params.sortDir = sort.dir;
+      }
+    }
+    return params;
+  }
+
+  async function runFullExport(mode) {
+    if (exporting) return;
+    if (!business) {
+      setExportMessage({ tone: 'err', text: 'Select a business before exporting.' });
+      return;
+    }
+    setExporting(true);
+    setExportMessage(null);
+    try {
+      const result = await exportFullData({
+        endpoint: ENDPOINT,
+        params: fullExportParams(mode),
+        title: 'Barcode Settings',
+        fileBase: 'Barcode_Settings',
+      });
+      const size = formatFileSize(result.bytes);
+      setExportMessage({
+        tone: result.truncated ? 'warn' : 'ok',
+        text: `${result.filename}${size ? ` (${size})` : ''} - ${result.rows.toLocaleString('en-IN')} record${result.rows === 1 ? '' : 's'}.`
+          + (result.truncated ? ' The server capped the export; narrow the filter to take the rest.' : ''),
+      });
+    } catch (e) {
+      setExportMessage({ tone: 'err', text: `Could not build the full export - ${e.message || 'the server did not answer.'}` });
+    } finally {
+      setExporting(false);
+    }
+  }
 
   async function remove(id) {
     if (!window.confirm('Delete this record?')) return;
@@ -471,7 +515,16 @@ export default function BarcodeSettingsView() {
               )
             }
             onExportPdf={() => printTable('Barcode Settings', exportHeaders(), exportRows())}
+            onExportFull={runFullExport}
+            exporting={exporting}
+            exportingLabel="Building the full Barcode Settings export..."
           />
+
+          {exportMessage && (
+            <div className={'mt-2 text-[12.5px] ' + (exportMessage.tone === 'err' ? 'text-danger' : exportMessage.tone === 'warn' ? 'text-[#9a6700]' : 'text-okgreen')}>
+              {exportMessage.text}
+            </div>
+          )}
 
           <div className="mt-3 overflow-x-auto">
             <table className="dt">

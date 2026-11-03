@@ -9,7 +9,7 @@ import TabbedFormView from './TabbedFormView';
 import { refreshOptions } from './useOptions';
 import { useScope } from './ScopeContext';
 import NumberedPager, { SortHeader } from './NumberedPager';
-import { fmt, toCsv, toXlsHtml, download, printTable } from '@/lib/format';
+import { fmt, toCsv, toXlsHtml, download, printTable, exportFullData, formatFileSize } from '@/lib/format';
 import { FIELDS, freightBreakdown, bookingDelayDays, delayTone } from '@/app/admin/transport/delivery/fields';
 import { FIELDS as TRANSPORTER_FIELDS } from '@/app/admin/transport/transporter/fields';
 import { AGENT_QUICK_FIELDS, FIELD_LABELS as SUPPLIER_FIELD_LABELS, TABS as SUPPLIER_TABS } from '@/app/admin/contact/supplier/tabs';
@@ -573,6 +573,8 @@ function DeliveryGrid({
      It lives HERE, in the grid that owns the Action column - DeliveryDialog
      is a different component and could not reach it. */
   const [uploadRow, setUploadRow] = useState(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportMessage, setExportMessage] = useState(null);
   /* Roles & Permissions (17-10-2026): hide what the server would refuse */
   const { can } = useScope();
   const GR_HREF = '/admin/transport/delivery';
@@ -638,6 +640,51 @@ function DeliveryGrid({
   const exportHeaders = () => visible.map((c) => c.t);
   const fileBase = status === 'completed' ? 'completed-goods-received' : 'pending-goods-received';
 
+  function fullExportParams(mode) {
+    const params = { status };
+    if (business) params.business = business;
+    if (location) params.location = location;
+    if (finYear) params.finYear = finYear;
+    if (mode !== 'all') {
+      if (search) params.search = search;
+      if (applied.startDate) params.startDate = applied.startDate;
+      if (applied.endDate) params.endDate = applied.endDate;
+    }
+    if (sort.key && sort.dir) {
+      params.sortBy = sort.key;
+      params.sortDir = sort.dir;
+    }
+    return params;
+  }
+
+  async function runFullExport(mode) {
+    if (exporting) return;
+    if (!business) {
+      setExportMessage({ tone: 'err', text: 'Select a business before exporting.' });
+      return;
+    }
+    setExporting(true);
+    setExportMessage(null);
+    try {
+      const result = await exportFullData({
+        endpoint: ENDPOINT,
+        params: fullExportParams(mode),
+        title,
+        fileBase: title,
+      });
+      const size = formatFileSize(result.bytes);
+      setExportMessage({
+        tone: result.truncated ? 'warn' : 'ok',
+        text: `${result.filename}${size ? ` (${size})` : ''} - ${result.rows.toLocaleString('en-IN')} record${result.rows === 1 ? '' : 's'}.`
+          + (result.truncated ? ' The server capped the export; narrow the filter to take the rest.' : ''),
+      });
+    } catch (e) {
+      setExportMessage({ tone: 'err', text: `Could not build the full export - ${e.message || 'the server did not answer.'}` });
+    } finally {
+      setExporting(false);
+    }
+  }
+
   async function remove(id) {
     if (!window.confirm('Delete this record?')) return;
     const r = await fetch(ENDPOINT + '/' + id, { method: 'DELETE' });
@@ -676,7 +723,16 @@ function DeliveryGrid({
               'application/vnd.ms-excel')
           }
           onExportPdf={() => printTable(title, exportHeaders(), exportRows())}
+          onExportFull={runFullExport}
+          exporting={exporting}
+          exportingLabel={`Building the full ${title} export...`}
         />
+
+        {exportMessage && (
+          <div className={'mt-2 text-[12.5px] ' + (exportMessage.tone === 'err' ? 'text-danger' : exportMessage.tone === 'warn' ? 'text-[#9a6700]' : 'text-okgreen')}>
+            {exportMessage.text}
+          </div>
+        )}
 
         <div className="mt-3 overflow-x-auto">
           <table className="dt dt-nowrap-head">

@@ -96,7 +96,8 @@
     "hsr:sync": "node --env-file=.env --import ./scripts/aliasRegister.mjs scripts/seedHsrOpening.mjs --sync",
     "hsr:sync:apply": "node --env-file=.env --import ./scripts/aliasRegister.mjs scripts/seedHsrOpening.mjs --sync --apply",
     "test:barcode-import": "node --max-old-space-size=4096 --env-file=.env --import ./scripts/aliasRegister.mjs scripts/testBarcodeMasterImport.mjs",
-    "test:ai-assistant": "node --env-file=.env --import ./scripts/aliasRegister.mjs scripts/testAiAssistant.mjs"
+    "test:ai-assistant": "node --env-file=.env --import ./scripts/aliasRegister.mjs scripts/testAiAssistant.mjs",
+    "test:export": "node --env-file=.env scripts/testExport.mjs"
   },
   "dependencies": {
     "dotenv": "^18.0.7",

@@ -4,7 +4,7 @@ import Icon from './Icon';
 import Toolbar from './Toolbar';
 import { useScope } from './ScopeContext';
 import NumberedPager from './NumberedPager';
-import { fmt, toCsv, toXlsHtml, download, printTable } from '@/lib/format';
+import { fmt, toCsv, toXlsHtml, download, printTable, exportFullData, formatFileSize } from '@/lib/format';
 
 /* ==========================================================================
    Two stacked lists on one screen - "pending mine to act on" above,
@@ -38,6 +38,8 @@ function Panel({ spec, onAction, nonce }) {
   /* Rows-per-page, same numbered footer as every other list; null keeps the endpoint's default */
   const [perPage, setPerPage] = useState(null);
   const [busy, setBusy] = useState(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportMessage, setExportMessage] = useState(null);
 
   /* which part of the scope addresses this inbox - business by default,
      location for stock transfers */
@@ -97,6 +99,52 @@ function Panel({ spec, onAction, nonce }) {
   const exportRows = () => state.rows.map((r) => visible.map((c) => cellText(r, c)));
   const exportHeaders = () => visible.map((c) => c.t);
 
+  function fullExportParams(mode) {
+    const params = {};
+    if (mode !== 'all' && search) params.search = search;
+    if (spec.inboxParam) {
+      params[spec.inboxParam] = inboxValue || '';
+      if (spec.unconvertedParam) params.unconverted = spec.unconvertedParam;
+      if (spec.inboxKeepScope) {
+        params.business = scope.business || '';
+        params.finYear = scope.finYear || '';
+      }
+    } else {
+      params.business = scope.business || '';
+      params.location = scope.location || '';
+      params.finYear = scope.finYear || '';
+    }
+    return params;
+  }
+
+  async function runFullExport(mode) {
+    if (exporting) return;
+    if (!scope.business) {
+      setExportMessage({ tone: 'err', text: 'Select a business before exporting.' });
+      return;
+    }
+    setExporting(true);
+    setExportMessage(null);
+    try {
+      const result = await exportFullData({
+        endpoint: spec.endpoint,
+        params: fullExportParams(mode),
+        title: spec.title,
+        fileBase: spec.file || spec.title,
+      });
+      const size = formatFileSize(result.bytes);
+      setExportMessage({
+        tone: result.truncated ? 'warn' : 'ok',
+        text: `${result.filename}${size ? ` (${size})` : ''} - ${result.rows.toLocaleString('en-IN')} record${result.rows === 1 ? '' : 's'}.`
+          + (result.truncated ? ' The server capped the export; narrow the filter to take the rest.' : ''),
+      });
+    } catch (e) {
+      setExportMessage({ tone: 'err', text: `Could not build the full export - ${e.message || 'the server did not answer.'}` });
+    } finally {
+      setExporting(false);
+    }
+  }
+
   async function act(row) {
     if (spec.confirm && !window.confirm(spec.confirm)) return;
     setBusy(String(row._id));
@@ -145,7 +193,16 @@ function Panel({ spec, onAction, nonce }) {
             download(spec.file + '.xls', toXlsHtml(spec.title, exportHeaders(), exportRows()),
               'application/vnd.ms-excel')}
           onExportPdf={() => printTable(spec.title, exportHeaders(), exportRows())}
+          onExportFull={runFullExport}
+          exporting={exporting}
+          exportingLabel={`Building the full ${spec.title} export...`}
         />
+
+        {exportMessage && (
+          <div className={'mt-2 text-[12.5px] ' + (exportMessage.tone === 'err' ? 'text-danger' : exportMessage.tone === 'warn' ? 'text-[#9a6700]' : 'text-okgreen')}>
+            {exportMessage.text}
+          </div>
+        )}
 
         <div className="mt-3 overflow-x-auto">
           <table className="dt dt-nowrap-head">

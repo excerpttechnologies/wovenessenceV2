@@ -3807,7 +3807,8 @@ import { useScope } from "./ScopeContext";
 import NumberedPager, { SortHeader } from "./NumberedPager";
 import Modal from "./Modal";
 import ConfirmDialog from "./ConfirmDialog";
-import { fmt, toCsv, toXlsHtml, download, printTable } from "@/lib/format";
+import { fmt, toCsv, toXlsHtml, download, printTable, exportFullData, formatFileSize } from "@/lib/format";
+import { isListEndpointAllowed } from "@/lib/export/registry";
  
 /* ==========================================================================
    Generic list card.
@@ -4372,6 +4373,7 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
   const EXPORT_PAGE = 500;     // rows per request while collecting
   const EXPORT_MAX = 50000;    // refuse to build a file bigger than this
   const [exporting, setExporting] = useState(false);
+  const [exportMessage, setExportMessage] = useState(null);
 
   async function fetchAllRows() {
     /* THE SCOPE GATE APPLIES HERE TOO. An unscoped request is answered with
@@ -4451,7 +4453,57 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
       setExporting(false);
     }
   }
- 
+
+  /* Full-database export. Same query as above, but the server walks the
+     endpoint page by page and writes every MongoDB field, not the table's
+     columns. "All accessible" drops search and the filter card. */
+  function fullExportParams(mode) {
+    const params = {};
+    if (business) params.business = business;
+    if (location) params.location = location;
+    if (finYear) params.finYear = finYear;
+    if (mode !== "all") {
+      if (search) params.search = search;
+      Object.entries(filters).forEach(([k, v]) => { if (v) params[k] = v; });
+    }
+    if (sort.key && sort.dir) {
+      params.sortBy = sort.key;
+      params.sortDir = sort.dir;
+    }
+    Object.entries(cfg.fixedQuery || {}).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== "") params[k] = String(v);
+    });
+    return params;
+  }
+
+  async function runFullExport(mode) {
+    if (exporting) return;
+    if (scopePending || noBusiness) {
+      setExportMessage({ tone: "err", text: "Select a business before exporting." });
+      return;
+    }
+    setExporting(true);
+    setExportMessage(null);
+    try {
+      const result = await exportFullData({
+        endpoint: cfg.fullExport?.endpoint || cfg.endpoint,
+        params: fullExportParams(mode),
+        title: cfg.fullExport?.title || cfg.title,
+        fileBase: cfg.fullExport?.fileBase || slugPath,
+      });
+      const size = formatFileSize(result.bytes);
+      setExportMessage({
+        tone: result.truncated ? "warn" : "ok",
+        text: `${result.filename}${size ? ` (${size})` : ""} - ${result.rows.toLocaleString("en-IN")} record${result.rows === 1 ? "" : "s"}.`
+          + (result.truncated ? " The server capped the export; narrow the filter to take the rest." : ""),
+      });
+    } catch (e) {
+      setExportMessage({ tone: "err", text: `Could not build the full export - ${e.message || "the server did not answer."}` });
+    } finally {
+      setExporting(false);
+    }
+  }
+  
   /* Opens the confirmation. The delete itself is confirmDelete, below. */
   function remove(idOrRow) {
     const row =
@@ -4701,11 +4753,18 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
             onExportCsv={() => runExport("csv")}
             onExportExcel={() => runExport("excel")}
             onExportPdf={() => runExport("pdf")}
+            onExportFull={isListEndpointAllowed(cfg.fullExport?.endpoint || cfg.endpoint) ? runFullExport : null}
+            exportingLabel={`Building the full ${cfg.title} export...`}
           />
  
           {exporting && (
             <div className="mt-2 text-[12.5px] text-inkmuted">
               Collecting every row the filter matches for the download...
+            </div>
+          )}
+          {exportMessage && (
+            <div className={'mt-2 text-[12.5px] ' + (exportMessage.tone === 'err' ? 'text-danger' : exportMessage.tone === 'warn' ? 'text-[#9a6700]' : 'text-okgreen')}>
+              {exportMessage.text}
             </div>
           )}
 
