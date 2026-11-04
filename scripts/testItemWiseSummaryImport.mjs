@@ -216,12 +216,115 @@ test('UPDATE mode never creates a barcode that does not exist', () => {
   assert.equal(analysis.summary.importable, 0);
 });
 
-test('zero close quantity is skipped, not imported as stock', () => {
+test('zero close quantity is a ready row and is imported like any other stock', () => {
   const parsed = readWorkbook(canonicalWorkbook([rowFor({ openQty: 0, closeQty: 0, closeValue: 0, openValue: 0 })]));
   const analysis = analyzeParsedWorkbook({ parsed, lookup, existing: null, strategy: STRATEGIES.CREATE });
   assert.equal(analysis.summary.zeroQty, 1);
+  assert.equal(analysis.summary.zeroStockRows, 1);
+  assert.equal(analysis.summary.importable, 1);
+  assert.equal(analysis.detail[0].status, ROW_STATUS.READY);
+  assert.equal(analysis.detail[0].action, 'create');
+  assert.equal(analysis.detail[0].qty, 0);
+});
+
+test('close quantities 10 and 1 are both imported', () => {
+  const parsed = readWorkbook(canonicalWorkbook([
+    rowFor({ barcode: 'TEN-1', closeQty: 10, closeValue: 1000 }),
+    rowFor({ barcode: 'ONE-1', closeQty: 1, closeValue: 100 }),
+  ]));
+  const analysis = analyzeParsedWorkbook({ parsed, lookup, existing: null, strategy: STRATEGIES.CREATE });
+  assert.equal(analysis.summary.importable, 2);
+  assert.equal(analysis.summary.zeroStockRows, 0);
+  assert.deepEqual(analysis.detail.map((row) => row.qty), [10, 1]);
+});
+
+test('all four quantities zero is imported', () => {
+  const parsed = readWorkbook(canonicalWorkbook([
+    rowFor({
+      openQty: 0, openValue: 0, inwardQty: 0, inwardValue: 0,
+      outwardQty: 0, outwardValue: 0, closeQty: 0, closeValue: 0,
+    }),
+  ]));
+  const analysis = analyzeParsedWorkbook({ parsed, lookup, existing: null, strategy: STRATEGIES.CREATE });
+  assert.equal(analysis.detail[0].status, ROW_STATUS.READY);
+  assert.equal(analysis.detail[0].qty, 0);
+  assert.equal(analysis.summary.zeroStockRows, 1);
+  assert.equal(analysis.summary.importable, 1);
+});
+
+test('open 5, inward 0, outward 5, close 0 is imported', () => {
+  const parsed = readWorkbook(canonicalWorkbook([
+    rowFor({
+      openQty: 5, openValue: 500, inwardQty: 0, inwardValue: 0,
+      outwardQty: 5, outwardValue: 500, closeQty: 0, closeValue: 0,
+    }),
+  ]));
+  const analysis = analyzeParsedWorkbook({ parsed, lookup, existing: null, strategy: STRATEGIES.CREATE });
+  assert.equal(analysis.detail[0].status, ROW_STATUS.READY);
+  assert.equal(analysis.detail[0].qty, 0);
+  assert.equal(analysis.summary.importable, 1);
+  assert.equal(analysis.summary.zeroStockRows, 1);
+});
+
+test('a blank Close Qty is derived from Open + Inward - Outward and zero is kept', () => {
+  const parsed = readWorkbook(canonicalWorkbook([
+    rowFor({ openQty: 5, inwardQty: 0, outwardQty: 5, closeQty: '', closeValue: '' }),
+  ]));
+  const analysis = analyzeParsedWorkbook({ parsed, lookup, existing: null, strategy: STRATEGIES.CREATE });
+  assert.equal(analysis.detail[0].status, ROW_STATUS.READY);
+  assert.equal(analysis.detail[0].qty, 0);
+  assert.equal(analysis.summary.zeroStockRows, 1);
+});
+
+test('missing Item Code and Barcode is a validation error, not a skip', () => {
+  const parsed = readWorkbook(canonicalWorkbook([rowFor({ itemCode: '', barcode: '' })]));
+  const analysis = analyzeParsedWorkbook({ parsed, lookup, existing: null, strategy: STRATEGIES.CREATE });
+  assert.equal(analysis.detail[0].status, ROW_STATUS.INVALID);
+  assert.equal(analysis.detail[0].action, 'blocked');
+  assert.ok(analysis.detail[0].problems.some((problem) => /Item Code is required/.test(problem.message)));
   assert.equal(analysis.summary.importable, 0);
-  assert.equal(analysis.detail[0].action, 'skip');
+});
+
+test('a completely blank Excel row is skipped without becoming a data row', () => {
+  const fields = TEMPLATE_FIELDS.map((field) => field.label);
+  const blank = fields.map(() => '');
+  const buffer = sheetFromRows([
+    fields,
+    TEMPLATE_FIELDS.map((field) => rowFor()[field.key] ?? ''),
+    blank,
+    TEMPLATE_FIELDS.map((field) => rowFor({ barcode: 'SECOND-1' })[field.key] ?? ''),
+  ]);
+  const parsed = readWorkbook(buffer);
+  assert.equal(parsed.rows.length, 2);
+  assert.equal(parsed.ignored.blank, 1);
+  const analysis = analyzeParsedWorkbook({ parsed, lookup, existing: null, strategy: STRATEGIES.CREATE });
+  assert.equal(analysis.summary.dataRows, 2);
+  assert.equal(analysis.summary.importable, 2);
+});
+
+test('a negative close quantity is rejected by the existing validation', () => {
+  const parsed = readWorkbook(canonicalWorkbook([
+    rowFor({ openQty: 0, closeQty: -2, closeValue: -200 }),
+  ]));
+  const analysis = analyzeParsedWorkbook({ parsed, lookup, existing: null, strategy: STRATEGIES.CREATE });
+  assert.equal(analysis.detail[0].status, ROW_STATUS.INVALID);
+  assert.equal(analysis.detail[0].action, 'blocked');
+  assert.ok(analysis.detail[0].problems.some((problem) => /cannot be negative/i.test(problem.message)));
+  assert.equal(analysis.summary.importable, 0);
+});
+
+test('zero-stock rows are counted by the Zero qty filter data and are not skipped', () => {
+  const parsed = readWorkbook(canonicalWorkbook([
+    rowFor({ barcode: 'ZERO-1', closeQty: 0, openQty: 0, closeValue: 0, openValue: 0 }),
+    rowFor({ barcode: 'NORMAL-1', closeQty: 3, openQty: 3 }),
+    rowFor({ barcode: 'ZERO-2', closeQty: 0, openQty: 0, closeValue: 0, openValue: 0 }),
+  ]));
+  const analysis = analyzeParsedWorkbook({ parsed, lookup, existing: null, strategy: STRATEGIES.CREATE });
+  assert.equal(analysis.summary.zeroStockRows, 2);
+  assert.equal(analysis.filters.zero_qty, 2);
+  assert.equal(analysis.summary.validRows, 3);
+  assert.equal(analysis.summary.importable, 3);
+  assert.ok(analysis.rows.filter((row) => row.zeroStock).every((row) => row.status === ROW_STATUS.READY));
 });
 
 test('Close Qty is the on-hand balance; Open is never added to it', () => {

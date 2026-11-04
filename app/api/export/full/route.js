@@ -48,12 +48,24 @@ function jsonError(status, message, code = 'EXPORT') {
 }
 
 function appOrigin(req) {
+  const configuredOrigin = process.env.NEXT_PUBLIC_APP_URL?.trim();
+  if (configuredOrigin) {
+    try {
+      const url = new URL(configuredOrigin);
+      if (url.protocol === 'http:' || url.protocol === 'https:') return url.origin;
+    } catch { /* report invalid deployment configuration below */ }
+    throw new ExportCollectError(
+      'The configured application URL is invalid. Set NEXT_PUBLIC_APP_URL to an http(s) URL.',
+      500,
+      'EXPORT_CONFIG',
+    );
+  }
+
   try {
     const url = new URL(req.url);
     if (url.origin && url.origin !== 'null') return url.origin;
   } catch { /* fall through */ }
-  return process.env.NEXT_PUBLIC_APP_URL
-    || `http://127.0.0.1:${process.env.PORT || 3000}`;
+  return `http://127.0.0.1:${process.env.PORT || 3000}`;
 }
 
 function maxRows() {

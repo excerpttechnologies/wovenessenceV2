@@ -12,7 +12,7 @@ import {
 } from '@/lib/importSessionStore';
 import { buildTemplateWorkbook, buildErrorWorkbook } from '@/lib/itemWiseSummaryImport';
 import { analyzeBuffer, executeApprovedImport, MAX_CLIENT_ANALYSIS_ROWS } from '@/lib/itemWiseSummaryServer';
-import { STRATEGIES, MAX_IMPORT_BYTES } from '@/lib/itemWiseSummaryConstants';
+import { STRATEGIES, MAX_IMPORT_BYTES, ROW_STATUS } from '@/lib/itemWiseSummaryConstants';
 
 /* ==========================================================================
    ITEM WISE SUMMARY IMPORT API
@@ -245,7 +245,14 @@ export const POST = handler(async (req) => {
     const page = Math.max(1, Number(fields.page) || 1);
     const pageSize = Math.min(200, Math.max(10, Number(fields.pageSize) || 50));
 
-    const filtered = filter === 'all' ? rows : rows.filter((row) => row.status === filter);
+    /* Zero-stock rows are READY now, so the Zero qty filter has to match the
+       quantity itself instead of a status. qtyProvided keeps a blank Close Qty
+       (an invalid row) out of the zero-stock view. */
+    const filtered = filter === 'all'
+      ? rows
+      : filter === ROW_STATUS.ZERO_QTY
+        ? rows.filter((row) => row.qtyProvided !== false && Number(row.qty) === 0)
+        : rows.filter((row) => row.status === filter);
     const start = (page - 1) * pageSize;
     return json({
       ok: true,

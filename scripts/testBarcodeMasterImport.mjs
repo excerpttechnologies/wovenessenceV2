@@ -1330,6 +1330,97 @@ await withFixture('item-wise-progress', async (ctx) => {
 
 /* ========================================================================== */
 
+await withFixture('item-wise-zero-stock', async (ctx) => {
+  await scenario('23. Item Wise Summary imports every valid row, including zero closing stock', async () => {
+    const base = {
+      locationName: ctx.location.name,
+      groupName: ctx.group.name,
+      supplierCode: ctx.supplier.contactId,
+      supplierName: ctx.supplier.businessName,
+      date: '19/10/2026',
+      age: 5,
+      purchaseDate: '01/10/2026',
+      grcNo: 'IW-ZERO-GRC',
+      supplierInvoiceNo: 'IW-ZERO-INV',
+      batchUnique: 'Unique',
+      itemCode: ctx.item.itemCode,
+      printDescription: ctx.item.name,
+      itemAttributes: '',
+      hsn: '5007',
+      purRate: 100,
+      discount: 0,
+      finalNet: 100,
+      gst: 5,
+      rsp: 150,
+      discountPercent: 10,
+      offerPrice: 135,
+      wsp: 120,
+      dp: 110,
+      uom: 'PCS',
+    };
+    const rows = [
+      { barcode: 'IW-ZERO-001', openQty: 10, inwardQty: 5, outwardQty: 3, closeQty: 12 },
+      { barcode: 'IW-ZERO-002', openQty: 5, inwardQty: 0, outwardQty: 5, closeQty: 0 },
+      { barcode: 'IW-ZERO-003', openQty: 0, inwardQty: 0, outwardQty: 0, closeQty: 0 },
+      { barcode: 'IW-ZERO-004', openQty: 8, inwardQty: 2, outwardQty: 10, closeQty: 0 },
+      { barcode: 'IW-ZERO-005', openQty: 4, inwardQty: 3, outwardQty: 1, closeQty: 6 },
+    ].map((row) => ({
+      ...base,
+      ...row,
+      openValue: row.openQty * 100,
+      inwardValue: row.inwardQty * 100,
+      outwardValue: row.outwardQty * 100,
+      closeValue: row.closeQty * 100,
+    }));
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+      ITEM_WISE_TEMPLATE_FIELDS.map((field) => field.label),
+      ...rows.map((values) => ITEM_WISE_TEMPLATE_FIELDS.map((field) => values[field.key] ?? '')),
+    ]), ITEM_WISE_SHEET);
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+    const { result, analysis } = await executeApprovedImport({
+      buffer,
+      fileName: 'item-wise-zero-stock.xlsx',
+      businessId: String(ctx.business._id),
+      finYear: FIN_YEAR,
+      strategy: ITEM_WISE_STRATEGIES.CREATE,
+      user: USER,
+      jobId: `IW-ZERO-${RUN}`,
+    });
+
+    assert.equal(analysis.summary.dataRows, 5);
+    assert.equal(analysis.summary.zeroStockRows, 3);
+    assert.equal(analysis.summary.importable, 5);
+    assert.ok(analysis.rows.every((row) => row.status === 'ready' && row.zeroStock === (Number(row.qty) === 0)));
+    assert.equal(result.validRows, 5);
+    assert.equal(result.zeroStockRows, 3);
+    assert.equal(result.imported, 5);
+    assert.equal(result.updated, 0);
+    assert.equal(result.skipped, 0);
+    assert.equal(result.failed, 0);
+    assert.equal(result.totalQty, 18);
+    assert.equal(result.stockAdjustments, 2);
+
+    for (const row of rows) {
+      const written = await barcodeRow(ctx, row.barcode);
+      assert.ok(written, `${row.barcode} must exist in the database`);
+      assert.equal(written.qtyNum, row.closeQty, `${row.barcode} must keep its zero/positive quantity`);
+      assert.equal(String(written.locationId), String(ctx.location._id));
+      assert.equal(String(written.itemId), String(ctx.item._id));
+      const movements = await movementRows(written);
+      if (row.closeQty === 0) {
+        assert.equal(movements.length, 0, `${row.barcode} must not invent a stock movement`);
+      } else {
+        assert.equal(movements.length, 1, `${row.barcode} must carry its opening movement`);
+      }
+    }
+  });
+});
+
+/* ========================================================================== */
+
 console.log(`\n${passed} passed, ${failed} failed`);
 await import('mongoose').then((m) => m.default.disconnect());
 if (failed) process.exitCode = 1;

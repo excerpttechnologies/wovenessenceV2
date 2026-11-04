@@ -471,9 +471,10 @@ export default function ItemWiseSummaryImport() {
           {step === 'review' && analysis && (
             <div className="space-y-4">
               {progress && <ImportProgressPanel progress={progress} />}
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-7">
                 <Stat label="Excel rows" value={Number(summary.totalRows || 0).toLocaleString()} />
                 <Stat label="Ready" value={Number(summary.importable || 0).toLocaleString()} tone="text-okgreen" />
+                <Stat label="Zero stock" value={Number(summary.zeroStockRows || 0).toLocaleString()} />
                 <Stat label="Missing master" value={Number(summary.missingMaster || 0).toLocaleString()} tone="text-[#9a6400]" />
                 <Stat label="Invalid" value={Number(summary.invalid || 0).toLocaleString()} tone="text-danger" />
                 <Stat label="Duplicate" value={Number(summary.duplicate || 0).toLocaleString()} tone="text-danger" />
@@ -487,7 +488,7 @@ export default function ItemWiseSummaryImport() {
                     <div><span className="text-inkmuted">File:</span> {analysis.fileName || file?.name}</div>
                     <div><span className="text-inkmuted">Layout:</span> {analysis.layoutLabel}</div>
                     <div><span className="text-inkmuted">Sheet:</span> {analysis.sheetName} (header row {analysis.headerRow})</div>
-                    <div><span className="text-inkmuted">Zero-stock rows skipped:</span> {Number(summary.zeroQty || 0).toLocaleString()}</div>
+                    <div><span className="text-inkmuted">Zero-stock rows (imported normally):</span> {Number(summary.zeroStockRows ?? summary.zeroQty ?? 0).toLocaleString()}</div>
                     <div><span className="text-inkmuted">Ignored total row(s):</span> {Number(summary.totalRowsIgnored || 0).toLocaleString()}</div>
                     <div><span className="text-inkmuted">Importable quantity:</span> {Number(summary.totalQty || 0).toLocaleString()}</div>
                     <div><span className="text-inkmuted">Importable value:</span> {Number(summary.totalValue || 0).toLocaleString()}</div>
@@ -648,7 +649,12 @@ export default function ItemWiseSummaryImport() {
                         <td className="px-2 py-1.5 font-mono">{row.barcode || '—'}{!row.barcodeProvided ? <span className="ml-1 text-[10px] text-inkmuted">(from Item Code)</span> : null}</td>
                         <td className="px-2 py-1.5">{row.itemCode} {row.itemName && row.itemName !== row.itemCode ? <span className="text-inkmuted">· {row.itemName}</span> : null}</td>
                         <td className="px-2 py-1.5">{row.locationName}</td>
-                        <td className="px-2 py-1.5 text-right">{Number(row.qty || 0).toLocaleString()}{row.existingQty !== null && row.existingQty !== undefined ? <span className="block text-[10px] text-inkmuted">was {Number(row.existingQty).toLocaleString()}</span> : null}</td>
+                        <td className="px-2 py-1.5 text-right">
+                          {row.qtyProvided === false || row.qty === null || row.qty === undefined || row.qty === ''
+                            ? '—'
+                            : Number(row.qty).toLocaleString()}
+                          {row.existingQty !== null && row.existingQty !== undefined ? <span className="block text-[10px] text-inkmuted">was {Number(row.existingQty).toLocaleString()}</span> : null}
+                        </td>
                         <td className="px-2 py-1.5 text-inkmuted">
                           {row.problems?.[0]?.message || row.warnings?.[0] || '—'}
                         </td>
@@ -674,6 +680,7 @@ export default function ItemWiseSummaryImport() {
                 <div className="text-inkmuted">
                   New barcodes: {Number(summary.create || 0).toLocaleString()} ·
                   {' '}Updates: {Number(summary.update || 0).toLocaleString()} ·
+                  {' '}Zero stock: {Number(summary.zeroStockRows ?? summary.zeroQty ?? 0).toLocaleString()} ·
                   {' '}Quantity: {Number(summary.totalQty || 0).toLocaleString()} ·
                   {' '}Value: {Number(summary.totalValue || 0).toLocaleString()}
                 </div>
@@ -709,23 +716,27 @@ export default function ItemWiseSummaryImport() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+                <Stat label="Total rows" value={Number(result.result?.totalRows || 0).toLocaleString()} />
+                <Stat label="Valid rows" value={Number(result.result?.validRows || 0).toLocaleString()} tone="text-okgreen" />
+                <Stat label="Zero stock" value={Number(result.result?.zeroStockRows || 0).toLocaleString()} />
                 <Stat label="Imported" value={Number(result.result?.imported || 0).toLocaleString()} tone="text-okgreen" />
                 <Stat label="Updated" value={Number(result.result?.updated || 0).toLocaleString()} />
-                <Stat label="Unchanged" value={Number(result.result?.unchanged || 0).toLocaleString()} />
                 <Stat label="Skipped" value={Number(result.result?.skipped || 0).toLocaleString()} />
                 <Stat label="Failed" value={Number(result.result?.failed || 0).toLocaleString()} tone="text-danger" />
-                <Stat label="Masters created" value={Number(result.result?.mastersCreated || 0).toLocaleString()} />
               </div>
 
               <div className="grid gap-3 lg:grid-cols-2">
                 <div className="rounded-lg border border-line px-3 py-2 text-[12px]">
                   <div className="font-semibold">Database result</div>
+                  <div>Data rows: {Number(result.result?.dataRows || 0).toLocaleString()}</div>
                   <div>Barcode rows created: {Number(result.result?.barcodesCreated || 0).toLocaleString()}</div>
                   <div>Barcode rows updated: {Number(result.result?.barcodesUpdated || 0).toLocaleString()}</div>
+                  <div>Unchanged: {Number(result.result?.unchanged || 0).toLocaleString()}</div>
                   <div>Stock movements written: {Number(result.result?.stockAdjustments || 0).toLocaleString()}</div>
                   <div>Quantity imported: {Number(result.result?.totalQty || 0).toLocaleString()}</div>
                   <div>Value imported: {Number(result.result?.totalValue || 0).toLocaleString()}</div>
+                  <div>Masters created: {Number(result.result?.mastersCreated || 0).toLocaleString()}</div>
                   <div>Masters reused: {Number(result.result?.mastersReused || 0).toLocaleString()}</div>
                 </div>
                 <div className="rounded-lg border border-line px-3 py-2 text-[12px]">
