@@ -4,6 +4,9 @@
 /.next/
 /.next-dev/
 
+# MongoDB migration run state (may contain document ids and checkpoints)
+/scripts/migration/out/
+
 # Import reports
 /grc-import-report.json
 /supplier-import-report.json

@@ -1,0 +1,85 @@
+# MongoDB migration error log
+Generated: 2026-11-06T06:47:48.416Z
+Source database: test
+Target database: grooretailerp1
+Overall status: PASS_WITH_WARNINGS
+
+Migration checkpoint errors: 0
+Verification failures: 0
+Warnings: 1
+
+No migration or verification errors were recorded.
+
+WARN: 52 relationship(s) contain 301 reference(s) that are already dangling in the source and are not migration failures; 21842 additional dangling reference(s) sit inside intentionally excluded references.
+
+Expected dangling references caused by the approved exclusions:
+EXPECTED: iciteminvoice.items.barcodeId -> barcodeLabel: 18 source-resolvable reference(s) unresolved by design; 8 already dangling in source
+EXPECTED: iciteminvoice.items.sourceBarcodeId -> barcodeLabel: 18 source-resolvable reference(s) unresolved by design; 8 already dangling in source
+EXPECTED: salesreturn.items.barcodeId -> barcodeLabel: 0 source-resolvable reference(s) unresolved by design; 0 already dangling in source
+EXPECTED: stockmovement.barcodeId -> barcodeLabel: 21815 source-resolvable reference(s) unresolved by design; 21826 already dangling in source
+EXPECTED: stocktransfer.items.barcodeId -> barcodeLabel: 0 source-resolvable reference(s) unresolved by design; 0 already dangling in source
+EXPECTED: stocktransferlocation.items.barcodeId -> barcodeLabel: 0 source-resolvable reference(s) unresolved by design; 0 already dangling in source
+EXPECTED: stocktransferpacket.items.barcodeId -> barcodeLabel: 0 source-resolvable reference(s) unresolved by design; 0 already dangling in source
+EXPECTED: stocktransferreceived.items.barcodeId -> barcodeLabel: 0 source-resolvable reference(s) unresolved by design; 0 already dangling in source
+EXPECTED: storedebitnote.items.barcodeId -> barcodeLabel: 0 source-resolvable reference(s) unresolved by design; 0 already dangling in source
+EXPECTED: storedeliverychallan.items.barcodeId -> barcodeLabel: 2 source-resolvable reference(s) unresolved by design; 0 already dangling in source
+EXPECTED: storesalesinvoice.items.barcodeId -> barcodeLabel: 0 source-resolvable reference(s) unresolved by design; 0 already dangling in source
+EXPECTED: storesalesreturn.items.barcodeId -> barcodeLabel: 0 source-resolvable reference(s) unresolved by design; 0 already dangling in source
+EXPECTED: user.counterId -> poscounter: 0 source-resolvable reference(s) unresolved by design; 0 already dangling in source
+
+Pre-existing dangling references (missing in BOTH source and target; not migration failures):
+PRE_EXISTING: barcodelabelsetting.businessId -> business: 1 reference(s); samples: 6a847473f06d7bd321a7d385
+PRE_EXISTING: barcodesetting.businessId -> business: 2 reference(s); samples: 6a847473f06d7bd321a7d385, 6a8927d4b4d93ac0dd425b33
+PRE_EXISTING: citygroup.businessId -> business: 1 reference(s); samples: 6a847473f06d7bd321a7d385
+PRE_EXISTING: companylocation.businessId -> business: 5 reference(s); samples: 6a847473f06d7bd321a7d385, 6a847473f06d7bd321a7d385, 6a847473f06d7bd321a7d385, 6a847584009114a7959cb7c5, 6a8927d4b4d93ac0dd425b33
+PRE_EXISTING: contact.businessId -> business: 1 reference(s); samples: 6aabd7c858bc2f2790eba600
+PRE_EXISTING: contacttype.businessId -> business: 2 reference(s); samples: 6a847473f06d7bd321a7d385, 6a847473f06d7bd321a7d385
+PRE_EXISTING: debitnote.agentId -> agent: 1 reference(s); samples: 6a8fdd77782da64ff4243350
+PRE_EXISTING: delivery.supplierId -> supplier: 11 reference(s); samples: 6aaa35336a84d20802db1aa1, 6aaa35336a84d20802db1aa1, 6aacc7d5c6a29f26f7e3720d, 6aacc7d5c6a29f26f7e3720d, 6aacc7d5c6a29f26f7e3720d
+PRE_EXISTING: deliverychallan.customerId -> customer: 1 reference(s); samples: 6a8fd486751ae5fd532d8f32
+PRE_EXISTING: deliverychallan.stockPointId -> stockpoint: 1 reference(s); samples: 6a854aec40f8ec449f69cf16
+PRE_EXISTING: deliverychallan.salesPersonId -> agent: 1 reference(s); samples: 6a8c38f0c67379ce90587085
+PRE_EXISTING: deliverychallan.agentId -> agent: 1 reference(s); samples: 6a8c38f0c67379ce90587085
+PRE_EXISTING: dispatch.deliveryIds -> delivery: 1 reference(s); samples: 6a85f20a2bf1b0da5182fa31
+PRE_EXISTING: grc.businessId -> business: 1 reference(s); samples: 6aabd7c858bc2f2790eba600
+PRE_EXISTING: grc.locationId -> companylocation: 1 reference(s); samples: 6aabd7c858bc2f2790eba601
+PRE_EXISTING: grc.supplierId -> supplier: 6 reference(s); samples: 6aaa35336a84d20802db1aa1, 6aabd7c858bc2f2790eba603, 6aacc7d5c6a29f26f7e3720d, 6aacc7d5c6a29f26f7e3720d, 6aacc7d5c6a29f26f7e3720d
+PRE_EXISTING: grc.lrTransactionId -> delivery: 3 reference(s); samples: 6a9a597eaebc59e7e90ae4dc, 6aa11f9448b3cc763fa9ba82, 6aa3c09e3abe2f45934277e5
+PRE_EXISTING: grc.stockPointId -> stockpoint: 14 reference(s); samples: 6a854aec40f8ec449f69cf16, 6a854aec40f8ec449f69cf16, 6a854aec40f8ec449f69cf16, 6a854aec40f8ec449f69cf16, 6a854aec40f8ec449f69cf16
+PRE_EXISTING: hsn.businessId -> business: 3 reference(s); samples: 6a847473f06d7bd321a7d385, 6a847473f06d7bd321a7d385, 6a8927d4b4d93ac0dd425b33
+PRE_EXISTING: icautopurchasereceived.businessId -> business: 1 reference(s); samples: 6a8927d4b4d93ac0dd425b33
+PRE_EXISTING: icautopurchasereceived.grcId -> grc: 2 reference(s); samples: 6a8753e359f1c7bb4dedc524, 6a892e13b4d93ac0dd425e38
+PRE_EXISTING: icautopurchasereturn.toBusinessId -> business: 2 reference(s); samples: 6a8927d4b4d93ac0dd425b33, 6a8927d4b4d93ac0dd425b33
+PRE_EXISTING: icautopurchasereturn.supplierId -> contact: 3 reference(s); samples: 6a854a5840f8ec449f69cedd, 6a854a5840f8ec449f69cedd, 6a854a5840f8ec449f69cedd
+PRE_EXISTING: icautopurchasereturn.stockPointId -> stockpoint: 3 reference(s); samples: 6a854aec40f8ec449f69cf16, 6a87408af4fa5d57bdaedf5f, 6a87408af4fa5d57bdaedf5f
+PRE_EXISTING: icdeliverychallan.stockPointId -> stockpoint: 13 reference(s); samples: 6a854aec40f8ec449f69cf16, 6a87408af4fa5d57bdaedf5f, 6a8bf0e5c67379ce90586950, 6a854aec40f8ec449f69cf16, 6a87408af4fa5d57bdaedf5f
+PRE_EXISTING: iciteminvoice.items.barcodeId -> barcodeLabel: 8 reference(s); samples: 6ab25ecf04139a23fd1c362a, 6abceed853e019185b2cee4f, 6ab7725ffe9169c9427cca91, 6ab792389321b32b637c671b, 6ac3443a607fb6959a4cb79f
+PRE_EXISTING: iciteminvoice.items.sourceBarcodeId -> barcodeLabel: 8 reference(s); samples: 6aabb4be81a77a17a0a51155, 6a92b6ec17ce901f19b98259, 6aabb4be81a77a17a0a51155, 6aabb4be81a77a17a0a51155, 6a918c6aac71447b909b611f
+PRE_EXISTING: icsalesinvoice.toBusinessId -> business: 1 reference(s); samples: 6a8927d4b4d93ac0dd425b33
+PRE_EXISTING: icsalesinvoice.icDeliveryChallanIds -> icdeliverychallan: 3 reference(s); samples: 6a87501959f1c7bb4dedc43d, 6a892d32b4d93ac0dd425d89, 6aa4eff356cbb58b953d12e0
+PRE_EXISTING: icsalesreturn.businessId -> business: 2 reference(s); samples: 6a8927d4b4d93ac0dd425b33, 6a8927d4b4d93ac0dd425b33
+PRE_EXISTING: invoicelayoutsetting.locationId -> companylocation: 1 reference(s); samples: 6a8546ae40f8ec449f69cd46
+PRE_EXISTING: ledger.businessId -> business: 1 reference(s); samples: 6a847473f06d7bd321a7d385
+PRE_EXISTING: ledger.ledgerGroupId -> ledgergroup: 3 reference(s); samples: 6a847474f06d7bd321a7d388, 6a85cd49da1b71b9d22c7d57, 6a85cd49da1b71b9d22c7d58
+PRE_EXISTING: ledgergroup.businessId -> business: 50 reference(s); samples: 6a847473f06d7bd321a7d385, 6a847473f06d7bd321a7d385, 6a847473f06d7bd321a7d385, 6a847473f06d7bd321a7d385, 6a847473f06d7bd321a7d385
+PRE_EXISTING: logistic.supplierId -> supplier: 2 reference(s); samples: 6a8c3a83c67379ce905870c7, 6a8ee213de7bd6bc7418e6fc
+PRE_EXISTING: productgroup.businessId -> business: 3 reference(s); samples: 6a847473f06d7bd321a7d385, 6a847473f06d7bd321a7d385, 6a8927d4b4d93ac0dd425b33
+PRE_EXISTING: purchasecharge.businessId -> business: 2 reference(s); samples: 6a847473f06d7bd321a7d385, 6a847473f06d7bd321a7d385
+PRE_EXISTING: purchasegroup.businessId -> business: 10 reference(s); samples: 6a847473f06d7bd321a7d385, 6a847473f06d7bd321a7d385, 6a847473f06d7bd321a7d385, 6a847473f06d7bd321a7d385, 6a847473f06d7bd321a7d385
+PRE_EXISTING: purchaseinvoice.supplierId -> supplier: 14 reference(s); samples: 6a854a5840f8ec449f69cedd, 6a854a5840f8ec449f69cedd, 6a854a5840f8ec449f69cedd, 6a854a5840f8ec449f69cedd, 6a8c87cab1906a292a255bd4
+PRE_EXISTING: purchaseinvoice.agentId -> agent: 10 reference(s); samples: 6a8c38f0c67379ce90587085, 6a8c38f0c67379ce90587085, 6a8c38f0c67379ce90587085, 6a8c38f0c67379ce90587085, 6a8c38f0c67379ce90587085
+PRE_EXISTING: purchaseterm.businessId -> business: 3 reference(s); samples: 6a847473f06d7bd321a7d385, 6a847473f06d7bd321a7d385, 6a8927d4b4d93ac0dd425b33
+PRE_EXISTING: salesinvoice.customerId -> customer: 1 reference(s); samples: 6a8fd486751ae5fd532d8f32
+PRE_EXISTING: salesreturn.customerId -> customer: 1 reference(s); samples: 6a8fd486751ae5fd532d8f32
+PRE_EXISTING: splitbarcodesetting.businessId -> business: 1 reference(s); samples: 6a847473f06d7bd321a7d385
+PRE_EXISTING: stockadjustment.stockPointId -> stockpoint: 2 reference(s); samples: 6a8e8e6b55fd0699d2db0c7d, 6a87408af4fa5d57bdaedf5f
+PRE_EXISTING: stockmovement.businessId -> business: 45 reference(s); samples: 6aabd7c858bc2f2790eba600, 6aabd7c858bc2f2790eba600, 6aabd7c858bc2f2790eba600, 6aabd7c858bc2f2790eba600, 6aabd7c858bc2f2790eba600
+PRE_EXISTING: stockmovement.itemId -> item: 6 reference(s); samples: 6aad09881dfade06b1e5561f, 6ae33dc8c6338c239f1ddc15, 6ae33dc8c6338c239f1ddc15, 6ae33dc8c6338c239f1ddc15, 6ae33dc8c6338c239f1ddc15
+PRE_EXISTING: stockmovement.toLocationId -> companylocation: 45 reference(s); samples: 6aabd7c858bc2f2790eba601, 6aabd7c858bc2f2790eba601, 6aabd7c858bc2f2790eba601, 6aabd7c858bc2f2790eba601, 6aabd7c858bc2f2790eba601
+PRE_EXISTING: stockmovement.barcodeId -> barcodeLabel: 21826 reference(s); samples: 6a9177665e78ede7598c1aff, 6a9177665e78ede7598c1b00, 6a9177665e78ede7598c1b01, 6a9177665e78ede7598c1b02, 6a9177665e78ede7598c1b03
+PRE_EXISTING: stockpoint.businessId -> business: 1 reference(s); samples: 6a8927d4b4d93ac0dd425b33
+PRE_EXISTING: stocktransferlocation.toStockPointId -> stockpoint: 1 reference(s); samples: 6a87fbbfa35f534bde6b34a2
+PRE_EXISTING: stocktransferpacket.toStockPointId -> stockpoint: 2 reference(s); samples: 6a87fbbfa35f534bde6b34a2, 6a8bf0bac67379ce90586949
+PRE_EXISTING: stocktransferreceived.toStockPointId -> stockpoint: 1 reference(s); samples: 6a87fbbfa35f534bde6b34a2
+PRE_EXISTING: tax.businessId -> business: 7 reference(s); samples: 6a847473f06d7bd321a7d385, 6a847473f06d7bd321a7d385, 6a847473f06d7bd321a7d385, 6a847473f06d7bd321a7d385, 6a847473f06d7bd321a7d385
+PRE_EXISTING: uom.businessId -> business: 2 reference(s); samples: 6a847473f06d7bd321a7d385, 6a8927d4b4d93ac0dd425b33

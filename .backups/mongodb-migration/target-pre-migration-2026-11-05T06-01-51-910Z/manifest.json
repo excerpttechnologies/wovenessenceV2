@@ -1,0 +1,11 @@
+{
+  "generatedAt": "2026-11-05T06:01:54.131Z",
+  "database": "grooretailerp1",
+  "host": "69.197.176.100:27017",
+  "writablePrimary": true,
+  "replicaSet": "rs0",
+  "empty": true,
+  "collectionCount": 0,
+  "collections": [],
+  "sha256": "09b84c18ca1edaef926860044fd858a27fd1d32304830e18f072cae4925b700d"
+}
