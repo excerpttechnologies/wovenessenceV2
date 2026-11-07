@@ -3185,7 +3185,8 @@ import MultiSelect from './MultiSelect';
 import { useScope } from './ScopeContext';
 import NumberedPager from './NumberedPager';
 import { useOptions } from './useOptions';
-import { fmt, toCsv, toXlsHtml, download, printTable } from '@/lib/format';
+import { fmt, toCsv, toXlsHtml, download, printTable, XLSX_MIME } from '@/lib/format';
+import * as XLSX from 'xlsx';
 
 /* ==========================================================================
    Generic report screen.
@@ -4443,9 +4444,35 @@ export default function ReportView({ spec, toolbar = null }) {
     if (fetches && data) setError('');
     try {
       const { rows, short } = await exportRows();
-      if (kind === 'csv') download(spec.slug + '.csv', toCsv(exportHeaders(), rows), 'text/csv');
-      else if (kind === 'xls') download(spec.slug + '.xls', toXlsHtml(spec.title, exportHeaders(), rows), 'application/vnd.ms-excel');
-      else printTable(spec.title, exportHeaders(), rows, win);
+      if (kind === 'csv') {
+        download(spec.slug + '.csv', toCsv(exportHeaders(), rows), 'text/csv');
+      } else if (kind === 'xls') {
+        /* Generate proper XLSX file using SheetJS library */
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.aoa_to_sheet([exportHeaders(), ...rows]);
+        
+        /* Set column widths for better readability */
+        const maxWidths = exportHeaders().map((_, colIndex) => {
+          const headerLen = String(exportHeaders()[colIndex] || '').length;
+          const dataLens = rows.map((row) => String(row[colIndex] || '').length);
+          return Math.min(50, Math.max(headerLen, ...dataLens, 10));
+        });
+        ws['!cols'] = maxWidths.map((w) => ({ wch: w }));
+        
+        /* Freeze header row */
+        ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+        
+        XLSX.utils.book_append_sheet(wb, ws, spec.title?.substring(0, 31) || 'Report');
+        const xlsxData = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+        
+        download(
+          spec.slug + '.xlsx',
+          xlsxData,
+          XLSX_MIME
+        );
+      } else {
+        printTable(spec.title, exportHeaders(), rows, win);
+      }
       if (short) setError(short);
     } catch (e) {
       if (win) win.close();

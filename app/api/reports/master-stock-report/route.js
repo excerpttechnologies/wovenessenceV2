@@ -1559,13 +1559,36 @@ export async function GET(req) {
     if (hasAgeMax) filter.stockAge.$lte = ageMax;
   }
 
-  /* ---- SERVER-SIDE pagination: count, then read only this page ---------- */
+  /* ---- SERVER-SIDE pagination: count, then read only this page ----------
+     OR, for export mode, fetch ALL matching records in batches to avoid
+     memory issues with very large datasets. */
+  const isExport = sp.get('export') === '1';
   const total = await BarcodeLabel.countDocuments(filter);
-  const rows = await BarcodeLabel.find(filter)
-    .sort({ stockDate: -1, _id: -1 })
-    .skip((page - 1) * perPage)
-    .limit(perPage)
-    .lean();
+  
+  let rows = [];
+  if (isExport) {
+    /* EXPORT MODE: Fetch all matching records in batches to handle large
+       datasets efficiently. This prevents memory issues and timeout errors
+       when exporting tens of thousands of records. */
+    const EXPORT_BATCH_SIZE = 5000;
+    const totalBatches = Math.ceil(total / EXPORT_BATCH_SIZE);
+    
+    for (let batchNum = 0; batchNum < totalBatches; batchNum++) {
+      const batchRows = await BarcodeLabel.find(filter)
+        .sort({ stockDate: -1, _id: -1 })
+        .skip(batchNum * EXPORT_BATCH_SIZE)
+        .limit(EXPORT_BATCH_SIZE)
+        .lean();
+      rows.push(...batchRows);
+    }
+  } else {
+    /* NORMAL MODE: Paginated query for table display */
+    rows = await BarcodeLabel.find(filter)
+      .sort({ stockDate: -1, _id: -1 })
+      .skip((page - 1) * perPage)
+      .limit(perPage)
+      .lean();
+  }
 
   /* ---- the five batched lookups ---------------------------------------- */
   const ids = rows.map((r) => r._id);

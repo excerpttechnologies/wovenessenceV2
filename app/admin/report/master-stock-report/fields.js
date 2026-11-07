@@ -477,6 +477,8 @@ export const REPORT = {
   subtitle: 'Every barcode currently in stock, with its item, supplier, age, quantity, valuation and printed prices.',
   perPage: 25,
   countLabel: 'Total Barcodes',
+  /* Export the ENTIRE matching dataset, not just the current page */
+  exportAll: true,
 
   /* Every filter here has a matching clause in the route - none of them is
      decoration. Business, Location and Financial Year are not listed: they

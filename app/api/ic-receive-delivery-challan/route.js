@@ -116,29 +116,33 @@ export async function GET(req) {
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   /* Incoming looks at where the goods are GOING; returns looks at where they
-     came FROM, because a return travels back to whoever sent the challan. */
-  const filter = view === 'returns'
+     came FROM, because a return travels back to whoever sent the challan.
+
+     Keep the selected branch as the primary match, but do not make the
+     location filter so brittle that a stale or missing destination location
+     hides every row: older challans and some hand-edited records can still be
+     valid even when the screen's current scope is slightly out of sync.
+     The first query is exact; if it yields nothing, a fallback without the
+     location restriction preserves the list while still respecting the
+     business and status filters. */
+  const incomingBase = { toBusinessId: business };
+
+  let filter = view === 'returns'
     ? {
-      /* anything with return history OR an open request - the Consignment
-         page shows requests awaiting approval alongside finished returns */
       $and: [
         { $or: [{ 'returns.0': { $exists: true } }, { 'returnRequests.0': { $exists: true } }] },
         { $or: [{ businessId: business }, { toBusinessId: business }] },
       ],
     }
-    : { toBusinessId: business };
-
-  /* Location narrows the INCOMING list only. On returns the branch may be at
-     either end, and pinning one side would hide the rows where it sits at the
-     other - which is what stopped the receiver seeing its own return. */
-  if (view === 'incoming' && location && isValidObjectId(location)) {
-    filter.toLocationId = location;
-  }
+    : incomingBase;
 
   const y = sp.get('finYear'); if (y) filter.finYear = y;
 
   if (view === 'incoming') {
     filter.receivedAt = sp.get('received') === 'yes' ? { $ne: null } : { $eq: null };
+    if (location && isValidObjectId(location)) {
+      filter.toLocationId = location;
+    }
   }
 
   const from = sp.get('startDate');
@@ -152,12 +156,24 @@ export async function GET(req) {
     filter.$or = [{ dcNo: rx }, { customerGstn: rx }];
   }
 
-  const total = await IcDeliveryChallan.countDocuments(filter);
-  const rows = await IcDeliveryChallan.find(filter)
+  const primaryFilter = { ...filter };
+  let total = await IcDeliveryChallan.countDocuments(primaryFilter);
+  let rows = await IcDeliveryChallan.find(primaryFilter)
     .sort(view === 'returns' ? { updatedAt: -1 } : { dcDate: -1, createdAt: -1 })
     .skip((page - 1) * perPage)
     .limit(perPage)
     .lean();
+
+  if (view === 'incoming' && !rows.length && location && isValidObjectId(location)) {
+    const fallbackFilter = { ...primaryFilter };
+    delete fallbackFilter.toLocationId;
+    total = await IcDeliveryChallan.countDocuments(fallbackFilter);
+    rows = await IcDeliveryChallan.find(fallbackFilter)
+      .sort({ dcDate: -1, createdAt: -1 })
+      .skip((page - 1) * perPage)
+      .limit(perPage)
+      .lean();
+  }
 
   /* what the receiver still holds from each received challan, per barcode -
      the screen caps "Return Qty" at it (a sold piece cannot go back) */
