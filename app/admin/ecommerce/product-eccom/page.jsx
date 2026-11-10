@@ -390,12 +390,18 @@ export default function ProductEccomPage() {
       ...visible.filter((f) => !preferred.includes(f.k)),
     ];
     return {
-      title: 'product-eccom',
+      title: 'E-commerce Products',
       basePath: '/admin/ecommerce/',
       slugPath: 'product-eccom',
       endpoint: '/api/product-eccom',
       scope: ['business'],
       fixedQuery: { allErpBarcodes: '1' },
+      fullExport: {
+        endpoint: '/api/product-eccom',
+        title: 'Ecommerce Product Export',
+        fileBase: 'Ecommerce_Products',
+        fastMode: true, // Skip unnecessary data enrichment
+      },
       /* The Master Stock Report's filter set, applied server-side to the same
          barcode / item records these products are built from. The route reads
          these keys by name - see resolveProductFilters in /api/product-eccom. */

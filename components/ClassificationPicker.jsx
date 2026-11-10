@@ -384,7 +384,12 @@ export default function ClassificationPicker({
     if (productType) query.set('productType', productType);
     fetch(`/api/v1/admin/product-classification-options?${query}`)
       .then(async (res) => {
-        const data = await res.json();
+        // Check if response has content before parsing JSON
+        const text = await res.text();
+        if (!text) {
+          throw new Error('Unable to load classification options - empty response');
+        }
+        const data = JSON.parse(text);
         if (!res.ok) throw new Error(data.error || 'Unable to load classification options');
         return data;
       })
@@ -458,7 +463,13 @@ export default function ClassificationPicker({
         }),
       });
       
-      const data = await res.json();
+      // Check if response has content before parsing JSON
+      const text = await res.text();
+      if (!text) {
+        alert('Failed to create option - empty response');
+        return;
+      }
+      const data = JSON.parse(text);
       
       if (!res.ok) {
         alert(data.error || 'Failed to create option');
