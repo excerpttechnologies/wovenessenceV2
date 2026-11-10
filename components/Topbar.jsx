@@ -117,6 +117,7 @@ import {
 } from "react-icons/lu";
 import NotificationBell from "./NotificationBell";
 import { ChatBotButton } from "./ChatBot";
+import QuickActions from "./QuickActions";
 import { useScope, FIN_YEARS } from "./ScopeContext";
 
 /* Company, Location and Financial Year - the three things every screen below
@@ -330,6 +331,11 @@ export default function Topbar({ onToggleSidebar }) {
             className="tb-logo"
           />
         </div>
+
+        {/* The documents an operator starts most often, beside the brand and
+            before the scope selectors. Real existing Add routes; see
+            components/QuickActions.jsx. */}
+        <QuickActions />
 
         <div className="flex-1" />
 

@@ -271,33 +271,33 @@ export default function ProductTypePage() {
     } finally {
       setSaving(false);
     }
+  }
 
-    async function update(e) {
-      e.preventDefault();
-      const name = newName.trim();
-      if (!name) { setAddError('Enter a name.'); return; }
-      if (!business || saving || !editing) return;
-      setSaving(true);
-      setError('');
-      setAddError('');
-      setFlash('');
-      try {
-        const r = await fetch('/api/v1/admin/product-types', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ business, value: editing.value, name }),
-        });
-        const d = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(d.error || 'Could not update it.');
-        setShowAdd(false);
-        setEditing(null);
-        setFlash('"' + name + '" updated.');
-        load();
-      } catch (err) {
-        setAddError(err.message || 'Could not update it.');
-      } finally {
-        setSaving(false);
-      }
+  async function update(e) {
+    e.preventDefault();
+    const name = newName.trim();
+    if (!name) { setAddError('Enter a name.'); return; }
+    if (!business || saving || !editing) return;
+    setSaving(true);
+    setError('');
+    setAddError('');
+    setFlash('');
+    try {
+      const r = await fetch('/api/v1/admin/product-types', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ business, value: editing.value, name }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || 'Could not update it.');
+      setShowAdd(false);
+      setEditing(null);
+      setFlash('"' + name + '" updated.');
+      load();
+    } catch (err) {
+      setAddError(err.message || 'Could not update it.');
+    } finally {
+      setSaving(false);
     }
   }
 

@@ -33,6 +33,7 @@ const UserSchema = new mongoose.Schema(
     name: String,
     email: { type: String, index: true },
     password: String,
+    phone: { type: String, default: '', index: true }, // Phone number for WhatsApp OTP login
     role: { type: String, default: ROLES.SUPER_ADMIN },
     isActive: { type: Boolean, default: true },
 

@@ -46,31 +46,37 @@ export async function GET(req) {
 
   const sp = new URL(req.url).searchParams;
   const businessId = sp.get('business');
+  const type = sp.get('type');
+  const productType = sp.get('productType');
+  
   if (!businessId || !isValidObjectId(businessId)) {
     return json({ error: 'Valid business ID required' }, 422);
   }
-  const type = sp.get('type');
   if (type && !CLASSIFICATION_FIELDS.includes(type)) {
     return json({ error: 'Invalid classification type' }, 422);
   }
 
   await dbConnect();
-  const productType = classificationGroupKey(sp.get('productType'));
+  const productTypeKey = classificationGroupKey(productType);
+  
   let options = await listClassificationOptions(businessId, {
     types: type ? [type] : CLASSIFICATION_FIELDS,
-    productType: productType || undefined,
+    productType: productTypeKey || undefined,
   });
+  
   const search = (sp.get('search') || '').trim().toLowerCase();
   if (search) options = options.filter((row) => String(row.name || '').toLowerCase().includes(search));
 
   const grouped = Object.fromEntries(CLASSIFICATION_FIELDS.map((t) => [t, []]));
   options.forEach((row) => grouped[row.type].push(shape(row)));
 
-  return json({
+  const response = {
     options: grouped,
     all: options.map(shape),
     groups: type ? classificationGroupsFor(type) : [],
-  });
+  };
+  
+  return json(response);
 }
 
 /* POST /api/v1/admin/product-classification-options

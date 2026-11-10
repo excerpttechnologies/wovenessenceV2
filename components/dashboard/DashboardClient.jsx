@@ -13,6 +13,7 @@ import RegionPerformance from './RegionPerformance';
 import ChannelPerformance from './ChannelPerformance';
 import ForecastPanel from './ForecastPanel';
 import DataNotes from './DataNotes';
+import ReleaseAnnouncement from './ReleaseAnnouncement';
 import { EmptyState, ErrorPanel, Glyph, Skeleton, StatusPill } from './ui';
 import { useScope } from '@/components/ScopeContext';
 import {
@@ -313,12 +314,16 @@ export default function DashboardClient() {
 
   return (
     <div className={styles.shell}>
+      {/* The latest published release, between the top bar and the analytics.
+          It renders nothing when no release has been published. */}
+      <ReleaseAnnouncement />
+
       <section className={styles.hero}>
         <span className={styles.heroWeave} aria-hidden="true" />
         <div className={styles.heroInner}>
           <div className={styles.heroCopy}>
             <span className={styles.heroEyebrow}>
-              <Glyph name="sparkle" size={14} /> Retail ERP · Sales intelligence
+              <Glyph name="sparkle" size={14} /> RETAIL ERP · SALES INTELLIGENCE
             </span>
             <h1 className={styles.heroTitle}>Retail Saree &amp; Fabric Business</h1>
             <p className={styles.heroSub}>

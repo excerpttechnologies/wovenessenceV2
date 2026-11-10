@@ -382,6 +382,7 @@ export default function ClassificationPicker({
     setLoadError('');
     const query = new URLSearchParams({ business: businessId, type });
     if (productType) query.set('productType', productType);
+    
     fetch(`/api/v1/admin/product-classification-options?${query}`)
       .then(async (res) => {
         // Check if response has content before parsing JSON
@@ -402,7 +403,6 @@ export default function ClassificationPicker({
         if (!cancelled) {
           setOptions([]);
           setLoadError(err.message || 'Unable to load classification options');
-          console.error('Failed to load classification options:', err);
         }
       })
       .finally(() => {

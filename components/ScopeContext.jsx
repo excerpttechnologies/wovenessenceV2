@@ -125,6 +125,14 @@ export function ScopeProvider({ children }) {
      problem, never a security one. */
   const [perms, setPerms] = useState({ governed: false, screens: {} });
 
+  /* `userReady` and `permsReady` let a consumer wait for the answer instead of
+     treating "not loaded yet" as "nothing to show". The quick actions and the
+     frequent-pages section both hide until the permission matrix has settled,
+     so a cashier never sees a Create GRC button for the half second before
+     /api/my-permissions says no. */
+  const [userReady, setUserReady] = useState(false);
+  const [permsReady, setPermsReady] = useState(false);
+
   const [businessReady, setBusinessReady] = useState(false);
   const [locationsFor, setLocationsFor] = useState(null);
   const locationReady = locationsFor === business;
@@ -133,7 +141,8 @@ export function ScopeProvider({ children }) {
     fetch('/api/auth/me')
       .then((r) => (r.ok ? r.json() : { user: null }))
       .then((d) => setUser(d.user))
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setUserReady(true));
   }, []);
 
   useEffect(() => {
@@ -196,10 +205,17 @@ export function ScopeProvider({ children }) {
   useEffect(() => {
     if (!businessReady) return undefined;
     let cancelled = false;
+
+    /* False while this business's matrix is being read. A branch change must
+       not leave the previous branch's answers on screen as though they applied
+       to the new one. */
+    setPermsReady(false);
+
     fetch('/api/my-permissions?business=' + (business || ''), { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : { governed: false, screens: {} }))
       .then((d) => { if (!cancelled) setPerms(d || { governed: false, screens: {} }); })
-      .catch(() => { if (!cancelled) setPerms({ governed: false, screens: {} }); });
+      .catch(() => { if (!cancelled) setPerms({ governed: false, screens: {} }); })
+      .finally(() => { if (!cancelled) setPermsReady(true); });
     return () => { cancelled = true; };
   }, [business, businessReady]);
 
@@ -230,9 +246,9 @@ export function ScopeProvider({ children }) {
   };
 
   const value = {
-    user,
+    user, userReady,
     businesses, locations, business, location, finYear,
-    businessReady, locationReady,
+    businessReady, locationReady, permsReady,
     setBusiness, setLocation, setFinYear,
     perms, can,
     // appended to every list/save request

@@ -86,6 +86,7 @@ export async function GET(req, { params }) {
   } catch { /* no assignment shown - the till lists every counter */ }
   return json({
     user: {
+      id: session.id || '',
       name: session.name, email: session.email, role: session.role,
       locationIds: session.locationIds || [],
       counterId,

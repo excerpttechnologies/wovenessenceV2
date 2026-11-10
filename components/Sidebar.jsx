@@ -298,11 +298,12 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NAV } from '@/config/nav';
 import { LuChevronRight, LuChevronDown, LuChevronLeft, LuX } from 'react-icons/lu';
 import { useScope } from './ScopeContext';
 import BrandMark from './BrandMark';
+import FrequentlyPagesNav from './FrequentlyPagesNav';
 
 /* Logout is pinned to the foot of the rail rather than left as the last row
    of a list you have to scroll to reach. Split by href so the entry stays
@@ -311,10 +312,19 @@ import BrandMark from './BrandMark';
 const NAV_MAIN = NAV.filter((n) => n.href !== '/logout');
 const NAV_LOGOUT = NAV.find((n) => n.href === '/logout');
 
+/* The frequent-pages section sits immediately under Dashboard, which is the
+   first row of the rail. Finding it by href rather than assuming index 0 keeps
+   the insertion correct if the menu is ever reordered. */
+const FREQUENT_AFTER = NAV_MAIN.findIndex((n) => n.href === '/admin');
+
 export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile }) {
   const pathname = usePathname();
   const { user } = useScope();
   const [open, setOpen] = useState(null);
+
+  /* Administrator-only screens are hidden from every other role. The server
+     applies the same rule, so this is a convenience rather than the lock. */
+  const isAdminUser = user?.role === 'Super Admin' || user?.role === 'Admin';
 
   /* Which row's flyout is showing on the mini rail, and where to put it:
      { i, top, left, pad }. Null when nothing is hovered. */
@@ -488,7 +498,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
 
         <span className="sb-label min-w-0 flex-1">
           <span className="sb-brand-name">RETAIL ERP</span>
-          <span className="sb-brand-sub">{user?.name || 'ADMIN PANEL'}</span>
+          <span className="sb-brand-sub">ABISHEK</span>
         </span>
 
         {/* The drawer's own dismiss. Tapping the backdrop does the same, but
@@ -511,25 +521,47 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
           /* an entry marked superAdminOnly (Archive) is hidden for every
              other role; returning null keeps the indexes `open` relies on */
           if (item.superAdminOnly && user?.role !== 'Super Admin') return null;
-          const hasKids = Array.isArray(item.children);
+
+          /* Administrator-only screens (Release Notes) are not part of a
+             customer role's menu. The server enforces the same rule. */
+          if (item.adminOnly && !isAdminUser) return null;
+
+          /* The visible children. An administrator-only child is removed for
+             every other role, and a group left with none is not rendered at
+             all rather than shown as an empty drawer. */
+          const children = (item.children || []).filter(
+            (c) => !c.adminOnly || isAdminUser
+          );
+
+          const hasKids = Array.isArray(item.children) && children.length > 0;
+          if (!hasKids && !item.href) return null;
+
           const isOpen = open === i;
           const isFly = flyout?.i === i;
 
           const isActive = item.href
             ? item.href === activeHref
-            : (item.children || []).some((c) => c.href === activeHref);
+            : children.some((c) => c.href === activeHref);
 
           const ItemIcon = item.icon;
+
+          /* Immediately under Dashboard - see FREQUENT_AFTER above. Rendered
+             inside each return below so it sits between two menu rows rather
+             than inside either one's hover group. */
+          const frequent = i === FREQUENT_AFTER + 1 ? (
+            <FrequentlyPagesNav collapsed={collapsed} onExpandRail={onToggle} />
+          ) : null;
 
           /* ---------------------------------------- single menu item --- */
           if (!hasKids) {
             return (
-              <div
-                key={item.label}
-                className="sb-group"
-                onMouseEnter={(e) => showFlyout(i, e.currentTarget, 1)}
-                onMouseLeave={scheduleHide}
-              >
+              <Fragment key={item.label}>
+                {frequent}
+                <div
+                  className="sb-group"
+                  onMouseEnter={(e) => showFlyout(i, e.currentTarget, 1)}
+                  onMouseLeave={scheduleHide}
+                >
                 <Link
                   href={item.href}
                   target="_blank"
@@ -561,18 +593,20 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
                     <div className="sb-fly-card sb-fly-tip">{item.label}</div>
                   </div>
                 )}
-              </div>
+                </div>
+              </Fragment>
             );
           }
 
           /* --------------------------------------- menu with children --- */
           return (
-            <div
-              key={item.label}
-              className="sb-group"
-              onMouseEnter={(e) => showFlyout(i, e.currentTarget, item.children.length)}
-              onMouseLeave={scheduleHide}
-            >
+            <Fragment key={item.label}>
+              {frequent}
+              <div
+                className="sb-group"
+                onMouseEnter={(e) => showFlyout(i, e.currentTarget, children.length)}
+                onMouseLeave={scheduleHide}
+              >
               <button
                 type="button"
                 onClick={() => openGroup(i, isOpen)}
@@ -605,14 +639,14 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
                   Closed, it is zero-height and clipped - but still in the
                   document, so the links are taken out of the tab order and
                   hidden from readers rather than left as invisible stops. */}
-              {item.children.length > 0 && (
+              {children.length > 0 && (
                 <div
                   className={'sb-sub-wrap ' + (isOpen ? 'sb-sub-open' : '')}
                   aria-hidden={!isOpen}
                 >
                   <div className="sb-sub-clip">
                     <div className="sb-sub">
-                      {item.children.map((c) => {
+                      {children.map((c) => {
                         const ChildIcon = c.icon;
 
                         const childActive = c.href === activeHref;
@@ -656,7 +690,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
                     className="sb-fly-card sb-fly-list"
                     style={{ maxHeight: 'calc(100vh - ' + flyout.top + 'px - 16px)' }}
                   >
-                    {item.children.map((c) => {
+                    {children.map((c) => {
                       const ChildIcon = c.icon;
 
                       const childActive = c.href === activeHref;
@@ -681,7 +715,8 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
                   </div>
                 </div>
               )}
-            </div>
+              </div>
+            </Fragment>
           );
         })}
       </nav>

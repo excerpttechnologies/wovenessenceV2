@@ -66,6 +66,7 @@ import {
   LuPackageMinus,
   LuArchive,
   LuSparkles,
+  LuMegaphone,
 } from 'react-icons/lu';
 
 /* Archive menu on/off - see the Archive entry near the end (23-10-2026) */
@@ -256,6 +257,16 @@ export const NAV = [
         label: 'Business Contact',
         icon: LuContact,
         href: '/admin/setting/business-contact',
+      },
+      /* Release announcements are administered here and read by every signed-in
+         user from the dashboard. Marked adminOnly so the rail, the permission
+         matrix and /api/user-activity all apply one rule: only an account that
+         already holds ADMIN_ALL may see or open it. */
+      {
+        label: 'Release Notes',
+        icon: LuMegaphone,
+        href: '/admin/setting/releases',
+        adminOnly: true,
       },
     ],
   },

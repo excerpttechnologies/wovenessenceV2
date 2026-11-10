@@ -114,13 +114,19 @@ function buildGroups() {
   const general = { group: 'General', resources: [] };
 
   NAV.forEach((item) => {
+    /* Administrator-only screens are not part of the customer's permission
+       matrix: the server gates them on ADMIN_ALL, not on a box somebody can
+       untick. Leaving them out also stops the matrix offering a grant that
+       would do nothing. */
+    if (item.adminOnly) return;
+
     if (item.href && !item.children) {
       if (SKIP_HREFS.has(item.href)) return;
       general.resources.push({ k: item.href, label: item.label, href: item.href, group: 'General' });
       return;
     }
     const resources = (item.children || [])
-      .filter((c) => c.href && !SKIP_HREFS.has(c.href))
+      .filter((c) => c.href && !SKIP_HREFS.has(c.href) && !c.adminOnly)
       .map((c) => ({ k: c.href, label: c.label, href: c.href, group: item.label }));
 
     if (resources.length) groups.push({ group: item.label, resources });
