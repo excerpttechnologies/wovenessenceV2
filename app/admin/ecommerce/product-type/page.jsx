@@ -14,6 +14,26 @@ const FILTER_TYPES = {
   byColour: 'By Colour',
 };
 
+/* defaults mirror the stored filterConfig entry shape in
+   lib/ecommerceFilterConfig.js - the server re-validates anyway. */
+const defaultFilterMeta = (key, index) => ({
+  displayLabel: '',
+  displayOrder: index,
+  isActive: true,
+  isVisible: true,
+  isFilterable: true,
+  selectionMode: 'multiple',
+});
+
+const defaultGroupConfig = (row) => ({
+  displayName: row?.displayName || row?.label || '',
+  slug: row?.ecommerceSlug || '',
+  description: row?.description || '',
+  displayOrder: row?.ecommerceDisplayOrder ?? row?.displayOrder ?? 0,
+  isEnabled: row?.ecommerceEnabled !== false,
+  isEcommerceVisible: row?.ecommerceVisible !== false,
+});
+
 export default function ProductTypePage() {
   const { business } = useScope();
 
@@ -30,6 +50,8 @@ export default function ProductTypePage() {
   const [editing, setEditing] = useState(null);
   const [editName, setEditName] = useState('');
   const [editFilters, setEditFilters] = useState([]);
+  const [editFilterMeta, setEditFilterMeta] = useState({});
+  const [editEcom, setEditEcom] = useState(null);
   const [editError, setEditError] = useState('');
   const [editSaving, setEditSaving] = useState(false);
 
@@ -133,14 +155,39 @@ export default function ProductTypePage() {
   function startEdit(row) {
     setEditing(row);
     setEditName(row.label || '');
-    setEditFilters(
-      Array.isArray(row.filters)
-        ? row.filters.filter((filter) =>
-          Object.prototype.hasOwnProperty.call(FILTER_TYPES, filter))
-        : []
-    );
+    const filters = Array.isArray(row.filters)
+      ? row.filters.filter((filter) =>
+        Object.prototype.hasOwnProperty.call(FILTER_TYPES, filter))
+      : [];
+    setEditFilters(filters);
+    /* per-filter configuration - stored filterConfig entries (an array on
+       the producttypes document) win, defaults fill the gaps */
+    const storedList = Array.isArray(row.filterConfig) ? row.filterConfig : [];
+    const stored = {};
+    storedList.forEach((entry) => {
+      const key = String(entry?.key || entry?.field || '');
+      if (key) stored[key] = entry;
+    });
+    const meta = {};
+    filters.forEach((key, index) => {
+      meta[key] = { ...defaultFilterMeta(key, index), ...(stored[key] || {}) };
+    });
+    Object.keys(stored).forEach((key) => {
+      if (!meta[key] && Object.prototype.hasOwnProperty.call(FILTER_TYPES, key)) {
+        meta[key] = { ...defaultFilterMeta(key, filters.length), ...stored[key] };
+      }
+    });
+    setEditFilterMeta(meta);
+    setEditEcom(defaultGroupConfig(row));
     setEditError('');
   }
+
+  const setFilterMeta = (key, patch) => {
+    setEditFilterMeta((current) => ({
+      ...current,
+      [key]: { ...(current[key] || defaultFilterMeta(key, 0)), ...patch },
+    }));
+  };
 
   async function saveEdit(e) {
     e.preventDefault();
@@ -165,6 +212,8 @@ export default function ProductTypePage() {
           value: editing.value,
           name,
           filters: editFilters,
+          filterConfig: editFilterMeta,
+          ecommerce: editEcom,
         }),
       });
       const d = await r.json().catch(() => ({}));
@@ -360,7 +409,7 @@ export default function ProductTypePage() {
           }}
         >
           <form
-            className="w-full max-w-[480px] rounded-lg bg-white shadow-pop"
+            className="w-full max-w-[680px] rounded-lg bg-white shadow-pop"
             onMouseDown={(e) => e.stopPropagation()}
             onSubmit={saveEdit}
           >
@@ -392,27 +441,168 @@ export default function ProductTypePage() {
                 }}
               />
 
-              <div className="mt-4">
-                <div className="f-label">Applicable filters</div>
+              {/* Ecommerce group settings - what the storefront product-groups
+                  API exposes for this type. */}
+              <div className="mt-4 rounded border border-line p-3">
+                <div className="f-label">E-commerce group</div>
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  {Object.entries(FILTER_TYPES).map(([type, label]) => (
-                    <label
-                      key={type}
-                      className="flex cursor-pointer items-center gap-2 rounded border border-line px-3 py-2 text-[13px]"
-                    >
+                  <div>
+                    <label className="f-label">Display name</label>
+                    <input
+                      className="f-input w-full"
+                      value={editEcom?.displayName ?? ''}
+                      disabled={editSaving}
+                      placeholder={editName || 'e.g. Sarees'}
+                      onChange={(e) => setEditEcom((c) => ({ ...(c || {}), displayName: e.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <label className="f-label">Collection slug</label>
+                    <input
+                      className="f-input w-full"
+                      value={editEcom?.slug ?? ''}
+                      disabled={editSaving}
+                      placeholder="auto from display name"
+                      onChange={(e) => setEditEcom((c) => ({ ...(c || {}), slug: e.target.value }))}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="f-label">Description</label>
+                    <textarea
+                      className="f-input w-full"
+                      rows={2}
+                      value={editEcom?.description ?? ''}
+                      disabled={editSaving}
+                      onChange={(e) => setEditEcom((c) => ({ ...(c || {}), description: e.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <label className="f-label">Display order</label>
+                    <input
+                      className="f-input w-full"
+                      type="number"
+                      value={editEcom?.displayOrder ?? 0}
+                      disabled={editSaving}
+                      onChange={(e) => setEditEcom((c) => ({ ...(c || {}), displayOrder: Number(e.target.value) || 0 }))}
+                    />
+                  </div>
+                  <div className="flex items-end gap-4 pb-1">
+                    <label className="flex cursor-pointer items-center gap-2 text-[13px]">
                       <input
                         type="checkbox"
-                        checked={editFilters.includes(type)}
+                        checked={editEcom?.isEnabled !== false}
                         disabled={editSaving}
-                        onChange={(e) => {
-                          setEditFilters((current) => e.target.checked
-                            ? [...current, type]
-                            : current.filter((filter) => filter !== type));
-                        }}
+                        onChange={(e) => setEditEcom((c) => ({ ...(c || {}), isEnabled: e.target.checked }))}
                       />
-                      {label}
+                      Enabled
                     </label>
-                  ))}
+                    <label className="flex cursor-pointer items-center gap-2 text-[13px]">
+                      <input
+                        type="checkbox"
+                        checked={editEcom?.isEcommerceVisible !== false}
+                        disabled={editSaving}
+                        onChange={(e) => setEditEcom((c) => ({ ...(c || {}), isEcommerceVisible: e.target.checked }))}
+                      />
+                      Visible on store
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <div className="f-label">Filters for this group</div>
+                <div className="space-y-2">
+                  {Object.entries(FILTER_TYPES).map(([type, label]) => {
+                    const included = editFilters.includes(type);
+                    const meta = editFilterMeta[type] || defaultFilterMeta(type, 0);
+                    return (
+                      <div key={type} className="rounded border border-line">
+                        <label className="flex cursor-pointer items-center gap-2 px-3 py-2 text-[13px]">
+                          <input
+                            type="checkbox"
+                            checked={included}
+                            disabled={editSaving}
+                            onChange={(e) => {
+                              const on = e.target.checked;
+                              setEditFilters((current) => on
+                                ? [...current, type]
+                                : current.filter((filter) => filter !== type));
+                              if (on) setFilterMeta(type, {});
+                            }}
+                          />
+                          <span className="font-medium">{label}</span>
+                          {!included && (
+                            <span className="text-[11px] text-inkmuted">not used by this type</span>
+                          )}
+                        </label>
+                        {included && (
+                          <div className="grid grid-cols-2 gap-2 border-t border-line px-3 py-2 sm:grid-cols-4">
+                            <div className="col-span-2 sm:col-span-1">
+                              <label className="f-label">Label</label>
+                              <input
+                                className="f-input w-full"
+                                value={meta.displayLabel || ''}
+                                placeholder={label}
+                                disabled={editSaving}
+                                onChange={(e) => setFilterMeta(type, { displayLabel: e.target.value })}
+                              />
+                            </div>
+                            <div>
+                              <label className="f-label">Order</label>
+                              <input
+                                className="f-input w-full"
+                                type="number"
+                                value={meta.displayOrder ?? 0}
+                                disabled={editSaving}
+                                onChange={(e) => setFilterMeta(type, { displayOrder: Number(e.target.value) || 0 })}
+                              />
+                            </div>
+                            <div>
+                              <label className="f-label">Selection</label>
+                              <select
+                                className="f-input w-full"
+                                value={meta.selectionMode || 'multiple'}
+                                disabled={editSaving}
+                                onChange={(e) => setFilterMeta(type, { selectionMode: e.target.value })}
+                              >
+                                <option value="multiple">Multiple</option>
+                                <option value="single">Single</option>
+                              </select>
+                            </div>
+                            <div className="col-span-2 flex flex-wrap items-center gap-x-4 gap-y-1 sm:col-span-1 sm:flex-col sm:items-start sm:justify-center">
+                              <label className="flex cursor-pointer items-center gap-1.5 text-[12px]">
+                                <input
+                                  type="checkbox"
+                                  checked={meta.isActive !== false}
+                                  disabled={editSaving}
+                                  onChange={(e) => setFilterMeta(type, { isActive: e.target.checked })}
+                                />
+                                Active
+                              </label>
+                              <label className="flex cursor-pointer items-center gap-1.5 text-[12px]">
+                                <input
+                                  type="checkbox"
+                                  checked={meta.isVisible !== false}
+                                  disabled={editSaving}
+                                  onChange={(e) => setFilterMeta(type, { isVisible: e.target.checked })}
+                                />
+                                Visible on store
+                              </label>
+                              <label className="flex cursor-pointer items-center gap-1.5 text-[12px]">
+                                <input
+                                  type="checkbox"
+                                  checked={meta.isFilterable !== false}
+                                  disabled={editSaving}
+                                  onChange={(e) => setFilterMeta(type, { isFilterable: e.target.checked })}
+                                />
+                                Filterable
+                              </label>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -472,7 +662,10 @@ export default function ProductTypePage() {
               <tr>
                 <th style={{ width: 90 }}>Action</th>
                 <th style={{ width: 70 }}>Sl. No.</th>
-                <th style={{ minWidth: 180 }}>Product Type</th>
+                <th style={{ minWidth: 160 }}>Product Type</th>
+                <th style={{ minWidth: 140 }}>Group</th>
+                <th style={{ minWidth: 140 }}>Slug</th>
+                <th style={{ width: 90 }}>Store</th>
                 <th style={{ minWidth: 280 }}>Filters</th>
               </tr>
             </thead>
@@ -481,7 +674,7 @@ export default function ProductTypePage() {
               {loading && (
                 <tr>
                   <td
-                    colSpan={4}
+                    colSpan={7}
                     className="text-center text-inkmuted"
                   >
                     Loading...
@@ -492,7 +685,7 @@ export default function ProductTypePage() {
               {!loading && !shown.length && (
                 <tr>
                   <td
-                    colSpan={4}
+                    colSpan={7}
                     className="text-center text-inkmuted"
                   >
                     {business
@@ -541,6 +734,21 @@ export default function ProductTypePage() {
                       {/* Product Type */}
                       <td>{row.label}</td>
 
+                      {/* Ecommerce group */}
+                      <td>{row.displayName || row.label}</td>
+                      <td className="font-mono text-[12px]">{row.ecommerceSlug || '-'}</td>
+                      <td>
+                        {row.ecommerceVisible === false || row.ecommerceEnabled === false ? (
+                          <span className="inline-flex rounded bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
+                            Hidden
+                          </span>
+                        ) : (
+                          <span className="inline-flex rounded bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-800">
+                            Live
+                          </span>
+                        )}
+                      </td>
+
                       {/* Dynamic Filters */}
                       <td>
                         {applicableFilters.length === 0 ? (
@@ -554,7 +762,11 @@ export default function ProductTypePage() {
                                 key={type}
                                 className="inline-flex items-center gap-1 rounded border border-line bg-white px-2 py-1 text-[12px]"
                               >
-                                {FILTER_TYPES[type]}
+                                {(() => {
+                                  const entry = (Array.isArray(row.filterConfig) ? row.filterConfig : [])
+                                    .find((f) => String(f?.key || f?.field || '') === type);
+                                  return entry?.displayLabel || entry?.label || FILTER_TYPES[type];
+                                })()}
                               </span>
                             ))}
                           </div>

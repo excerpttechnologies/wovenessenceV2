@@ -106,6 +106,8 @@ import { requireSession } from '@/lib/session';
 import { CLASSIFICATION_TYPES, PRODUCT_TYPES } from '@/lib/productClassificationConstants';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { businessMatch } from '@/lib/classificationCollections';
+import { bumpCatalogVersion } from '@/lib/ecommerceCatalog';
+import { normalizeFilterConfig, normalizeGroupConfig } from '@/lib/ecommerceFilterConfig';
 
 const json = (data, status = 200) => Response.json(data, { status });
 const TYPE_COLLECTION = 'producttypes';
@@ -140,7 +142,11 @@ export async function GET(req) {
 
   const types = await collection.find({ businessId, isActive: true })
     .sort({ displayOrder: 1, label: 1 })
-    .project({ value: 1, label: 1, filters: 1, _id: 0 })
+    .project({
+      value: 1, label: 1, filters: 1, filterConfig: 1, displayOrder: 1,
+      displayName: 1, ecommerceSlug: 1, ecommerceVisible: 1,
+      ecommerceEnabled: 1, ecommerceDisplayOrder: 1, description: 1, _id: 0,
+    })
     .toArray();
 
   return json({
@@ -179,9 +185,17 @@ export async function POST(req) {
   /* a type deleted before comes back instead of a second copy */
   await collection.updateOne(
     { businessId, value },
-    { $set: { label, isActive: true, displayOrder, updatedAt: new Date() }, $setOnInsert: { businessId, value, createdAt: new Date() } },
+    {
+      $set: {
+        label, isActive: true, displayOrder, updatedAt: new Date(),
+        ...(body.ecommerce ? normalizeGroupConfig(body.ecommerce, { label, value }) : {}),
+        ...(body.filterConfig ? { filterConfig: normalizeFilterConfig(body.filterConfig) } : {}),
+      },
+      $setOnInsert: { businessId, value, createdAt: new Date() },
+    },
     { upsert: true },
   );
+  await bumpCatalogVersion(businessId);
   return json({ type: { value, label } }, 201);
 }
 
@@ -218,6 +232,8 @@ export async function PUT(req) {
   const filters = hasFilters
     ? [...new Set(body.filters.map((filter) => String(filter || '').trim()).filter((filter) => VALID_FILTERS.has(filter)))]
     : undefined;
+  const hasFilterConfig = body.filterConfig && typeof body.filterConfig === 'object' && !Array.isArray(body.filterConfig);
+  const hasEcommerce = body.ecommerce && typeof body.ecommerce === 'object' && !Array.isArray(body.ecommerce);
   await collection.updateOne(
     { _id: current._id },
     {
@@ -225,10 +241,13 @@ export async function PUT(req) {
         label,
         ...(builtIn ? {} : { value: newValue }),
         ...(hasFilters ? { filters } : {}),
+        ...(hasFilterConfig ? { filterConfig: normalizeFilterConfig(body.filterConfig) } : {}),
+        ...(hasEcommerce ? normalizeGroupConfig(body.ecommerce, { label, value: newValue }) : {}),
         updatedAt: new Date(),
       },
     },
   );
+  await bumpCatalogVersion(businessId);
   if (!builtIn && newValue !== oldValue) {
     await db.collection('ecommerceproduct').updateMany(
       { businessId: businessMatch(businessId), productType: oldValue },
@@ -260,5 +279,6 @@ export async function DELETE(req) {
     { $set: { isActive: false, updatedAt: new Date() } },
   );
   if (!result.matchedCount) return json({ error: 'Product type not found.' }, 404);
+  await bumpCatalogVersion(businessId);
   return json({ ok: true });
 }
