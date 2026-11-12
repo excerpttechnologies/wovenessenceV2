@@ -29,9 +29,9 @@ const defaultGroupConfig = (row) => ({
   displayName: row?.displayName || row?.label || '',
   slug: row?.ecommerceSlug || '',
   description: row?.description || '',
-  displayOrder: row?.ecommerceDisplayOrder ?? row?.displayOrder ?? 0,
-  isEnabled: row?.ecommerceEnabled !== false,
-  isEcommerceVisible: row?.ecommerceVisible !== false,
+  displayOrder: row?.displayOrder ?? 0,
+  isActive: row?.isActive !== false,
+  ecommerceVisible: row?.ecommerceVisible !== false,
 });
 
 export default function ProductTypePage() {
@@ -54,6 +54,9 @@ export default function ProductTypePage() {
   const [editEcom, setEditEcom] = useState(null);
   const [editError, setEditError] = useState('');
   const [editSaving, setEditSaving] = useState(false);
+  const [preview, setPreview] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState('');
 
   const [showAdd, setShowAdd] = useState(false);
   const [addError, setAddError] = useState('');
@@ -72,7 +75,7 @@ export default function ProductTypePage() {
 
     try {
       const r = await fetch(
-        '/api/v1/admin/product-types?business=' +
+        '/api/v1/admin/product-types?all=1&business=' +
           encodeURIComponent(business),
         { cache: 'no-store' }
       );
@@ -180,6 +183,8 @@ export default function ProductTypePage() {
     setEditFilterMeta(meta);
     setEditEcom(defaultGroupConfig(row));
     setEditError('');
+    setPreview(null);
+    setPreviewError('');
   }
 
   const setFilterMeta = (key, patch) => {
@@ -188,6 +193,50 @@ export default function ProductTypePage() {
       [key]: { ...(current[key] || defaultFilterMeta(key, 0)), ...patch },
     }));
   };
+
+  /* Reorder the filters assigned to the group: up/down only swaps the
+     neighbours' displayOrder, the master records are untouched. */
+  const moveFilter = (key, direction) => {
+    setEditFilters((current) => {
+      const index = current.indexOf(key);
+      const target = index + direction;
+      if (index < 0 || target < 0 || target >= current.length) return current;
+      const next = [...current];
+      [next[index], next[target]] = [next[target], next[index]];
+      setEditFilterMeta((meta) => {
+        const updated = { ...meta };
+        next.forEach((filterKey, order) => {
+          updated[filterKey] = {
+            ...(updated[filterKey] || defaultFilterMeta(filterKey, order)),
+            displayOrder: order,
+          };
+        });
+        return updated;
+      });
+      return next;
+    });
+  };
+
+  /* Live values from the same builder the storefront uses. */
+  async function loadPreview() {
+    if (!business || !editing || previewLoading) return;
+    setPreviewLoading(true);
+    setPreviewError('');
+    try {
+      const q = new URLSearchParams({ business, value: editing.value });
+      const r = await fetch('/api/v1/admin/product-types/preview?' + q.toString(), {
+        cache: 'no-store',
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || 'Could not load the preview.');
+      setPreview(d);
+    } catch (err) {
+      setPreview(null);
+      setPreviewError(err.message || 'Could not load the preview.');
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
 
   async function saveEdit(e) {
     e.preventDefault();
@@ -211,9 +260,17 @@ export default function ProductTypePage() {
           business,
           value: editing.value,
           name,
-          filters: editFilters,
-          filterConfig: editFilterMeta,
-          ecommerce: editEcom,
+          displayName: editEcom?.displayName ?? '',
+          description: editEcom?.description ?? '',
+          ecommerceSlug: editEcom?.slug ?? '',
+          displayOrder: editEcom?.displayOrder ?? 0,
+          isActive: editEcom?.isActive !== false,
+          ecommerceVisible: editEcom?.ecommerceVisible !== false,
+          filterConfig: editFilters.map((key, index) => ({
+            key,
+            ...(editFilterMeta[key] || defaultFilterMeta(key, index)),
+            displayOrder: index,
+          })),
         }),
       });
       const d = await r.json().catch(() => ({}));
@@ -233,42 +290,28 @@ export default function ProductTypePage() {
   }
 
   /*
-   * Delete Product Type.
+   * Enable / Disable Product Type. Groups are never destroyed - disabling
+   * only takes the group off the website, products and history stay.
    */
-  async function remove(row) {
-    if (
-      !window.confirm(
-        'Delete Product Type "' + row.label + '"?'
-      )
-    ) {
+  async function toggleActive(row) {
+    const next = row.isActive === false;
+    if (!next && !window.confirm('Disable Product Type "' + row.label + '"? It will be removed from the website, but its products are kept.')) {
       return;
     }
-
     setError('');
     setFlash('');
-
     try {
-      const q = new URLSearchParams({
-        business,
-        value: row.value,
+      const r = await fetch('/api/v1/admin/product-types', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ business, value: row.value, name: row.label, isActive: next }),
       });
-
-      const r = await fetch(
-        '/api/v1/admin/product-types?' + q.toString(),
-        { method: 'DELETE' }
-      );
-
       const d = await r.json().catch(() => ({}));
-
-      if (!r.ok) {
-        throw new Error(d.error || 'Could not delete it.');
-      }
-
-      setFlash('"' + row.label + '" deleted.');
-
+      if (!r.ok) throw new Error(d.error || 'Could not update it.');
+      setFlash('"' + row.label + '" ' + (next ? 'enabled.' : 'disabled.'));
       await load();
     } catch (err) {
-      setError(err.message || 'Could not delete it.');
+      setError(err.message || 'Could not update it.');
     }
   }
 
@@ -490,18 +533,18 @@ export default function ProductTypePage() {
                     <label className="flex cursor-pointer items-center gap-2 text-[13px]">
                       <input
                         type="checkbox"
-                        checked={editEcom?.isEnabled !== false}
+                        checked={editEcom?.isActive !== false}
                         disabled={editSaving}
-                        onChange={(e) => setEditEcom((c) => ({ ...(c || {}), isEnabled: e.target.checked }))}
+                        onChange={(e) => setEditEcom((c) => ({ ...(c || {}), isActive: e.target.checked }))}
                       />
-                      Enabled
+                      Active
                     </label>
                     <label className="flex cursor-pointer items-center gap-2 text-[13px]">
                       <input
                         type="checkbox"
-                        checked={editEcom?.isEcommerceVisible !== false}
+                        checked={editEcom?.ecommerceVisible !== false}
                         disabled={editSaving}
-                        onChange={(e) => setEditEcom((c) => ({ ...(c || {}), isEcommerceVisible: e.target.checked }))}
+                        onChange={(e) => setEditEcom((c) => ({ ...(c || {}), ecommerceVisible: e.target.checked }))}
                       />
                       Visible on store
                     </label>
@@ -533,6 +576,37 @@ export default function ProductTypePage() {
                           <span className="font-medium">{label}</span>
                           {!included && (
                             <span className="text-[11px] text-inkmuted">not used by this type</span>
+                          )}
+                          {included && (
+                            <>
+                              <span className="flex-1" />
+                              <span
+                                role="button"
+                                tabIndex={0}
+                                title="Move up"
+                                className={editFilters.indexOf(type) === 0 ? 'text-inkmuted' : 'text-ink'}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  moveFilter(type, -1);
+                                }}
+                              >
+                                <Icon name="chevR" size={14} className="-rotate-90" />
+                              </span>
+                              <span
+                                role="button"
+                                tabIndex={0}
+                                title="Move down"
+                                className={editFilters.indexOf(type) === editFilters.length - 1 ? 'text-inkmuted' : 'text-ink'}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  moveFilter(type, 1);
+                                }}
+                              >
+                                <Icon name="chevR" size={14} className="rotate-90" />
+                              </span>
+                            </>
                           )}
                         </label>
                         {included && (
@@ -604,6 +678,41 @@ export default function ProductTypePage() {
                     );
                   })}
                 </div>
+              </div>
+
+              <div className="mt-4 rounded border border-line p-3">
+                <div className="flex items-center gap-2">
+                  <div className="f-label mb-0">Ecommerce preview</div>
+                  <span className="flex-1" />
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    disabled={previewLoading || editSaving}
+                    onClick={loadPreview}
+                  >
+                    <Icon name="eye" size={14} />
+                    {previewLoading ? 'Loading...' : 'Load live values'}
+                  </button>
+                </div>
+                {previewError && <div className="f-err mt-1">{previewError}</div>}
+                {preview && (
+                  <div className="mt-2 text-[13px]">
+                    <div className="text-inkmuted">
+                      {preview.productCount} eligible product(s) - {preview.filters.length} active filter(s)
+                    </div>
+                    {preview.filters.map((filter) => (
+                      <div key={filter.key} className="mt-1">
+                        <span className="font-medium">{filter.displayLabel || filter.label}</span>
+                        <span className="text-inkmuted"> ({filter.selectionMode})</span>
+                        <div className="text-[12px] text-inkmuted">
+                          {filter.options.length
+                            ? filter.options.map((option) => option.name + ' (' + option.count + ')').join(', ')
+                            : 'No live values for this filter.'}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {editError && <div className="f-err mt-2">{editError}</div>}
@@ -718,12 +827,15 @@ export default function ProductTypePage() {
                           </button>
                           <button
                             type="button"
-                            title="Delete"
-                            aria-label={'Delete ' + row.label}
-                            className="flex h-7 w-7 items-center justify-center rounded bg-danger text-white"
-                            onClick={() => remove(row)}
+                            title={row.isActive === false ? 'Enable' : 'Disable'}
+                            aria-label={(row.isActive === false ? 'Enable ' : 'Disable ') + row.label}
+                            className={
+                              'flex h-7 w-7 items-center justify-center rounded text-white '
+                              + (row.isActive === false ? 'bg-emerald-600' : 'bg-danger')
+                            }
+                            onClick={() => toggleActive(row)}
                           >
-                            <Icon name="trash" size={14} />
+                            <Icon name={row.isActive === false ? 'check' : 'x'} size={14} />
                           </button>
                         </div>
                       </td>
@@ -738,7 +850,11 @@ export default function ProductTypePage() {
                       <td>{row.displayName || row.label}</td>
                       <td className="font-mono text-[12px]">{row.ecommerceSlug || '-'}</td>
                       <td>
-                        {row.ecommerceVisible === false || row.ecommerceEnabled === false ? (
+                        {row.isActive === false ? (
+                          <span className="inline-flex rounded bg-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
+                            Disabled
+                          </span>
+                        ) : row.ecommerceVisible === false ? (
                           <span className="inline-flex rounded bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
                             Hidden
                           </span>

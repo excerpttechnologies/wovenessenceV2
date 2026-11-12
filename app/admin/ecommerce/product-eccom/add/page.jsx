@@ -10,6 +10,7 @@ import {
   PRODUCT_TYPE_CLASSIFICATIONS,
   PRODUCT_TYPES,
 } from '@/lib/productClassificationConstants';
+import { parseEcommerceVisibility } from '@/lib/ecommerceVisibility';
 
 /* E-commerce -> product-eccom -> Add (19-10-2026).
 
@@ -310,6 +311,7 @@ export default function ProductEccomAddPage() {
           ...DEFAULT_DATA,
           ...Object.fromEntries(Object.entries(result.data || {}).filter(([key]) =>
             !['_id', '__v', 'businessId', 'createdAt', 'updatedAt', 'isActive'].includes(key))),
+          isPublished: parseEcommerceVisibility(result.data?.isPublished) ?? false,
           itemId: result.item.id,
         };
         const kept = [...manualRef.current].filter((key) =>
@@ -533,8 +535,9 @@ export default function ProductEccomAddPage() {
           business,
           data: {
             ...data,
+            isPublished: parseEcommerceVisibility(data.isPublished) ?? false,
             /* the storefront needs all three flags, so publishing sets them */
-            ...(data.isPublished ? { isActive: true, status: 'active' } : {}),
+            ...(parseEcommerceVisibility(data.isPublished) === true ? { isActive: true, status: 'active' } : {}),
             ...((resolvedBarcode || barcodeInput.trim()) ? { barcode: resolvedBarcode || barcodeInput.trim() } : {}),
           },
         }),

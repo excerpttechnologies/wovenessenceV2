@@ -11,23 +11,34 @@ import {
 } from '@/lib/classificationCollections';
 import { BarcodeLabel, BARCODE_STATUS } from '@/lib/barcodeLabel';
 import { getStorefrontCatalog, findCatalogGroup } from '@/lib/ecommerceCatalog';
-import { FILTER_KEYS } from '@/lib/ecommerceFilterConfig';
+import {
+  parseFilterSelections,
+  selectionError,
+} from '@/lib/ecommerceFilterConfig';
+import { classificationGroupKeyFor } from '@/lib/productClassificationConstants';
 import { storefrontKeyConfigured, validStorefrontKey } from '@/lib/storefrontAuth';
 
 const json = (data, status = 200, headers = {}) => Response.json(data, { status, headers });
 const PAGE_SIZE = 24;
-const SORTS = new Set(['newest', 'price_asc', 'price_desc', 'name', 'name_desc']);
+const SEARCH_MAX = 120;
+const SORTS = new Set(['featured', 'newest', 'oldest']);
 
 const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-/* comma-separated and/or repeated query params -> trimmed unique strings */
-const multiParam = (params, key) => [...new Set(
-  params.getAll(key)
-    .flatMap((value) => String(value).split(','))
-    .map((value) => value.trim())
-    .filter(Boolean),
-)];
+const groupSummary = (group) => (group ? {
+  key: group.key,
+  name: group.name,
+  displayName: group.displayName,
+  slug: group.slug,
+  description: group.description,
+} : null);
 
+const etagFor = (payload) => `W/"${createHash('sha1').update(JSON.stringify(payload)).digest('hex')}"`;
+
+/* GET /api/v1/storefront/products
+
+   Eligible products, dynamic filter values/counts and filtered results for
+   one ERP product group. See ECOMMERCE_README.md section 5.2. */
 export async function GET(req) {
   if (!storefrontKeyConfigured()) {
     return json({ error: 'Storefront API is not configured.' }, 503);
@@ -43,60 +54,57 @@ export async function GET(req) {
   const page = Math.max(1, Number(params.get('page') || 1) || 1);
   const perPage = Math.min(100, Math.max(1, Number(params.get('perPage') || PAGE_SIZE) || PAGE_SIZE));
   const search = String(params.get('search') || '').trim();
-  const sort = SORTS.has(params.get('sort')) ? params.get('sort') : 'newest';
-  const productTypeParam = String(params.get('productType') || params.get('group') || '').trim();
+  if (search.length > SEARCH_MAX) {
+    return json({ error: `Search must be ${SEARCH_MAX} characters or fewer.` }, 422);
+  }
+  const sort = SORTS.has(params.get('sort')) ? params.get('sort') : 'featured';
+  /* facets=0 skips the filter value/count block entirely */
+  const includeFacets = params.get('facets') !== '0';
+  const productTypeParam = String(params.get('group') || params.get('productType') || '').trim();
+
+  const { selections, errors } = parseFilterSelections(params);
+  if (errors.length) return json({ error: errors[0] }, 422);
+  const hasSelections = Object.keys(selections).length > 0;
 
   await dbConnect();
   const catalog = await getStorefrontCatalog(businessId);
 
-  /* The group the request targets. When the param matches a configured
-     group (by key, slug, display name or label) the canonical productType
-     value is used; an unknown value still filters literally but has no
-     configured filters, so classification params are rejected below. */
+  /* An unknown or disabled group is unavailable, never an empty listing. */
   const group = productTypeParam ? findCatalogGroup(catalog, productTypeParam) : null;
-  const productTypeValue = group ? group.key : productTypeParam.toUpperCase();
-
-  /* Filter keys this request may use: the target group's filterable
-     filters, or the union across all visible groups when no group was
-     given. Anything else is rejected - the ERP config is the only source. */
-  const allowedKeys = productTypeParam
-    ? new Set((group?.filters || []).filter((f) => f.isFilterable).map((f) => f.key))
-    : new Set(catalog.groups.flatMap((g) => g.filters.filter((f) => f.isFilterable).map((f) => f.key)));
-
-  /* Parse + validate the requested classification selections. Values within
-     one filter are OR-ed ($in), different filters are AND-ed by Mongo. */
-  const selections = {};
-  for (const key of FILTER_KEYS) {
-    const raw = multiParam(params, key);
-    if (!raw.length) continue;
-    if (!CLASSIFICATION_FIELDS.includes(key) || !allowedKeys.has(key)) {
-      return json({ error: `Filter "${key}" is not available for this product type.` }, 422);
-    }
-    const invalid = raw.filter((id) => !isValidObjectId(id));
-    if (invalid.length) return json({ error: `Filter "${key}" contains an invalid value.` }, 422);
-    selections[key] = [...new Set(raw.map((id) => id.toLowerCase()))];
+  if (productTypeParam && !group) {
+    return json({ error: 'Product group not found.' }, 404);
   }
+  if (!group && hasSelections) {
+    return json({ error: 'Choose a product group before filtering.' }, 422);
+  }
+  if (group) {
+    const error = selectionError(selections, group.filters);
+    if (error) return json({ error }, 422);
 
-  /* Every selected id must be a live classification option of this business
-     and of the matching type - no guessing, no cross-tenant ids. */
-  for (const [key, ids] of Object.entries(selections)) {
-    const found = await classificationCollection(key)
-      .find({
-        _id: { $in: ids.map((id) => new Types.ObjectId(id)) },
-        businessId: businessMatch(businessId),
-        isActive: { $ne: false },
-      })
-      .project({ _id: 1 })
-      .toArray();
-    const foundIds = new Set(found.map((row) => String(row._id).toLowerCase()));
-    if (ids.some((id) => !foundIds.has(id))) {
-      return json({ error: `Filter "${key}" contains an unknown value.` }, 422);
+    /* Every selected id must be a live classification master of this
+       business AND of the group's classification group. */
+    const classGroup = classificationGroupKeyFor(group.key);
+    for (const [key, ids] of Object.entries(selections)) {
+      const filter = group.filters.find((f) => f.key === key);
+      const label = filter?.displayLabel || filter?.label || key;
+      const found = await classificationCollection(key)
+        .find({
+          _id: { $in: ids.map((id) => new Types.ObjectId(id)) },
+          businessId: businessMatch(businessId),
+          isActive: { $ne: false },
+          productType: { $regex: `^${escapeRegex(classGroup)}$`, $options: 'i' },
+        })
+        .project({ _id: 1 })
+        .toArray();
+      const foundIds = new Set(found.map((row) => String(row._id).toLowerCase()));
+      if (ids.some((id) => !foundIds.has(id))) {
+        return json({ error: `One or more selected ${label} values are not available for this group.` }, 422);
+      }
     }
   }
 
-  /* Eligible products only - the same rule everywhere: active, published,
-     not explicitly inactive, and backed by a real ERP item (checked up
-     front so `total` and facets never count orphans). */
+  /* Eligible products only - active, published, not explicitly inactive,
+     and backed by a real ERP item. */
   const itemIds = await Item.distinct('_id', { businessId: new Types.ObjectId(businessId) });
   const baseFilter = {
     businessId,
@@ -105,8 +113,8 @@ export async function GET(req) {
     isActive: { $ne: false },
     itemId: { $in: itemIds },
   };
-  if (productTypeValue) {
-    baseFilter.productType = { $regex: `^${escapeRegex(productTypeValue)}$`, $options: 'i' };
+  if (group) {
+    baseFilter.productType = { $regex: `^${escapeRegex(group.key)}$`, $options: 'i' };
   }
   if (search) {
     const escaped = escapeRegex(search);
@@ -117,25 +125,9 @@ export async function GET(req) {
     ];
   }
 
-  const emptyPayload = {
-    rows: [], total: 0, page, perPage, pages: 0,
-    productType: productTypeValue || '',
-    group: group ? { key: group.key, slug: group.slug, displayName: group.displayName } : null,
-    filters: group?.filters || [],
-    filterOptions: {},
-    appliedFilters: selections,
-    sort,
-    version: catalog.version,
-  };
-  if (!itemIds.length) {
-    return json(emptyPayload, 200, { ETag: etagFor(emptyPayload) });
-  }
-
-  /* Fetch the base eligible set WITHOUT classification filters so the same
-     rows can produce both the filtered result and the per-filter option
-     counts (facets). */
   const products = await EcommerceProduct.find(baseFilter).lean();
-  const productItemIds = [...new Set(products.map((p) => String(p.itemId)))];
+  const productItemIds = [...new Set(products.map((product) => String(product.itemId)))]
+    .filter((id) => isValidObjectId(id));
   const items = productItemIds.length
     ? await Item.find({ _id: { $in: productItemIds.map((id) => new Types.ObjectId(id)) } })
         .select('name itemCode rsp image description').lean()
@@ -143,19 +135,19 @@ export async function GET(req) {
   const itemById = new Map(items.map((item) => [String(item._id), item]));
 
   const classificationIds = [...new Set(products.flatMap((product) =>
-    FILTER_KEYS.flatMap((field) => product[field] || [])
+    CLASSIFICATION_FIELDS.flatMap((field) => product[field] || [])
   ).map(String))];
   const classificationById = new Map([...(await classificationOptionsById(classificationIds))]
     .filter(([, option]) => option.isActive)
     .map(([id, option]) => [id, { id, name: option.name, type: option.type }]));
 
-  /* rowsBase: every eligible product with its classification id sets kept
-     internally for filtering/faceting (stripped before the response). */
+  /* rowsBase keeps each product's classification id sets for filtering and
+     faceting (stripped from the response rows). */
   const rowsBase = products.flatMap((product) => {
     const item = itemById.get(String(product.itemId));
     if (!item) return [];
     const ids = {};
-    FILTER_KEYS.forEach((field) => {
+    CLASSIFICATION_FIELDS.forEach((field) => {
       ids[field] = new Set((product[field] || []).map(String));
     });
     return [{
@@ -177,10 +169,10 @@ export async function GET(req) {
       seoTitle: product.seoTitle || '',
       seoDescription: product.seoDescription || '',
       classifications: Object.fromEntries(
-        FILTER_KEYS.map((field) => [
+        CLASSIFICATION_FIELDS.map((field) => [
           field,
           [...ids[field]]
-            .map((cid) => classificationById.get(cid))
+            .map((classificationId) => classificationById.get(classificationId))
             .filter(Boolean),
         ])
       ),
@@ -193,50 +185,48 @@ export async function GET(req) {
 
   const filteredRows = rowsBase.filter((row) => matchesSelections(row, null));
 
-  /* Facet options: for each filterable filter of the target group (or the
-     union when no group), count values across rows that match every OTHER
-     selected filter - the standard "options reflect current filters" rule. */
-  const facetKeys = [...allowedKeys];
-  const facetCandidates = {};
-  const facetIdSet = new Set();
-  for (const key of facetKeys) {
-    const candidates = rowsBase.filter((row) => matchesSelections(row, key));
-    facetCandidates[key] = candidates;
-    candidates.forEach((row) => row._ids[key].forEach((id) => facetIdSet.add(id)));
-  }
-  const facetNames = new Map([...(await classificationOptionsById([...facetIdSet]))]
-    .filter(([, option]) => option.isActive)
-    .map(([id, option]) => [id, option.name]));
-
-  const filterOptions = {};
-  for (const key of facetKeys) {
-    const counts = new Map();
-    facetCandidates[key].forEach((row) => {
-      row._ids[key].forEach((id) => {
-        if (facetNames.has(id)) counts.set(id, (counts.get(id) || 0) + 1);
+  /* Facet options: each filter's counts are calculated with the other
+     selected filters applied, so choosing a value does not hide the other
+     values in the same filter. */
+  let filterPayload = [];
+  if (includeFacets && group) {
+    const classGroup = classificationGroupKeyFor(group.key);
+    const optionsByFilter = {};
+    for (const filter of group.filters) {
+      const candidates = rowsBase.filter((row) => matchesSelections(row, filter.key));
+      const counts = new Map();
+      candidates.forEach((row) => {
+        row._ids[filter.key].forEach((id) => counts.set(id, (counts.get(id) || 0) + 1));
       });
-    });
-    filterOptions[key] = [...counts.entries()]
-      .map(([id, count]) => ({ id, name: facetNames.get(id) || '', count }))
-      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+      const meta = new Map([...(await classificationOptionsById([...counts.keys()]))]
+        .filter(([, option]) => option.isActive
+          && String(option.productType || '').trim().toUpperCase() === classGroup));
+      optionsByFilter[filter.key] = [...counts.entries()]
+        .map(([id, count]) => ({ id, count, option: meta.get(id) }))
+        .filter(({ option }) => Boolean(option))
+        .map(({ id, count, option }) => ({
+          id,
+          name: option.name || '',
+          displayOrder: option.displayOrder || 0,
+          count,
+        }))
+        .sort((a, b) => a.displayOrder - b.displayOrder
+          || a.name.localeCompare(b.name)
+          || b.count - a.count);
+    }
+    filterPayload = group.filters.map((filter) => ({
+      ...filter,
+      options: optionsByFilter[filter.key] || [],
+    }));
   }
 
-  /* Sort + paginate in memory: price/name ordering needs the joined item
-     data, and facets already required the full eligible set. */
+  /* Sort + paginate in memory: ordering needs the joined item data and the
+     facets already required the full eligible set. */
   const sorted = [...filteredRows];
-  if (sort === 'price_asc' || sort === 'price_desc') {
-    const dir = sort === 'price_asc' ? 1 : -1;
-    sorted.sort((a, b) => {
-      const pa = a.price === null || a.price === undefined ? null : Number(a.price);
-      const pb = b.price === null || b.price === undefined ? null : Number(b.price);
-      if (pa === null && pb === null) return 0;
-      if (pa === null) return 1;
-      if (pb === null) return -1;
-      return (pa - pb) * dir;
-    });
-  } else if (sort === 'name' || sort === 'name_desc') {
-    const dir = sort === 'name' ? 1 : -1;
-    sorted.sort((a, b) => dir * a.name.localeCompare(b.name));
+  if (sort === 'newest') {
+    sorted.sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
+  } else if (sort === 'oldest') {
+    sorted.sort((a, b) => new Date(a.updatedAt || 0) - new Date(b.updatedAt || 0));
   } else {
     sorted.sort((a, b) => Number(b.isFeatured) - Number(a.isFeatured)
       || new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
@@ -246,8 +236,7 @@ export async function GET(req) {
   const pages = Math.ceil(total / perPage);
   const pageRows = sorted.slice((page - 1) * perPage, page * perPage);
 
-  /* Stock is only needed for the rows actually returned - keep the barcode
-     lookup scoped to this page exactly like before. */
+  /* Stock is only needed for the rows actually returned. */
   const pageItemIds = pageRows.map((row) => row.id);
   const pageObjectIds = pageItemIds.map((id) => new Types.ObjectId(id));
   const pageItems = pageItemIds.length
@@ -306,22 +295,17 @@ export async function GET(req) {
     page,
     perPage,
     pages,
-    productType: productTypeValue || '',
-    group: group ? { key: group.key, slug: group.slug, displayName: group.displayName } : null,
-    filters: group?.filters || [],
-    filterOptions,
+    group: groupSummary(group),
+    filters: filterPayload,
     appliedFilters: selections,
-    sort,
-    version: catalog.version,
   };
 
   const etag = etagFor(payload);
   if (req.headers.get('if-none-match') === etag) {
-    return new Response(null, { status: 304, headers: { ETag: etag } });
+    return new Response(null, {
+      status: 304,
+      headers: { ETag: etag, 'Cache-Control': 'no-store' },
+    });
   }
-  return json(payload, 200, { ETag: etag });
-}
-
-function etagFor(payload) {
-  return `W/"${createHash('sha1').update(JSON.stringify(payload)).digest('hex')}"`;
+  return json(payload, 200, { ETag: etag, 'Cache-Control': 'no-store' });
 }

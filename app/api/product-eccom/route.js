@@ -3424,6 +3424,7 @@ import mongoose, { isValidObjectId, Types } from 'mongoose';
 import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
 import { escapeRegex } from '@/lib/validate';
+import { parseEcommerceVisibility } from '@/lib/ecommerceVisibility';
 import ProductImage from '@/models/ProductImage';
 import { barcodeFilter as inventoryBarcodeFilter, erpImageForBarcode, imageUrl, unitFor } from '@/lib/inventory';
 import { classificationOptionsById, listClassificationOptions } from '@/lib/classificationCollections';
@@ -5004,6 +5005,7 @@ export async function GET(req) {
         ...defaultData,
         ...savedProduct,
         ...classificationDefaults,
+        isPublished: parseEcommerceVisibility(savedProduct.isPublished) ?? false,
         displayName: savedProduct.displayName || defaultData.displayName,
         ecommItemCode: savedProduct.ecommItemCode || defaultData.ecommItemCode,
         /* resolved, not echoed: a saved image may be a legacy relative
@@ -5431,22 +5433,20 @@ export async function POST(req) {
     businessId: new Types.ObjectId(business),
     itemId: new Types.ObjectId(data.itemId),
   };
-  Object.entries(data).forEach(([k, v]) => {
-    if (SYSTEM.has(k) || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(k)) return;
-    if (NUMBER_FIELDS.has(k)) doc[k] = v === '' || v === null || v === undefined ? 0 : Number(v) || 0;
-    else if (BOOL_FIELDS.has(k)) doc[k] = v === true || v === 'true' || v === 'yes';
+  for (const [k, v] of Object.entries(data)) {
+    if (SYSTEM.has(k) || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(k)) continue;
+    if (BOOL_FIELDS.has(k)) {
+      const parsed = parseEcommerceVisibility(v);
+      if (parsed === undefined) {
+        return json({ errors: { [k]: `${k} must be true or false.` }, error: `${k} must be true or false.` }, 422);
+      }
+      doc[k] = parsed;
+    } else if (NUMBER_FIELDS.has(k)) doc[k] = v === '' || v === null || v === undefined ? 0 : Number(v) || 0;
     else if (ID_LIST_FIELDS.has(k)) doc[k] = (Array.isArray(v) ? v : []).filter((x) => isValidObjectId(x)).map((x) => new Types.ObjectId(x));
     else if (k === 'additionalImages') doc[k] = (Array.isArray(v) ? v : String(v || '').split(/\r?\n/)).map((x) => String(x).trim()).filter(Boolean);
     else if (Array.isArray(v)) doc[k] = v;
     else doc[k] = v === null || v === undefined ? '' : String(v);
-  });
-  /* (29-10-2026) the Dupatta By Fabric names are no longer created here - the
-     form sends the ids of names made on E-commerce -> By Fabric -> Dupatta */
-  /* the shape the e-commerce project writes when a field is left empty */
-  ID_LIST_FIELDS.forEach((k) => { if (!doc[k]) doc[k] = []; });
-  if (!doc.additionalImages) doc.additionalImages = [];
-  if (!doc.status) doc.status = 'active';
-  if (doc.isActive === undefined) doc.isActive = true;
+  }
 
   const now = new Date();
   doc.updatedAt = now;
@@ -5456,6 +5456,10 @@ export async function POST(req) {
   };
   const existing = await col.findOne(productFilter, { projection: { _id: 1 } });
   if (existing) {
+    if (doc.isPublished === true) {
+      doc.isActive = true;
+      doc.status = 'active';
+    }
     const result = await col.updateOne(productFilter, { $set: doc });
     if (!result.matchedCount) {
       return json({ error: 'The existing product could not be found while saving. Please retry.' }, 409);
@@ -5463,6 +5467,17 @@ export async function POST(req) {
     return json({ ok: true, id: String(existing._id), updated: true });
   }
 
+  /* Apply collection defaults only to new products. Partial updates must not
+     reset visibility, status, or classifications omitted from the request. */
+  ID_LIST_FIELDS.forEach((k) => { if (!doc[k]) doc[k] = []; });
+  if (!doc.additionalImages) doc.additionalImages = [];
+  if (!doc.status) doc.status = 'active';
+  if (doc.isActive === undefined) doc.isActive = true;
+  if (doc.isPublished === undefined) doc.isPublished = false;
+  if (doc.isPublished) {
+    doc.isActive = true;
+    doc.status = 'active';
+  }
   doc.createdAt = now;
   doc.__v = 0;
   try {
