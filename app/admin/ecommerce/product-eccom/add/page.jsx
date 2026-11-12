@@ -64,7 +64,9 @@ const SKIP = new Set([
   'ecommOffPercent', 'barcodePriceOverride', 'barcodeQtyOverride',
 ]);
 
-const DEFAULT_DATA = { status: 'active', isPublished: false, isFeatured: false, isBestBuy: false };
+/* A product reaches the website only when it is published, active and its
+   status is active, so a new form starts ready to be published. */
+const DEFAULT_DATA = { status: 'active', isActive: true, isPublished: false, isFeatured: false, isBestBuy: false };
 
 /* Fields the lookup panel offers besides the barcode, which has its own box. */
 const IDENTIFY_FIELDS = [
@@ -464,6 +466,13 @@ export default function ProductEccomAddPage() {
     setErrors((e) => ({ ...e, [k]: '' }));
   };
 
+  /* "Show in E-commerce" ticks a flag the storefront requires; publishing an
+     inactive row would still hide it, so the other two flags follow along. */
+  const togglePublished = (checked) => {
+    manualRef.current.add('isPublished');
+    setData((d) => ({ ...d, isPublished: checked, ...(checked ? { isActive: true, status: 'active' } : {}) }));
+  };
+
   /* picking the item fills Display Name and Ecomm Item Code when still empty */
   const pickItem = (v) => {
     const it = items.find((o) => o.value === v);
@@ -524,6 +533,8 @@ export default function ProductEccomAddPage() {
           business,
           data: {
             ...data,
+            /* the storefront needs all three flags, so publishing sets them */
+            ...(data.isPublished ? { isActive: true, status: 'active' } : {}),
             ...((resolvedBarcode || barcodeInput.trim()) ? { barcode: resolvedBarcode || barcodeInput.trim() } : {}),
           },
         }),
@@ -849,6 +860,22 @@ export default function ProductEccomAddPage() {
                 )}
               </section>
             )}
+            <div className="mt-4 rounded border border-line bg-slate-50 p-3">
+              <label className="flex cursor-pointer items-start gap-2">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4"
+                  checked={Boolean(data.isPublished)}
+                  onChange={(event) => togglePublished(event.target.checked)}
+                />
+                <span>
+                  <span className="text-[13px] font-semibold text-ink">Show in E-commerce</span>
+                  <span className="block text-[12px] text-inkmuted">
+                    Ticked, this product appears on the website in its Product Type group. Saving also makes it active.
+                  </span>
+                </span>
+              </label>
+            </div>
             <div className="mt-4 flex justify-end gap-2">
               <button type="button" className="btn" onClick={() => router.push('/admin/ecommerce/product-eccom')}>Cancel</button>
               <button type="button" className="btn btn-primary" disabled={saving} onClick={save}>

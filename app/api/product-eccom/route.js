@@ -5362,6 +5362,44 @@ export async function GET(req) {
   });
 }
 
+/* --------------------------------------------------- publish / show ---
+
+   The list's bulk Enable/Disable actions (and anything else that only wants
+   to flip visibility) send { business, productIds, isPublished }. A product
+   reaches the storefront only when it is published, isActive and status
+   "active", so publishing turns the other two on as well - otherwise the
+   operator ticks the box and the site still hides the row. */
+export async function PATCH(req) {
+  const session = await requireSession();
+  if (!session) return json({ error: 'Unauthorized' }, 401);
+
+  const body = await req.json().catch(() => ({}));
+  const business = body.business;
+  if (!business || !isValidObjectId(business)) return json({ error: 'Select a Business in the top bar first.' }, 400);
+
+  const productIds = (Array.isArray(body.productIds) ? body.productIds : [])
+    .map(String)
+    .filter((id) => isValidObjectId(id));
+  if (!productIds.length) return json({ error: 'Select at least one product.' }, 422);
+
+  const publish = body.isPublished === true || body.isPublished === 'true';
+
+  await dbConnect();
+  const col = mongoose.connection.db.collection(COLLECTION);
+  const set = { isPublished: publish, updatedAt: new Date() };
+  if (publish) {
+    set.isActive = true;
+    set.status = 'active';
+  }
+
+  const result = await col.updateMany(
+    { businessId: idMatch(business), _id: { $in: productIds.map((id) => new Types.ObjectId(id)) } },
+    { $set: set }
+  );
+
+  return json({ ok: true, updated: result.modifiedCount, isPublished: publish });
+}
+
 /* ---------------------------------------------------------------- add ---
 
    One product per item per business - the collection's own unique index
