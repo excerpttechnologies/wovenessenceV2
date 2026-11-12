@@ -643,6 +643,10 @@ export const REPORT = {
        "5.00" all match the one slab. */
     { k: 'gst', label: 'GST %', type: 'text', placeholder: 'GST %' },
 
+    /* Location is drawn in the filter card's scope row, from the same
+       useScope().locations list the top bar uses. Empty = All Locations. */
+    { k: 'locationFilter', label: 'Location', type: 'location', all: 'All Locations' },
+
     /* City suggestions are taken from the canonical city master so the list
        matches the same cities used throughout the ERP entry forms. */
     { k: 'city', label: 'City', type: 'city', placeholder: 'Type city', suggest: '/api/cities' },
@@ -658,18 +662,9 @@ export const REPORT = {
       all: 'Type to search',
     },
     /* the agent on the Supplier master - the stock of every vendor that
-       agent covers; several at a time */
-    {
-      k: 'agentId',
-      label: 'Agent',
-      type: 'ref',
-      ref: 'agent',
-      multi: true,
-      dependsOn: 'city',
-      dependsParam: 'city',
-      waitPlaceholder: 'Enter city first',
-      all: 'Type to search',
-    },
+       agent covers; several at a time. Independent of City: the required
+       Supplier & Inventory order puts Agent first. */
+    { k: 'agentId', label: 'Agent', type: 'ref', ref: 'agent', multi: true, all: 'Type to search' },
     { k: 'uom', label: 'UOM', type: 'ref', ref: 'uom', all: 'All UOM' },
 
     { k: 'ageMin', label: 'Age Min (days)', type: 'text', placeholder: 'Min age' },
@@ -728,7 +723,7 @@ export const REPORT = {
       icon: 'truck',
       color: '#16a34a',
       cols: 5,
-      fields: ['city', 'supplierId', 'agentId', 'uom'],
+      fields: ['agentId', 'city', 'supplierId', 'uom'],
     },
     {
       title: 'Price Filters',

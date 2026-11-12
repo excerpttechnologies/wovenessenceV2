@@ -2790,3 +2790,314 @@ html {
   .rel-admin-head .btn { margin-left: auto; }
   .rel-admin-error { flex-direction: column; align-items: flex-start; }
 }
+
+/* ==========================================================================
+   Stock filter card (Master Stock Report + E-commerce Product)
+
+   Both screens render components/StockFilterCard.jsx, so this is the one
+   place that gives them the same scope row (Company + Location + dates),
+   36px controls, section rhythm, responsive field grid and right-aligned
+   per-section Clear. Kept outside
+   the @layer components block so a later edit to .f-input / .ms-control
+   cannot silently change this card's density.
+   ========================================================================== */
+/* No overflow clipping here: the option menus of MultiSelect are absolutely
+   positioned and must be allowed to cross the section and card edges. */
+.stock-filter-card { overflow: visible; }
+
+.stock-filter-head {
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+.stock-filter-head .card-title {
+  font-size: 14.5px;
+  letter-spacing: -0.01em;
+}
+
+.stock-filter-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.stock-filter-card .stock-filter-reset,
+.stock-filter-card .stock-filter-search {
+  height: 34px;
+  border-radius: 8px;
+}
+
+.stock-filter-card .stock-filter-reset {
+  padding-inline: 12px;
+  color: #55647d;
+  background: #fff;
+}
+
+.stock-filter-card .stock-filter-search {
+  min-width: 100px;
+  justify-content: center;
+  padding-inline: 17px;
+}
+
+.stock-filter-body { padding: 10px 12px 12px; }
+
+/* ----------------------------------------------------------- scope row --- */
+.stock-filter-scope {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 12px;
+  padding-bottom: 10px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid #e8edf4;
+}
+
+.stock-filter-scope-company {
+  flex: 0 1 230px;
+  min-width: 170px;
+}
+
+.stock-filter-scope-readonly {
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: #f8fafc;
+  color: #223047;
+}
+
+.stock-filter-scope-location {
+  flex: 0 1 290px;
+  min-width: 210px;
+}
+
+/* The date pair never wraps inside itself - it used to shrink to one
+   column and leave From above To on a wide screen. It moves as one unit
+   to the right, and only the scope row wraps it to the next line. */
+.stock-filter-scope-dates {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.stock-filter-date {
+  flex: 0 0 165px;
+  min-width: 0;
+}
+
+.stock-filter-label {
+  display: block;
+  margin-bottom: 3px;
+  color: #63718a;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.06em;
+}
+
+/* 34px controls: compact enough for a report that carries twenty filters.
+   MultiSelect is allowed to grow when chips wrap, so min-height - not height
+   - is what it gets. */
+.stock-filter-card .f-input,
+.stock-filter-card .ms-control {
+  border-radius: 7px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #223047;
+}
+
+.stock-filter-card .f-input {
+  height: 34px;
+  padding-inline: 10px;
+}
+
+.stock-filter-card .ms-control {
+  min-height: 34px;
+  padding: 3px 8px;
+}
+
+.stock-filter-card .ms-input {
+  height: 26px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.stock-filter-card .ms-value {
+  font-size: 12.5px;
+}
+
+.stock-filter-card .f-input:focus,
+.stock-filter-card .ms-control:focus-within {
+  border-color: #12a65e;
+  box-shadow: 0 0 0 3px rgba(18, 166, 94, 0.13);
+}
+
+/* The ERP uppercases data-entry text globally. Filter values are names and
+   codes, so they keep their real case; placeholders are made lighter and
+   sentence-cased so they read as guidance rather than typed data. */
+.stock-filter-card input,
+.stock-filter-card select,
+.stock-filter-card textarea,
+.stock-filter-card .ms-input {
+  text-transform: none;
+}
+
+.stock-filter-card input::placeholder,
+.stock-filter-card textarea::placeholder {
+  color: #8492a8;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  opacity: 1;
+  text-transform: none;
+}
+
+/* -------------------------------------------------------------- groups --- */
+.stock-filter-group {
+  margin-top: 8px;
+  /* visible, not hidden: the pickers' menus open over the section edge */
+  overflow: visible;
+  border: 1px solid #e4eaf2;
+  border-left: 3px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.stock-filter-group-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 28px;
+  padding: 4px 10px;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 5px 7px 0 0;
+}
+
+.stock-filter-group-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 21px;
+  height: 21px;
+  flex: 0 0 21px;
+  border-radius: 6px;
+}
+
+.stock-filter-group-title {
+  color: #34425a;
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+}
+
+.stock-filter-fold {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #6b7a94;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.stock-filter-fold:hover {
+  border-color: #dbe3ee;
+  background: #fff;
+  color: #223047;
+}
+
+.stock-filter-fold:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(18, 166, 94, 0.28);
+}
+
+.stock-filter-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px 10px;
+  padding: 8px 10px;
+}
+
+.stock-filter-field { min-width: 0; }
+.stock-filter-field-wide { grid-column: span 1; }
+.stock-filter-field-range { grid-column: span 2; }
+
+/* The Clear sits in its own footer row, pushed to the far right. It stays
+   there when the field grid wraps to one column. */
+.stock-filter-group-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 10px 6px;
+}
+
+.stock-filter-card .stock-filter-clear {
+  height: 26px;
+  padding-inline: 8px;
+  border-color: #e4eaf2;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #55647d;
+  font-size: 11px;
+}
+
+.stock-filter-card .stock-filter-clear:hover {
+  border-color: #cfd9e6;
+  background: #f2f6fa;
+}
+
+.stock-filter-hint {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px dashed #dbe3ee;
+  border-radius: 8px;
+  background: #fbfcfe;
+  color: #5c6a82;
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.55;
+}
+
+.stock-filter-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 9px 12px;
+  /* width/style only - the tone class supplies the border colour */
+  border-width: 1px;
+  border-style: solid;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+@media (max-width: 900px) {
+  .stock-filter-scope-dates { margin-left: 0; }
+}
+
+@media (max-width: 640px) {
+  .stock-filter-head-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .stock-filter-body { padding: 12px; }
+  .stock-filter-scope-company,
+  .stock-filter-scope-location { flex-basis: 100%; }
+  .stock-filter-scope-dates { width: 100%; flex-wrap: wrap; }
+  .stock-filter-date { flex: 1 1 140px; }
+  .stock-filter-fields { grid-template-columns: minmax(0, 1fr); padding: 10px; }
+  .stock-filter-field-wide,
+  .stock-filter-field-range { grid-column: span 1; }
+}

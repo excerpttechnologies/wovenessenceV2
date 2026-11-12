@@ -679,6 +679,28 @@ export const NAV = [
 
 
 
+  /* Tools - the operational utilities that act on barcodes rather than on a
+     purchase or a sale. Barcode Split and Barcode Merge are new; Create New
+     Barcode is the existing Barcode Generation screen, and Imports is the
+     existing Excel / Data Import screen, so no route is duplicated behind a
+     second implementation. */
+  {
+    label: 'Tools',
+    icon: LuWrench,
+    children: [
+      { label: 'Barcode Split', icon: LuSplit,
+        href: '/admin/tools/barcode-split' },
+      { label: 'Barcode Merge', icon: LuLayers3,
+        href: '/admin/tools/barcode-merge' },
+      { label: 'Create New Barcode', icon: LuBarcode,
+        href: '/admin/inventory/barcode-generation' },
+      { label: 'UOM Conversion', icon: LuRuler,
+        href: '/admin/tools/uom-conversion' },
+      { label: 'Imports', icon: LuFileCog,
+        href: '/admin/report/data-import' },
+    ],
+  },
+
   {
     label: 'Staff Management',
     icon: LuUsers,

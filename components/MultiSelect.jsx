@@ -7,7 +7,7 @@ import Icon from './Icon';
 export default function MultiSelect({
   options = [], value, onChange, mode = 'multi',
   placeholder = 'Select...', disabled = false, loading = false, error = '', emptyText = '', onSearch,
-  maxOptions = 200,
+  maxOptions = 200, clearable = true,
 }) {
   const [open, setOpen] = useState(false);
   const [term, setTerm] = useState('');
@@ -56,7 +56,7 @@ export default function MultiSelect({
         ))}
 
         {mode === 'single' && selected && !open && (
-          <span className="px-1 text-[13.5px] text-ink">{selected.label}</span>
+          <span className="ms-value px-1 text-[13.5px] text-ink">{selected.label}</span>
         )}
 
         <input
@@ -68,7 +68,7 @@ export default function MultiSelect({
           onFocus={() => setOpen(true)}
         />
 
-        {(mode === 'single' ? selected : selected.length > 0) && !disabled && (
+        {clearable && (mode === 'single' ? selected : selected.length > 0) && !disabled && (
           <button
             type="button"
             className="text-[#9aa6ba]"

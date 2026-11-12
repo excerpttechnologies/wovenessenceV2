@@ -3628,7 +3628,7 @@ const vendorKeys = (vendors) => [...new Set(vendors
   .filter(Boolean))];
 
 const FILTER_KEYS = [
-  'barcodeNo', 'groupName', 'itemId', 'hsn', 'gst',
+  'barcodeNo', 'groupName', 'itemId', 'hsn', 'gst', 'locationFilter',
   'city', 'supplierId', 'agentId', 'uom',
   'rspMin', 'rspMax', 'rspOfferPriceMin', 'rspOfferPriceMax',
   'wspMin', 'wspMax', 'ecomMin', 'ecomMax',
@@ -3794,6 +3794,19 @@ async function resolveProductFilters(sp, businessId) {
       : { $literal: false });
   }
 
+  /* LOCATION FILTER - the same expression the Master Stock Report uses, so a
+     row is matched by the location it actually sits at now (currentLocationId)
+     with its originating locationId as the fallback. Empty = unrestricted. */
+  const locationFilter = trimmed(sp.get('locationFilter'));
+  if (locationFilter) {
+    exprs.push({
+      $eq: [
+        { $toString: { $ifNull: ['$currentLocationId', '$locationId'] } },
+        locationFilter,
+      ],
+    });
+  }
+
   const startDate = trimmed(sp.get('startDate'));
   const endDate = trimmed(sp.get('endDate'));
   if (startDate || endDate) {
@@ -3873,11 +3886,20 @@ async function listAllErpBarcodes({ businessId, search, page, perPage, sortBy, s
   /* The product page's filters, applied before the read so count and paging
      describe the filtered set rather than all stock. */
   if (productFilter?.ands?.length) barcodeFilter.$and.push(...productFilter.ands);
-  if (productFilter?.exprs?.length) {
-    barcodeFilter.$expr = productFilter.exprs.length === 1
-      ? productFilter.exprs[0]
-      : { $and: productFilter.exprs };
-  }
+  /* A unit with no stock left is never part of this listing. qtyNum is the
+     live quantity; qty is the older imported spelling. The test runs in Mongo,
+     so the count, sort and paging all describe the same positive-stock set
+     instead of dropping zeros after a page has already been cut. */
+  const qtyValue = {
+    $convert: {
+      input: { $ifNull: ['$qtyNum', '$qty'] },
+      to: 'double',
+      onError: null,
+      onNull: null,
+    },
+  };
+  const exprs = [{ $gt: [qtyValue, 0] }, ...(productFilter?.exprs || [])];
+  barcodeFilter.$expr = exprs.length === 1 ? exprs[0] : { $and: exprs };
 
   const barcodeRows = await barcodeCollection.find(barcodeFilter, {
     projection: {
@@ -3897,6 +3919,7 @@ async function listAllErpBarcodes({ businessId, search, page, perPage, sortBy, s
       updatedAt: 1,
       status: 1,
       qtyNum: 1,
+      qty: 1,
     },
   }).toArray();
   const products = await productCollection.find({ businessId: idMatch(businessId) }).toArray();
@@ -4020,8 +4043,12 @@ async function listAllErpBarcodes({ businessId, search, page, perPage, sortBy, s
       isPublished: Boolean(product?.isPublished),
       salesCount: product?.salesCount || 0,
       /* qtyNum comes from the live barcodeLabel row - this is the stock
-         quantity in the DB, not the override stored in the ecommerceproduct */
-      dbQty: barcodeRow.qtyNum != null ? Number(barcodeRow.qtyNum) || 0 : null,
+         quantity in the DB, not the override stored in the ecommerceproduct.
+         qty is the older imported spelling and is read only when qtyNum is
+         missing, exactly as the query above reads it. */
+      dbQty: barcodeRow.qtyNum != null
+        ? Number(barcodeRow.qtyNum) || 0
+        : barcodeRow.qty != null ? Number(barcodeRow.qty) || 0 : null,
       createdAt: product?.createdAt || barcodeRow.createdAt,
       updatedAt: product?.updatedAt || barcodeRow.updatedAt,
       _searchText: [
@@ -4036,8 +4063,73 @@ async function listAllErpBarcodes({ businessId, search, page, perPage, sortBy, s
      filter would be an unrelated row, so while a filter is applied only the
      rows that matched a barcode are kept. */
   if (!productFilter?.active) {
+    /* A product whose barcode row exists but was removed by the positive-qty
+       rule is still a barcode-backed product - it must not come back as a
+       "standalone" row. Read the zero/unknown-quantity rows for just the
+       unmatched products and block those. A genuinely standalone product is
+       listed only while its own stored quantity is positive. */
+    const unmatchedProducts = products.filter(
+      (product) => !matchedProductIds.has(String(product._id)),
+    );
+    const blockedIds = new Set();
+    if (unmatchedProducts.length) {
+      const wantedItemIds = [...new Set(unmatchedProducts
+        .map((product) => String(product.itemId || ''))
+        .filter(isValidObjectId))];
+      const wantedCodes = [...new Set(unmatchedProducts
+        .map((product) => trimmed(product.ecommItemCode))
+        .filter(Boolean))];
+      const wantedBarcodes = [...new Set(unmatchedProducts
+        .flatMap((product) => [product.barcode, product.barcodeNo, product.barcodeGenerated])
+        .map((value) => String(value || '').trim())
+        .filter(Boolean))];
+      const productLinks = [
+        ...(wantedItemIds.length ? [{
+          itemId: {
+            $in: [...wantedItemIds, ...wantedItemIds.map((id) => new Types.ObjectId(id))],
+          },
+        }] : []),
+        ...(wantedCodes.length ? [{
+          itemCode: { $in: wantedCodes.map((code) => new RegExp('^' + escapeRegex(code) + '$', 'i')) },
+        }] : []),
+        ...(wantedBarcodes.length ? [
+          { barcodeNo: { $in: wantedBarcodes.map((code) => new RegExp('^' + escapeRegex(code) + '$', 'i')) } },
+          { barcodeGenerated: { $in: wantedBarcodes.map((code) => new RegExp('^' + escapeRegex(code) + '$', 'i')) } },
+          { oldBarcode: { $in: wantedBarcodes.map((code) => new RegExp('^' + escapeRegex(code) + '$', 'i')) } },
+        ] : []),
+      ];
+      if (productLinks.length) {
+        const blockedRows = await barcodeCollection.find({
+          $and: [
+            { $or: [barcodeScope, ...(legacyItemLinks.length ? [legacyScope] : [])] },
+            { $or: productLinks },
+            { $expr: { $lte: [qtyValue, 0] } },
+          ],
+        }, {
+          projection: {
+            itemId: 1, itemCode: 1, barcodeNo: 1, barcodeGenerated: 1, oldBarcode: 1,
+          },
+        }).toArray();
+        unmatchedProducts.forEach((product) => {
+          const itemId = String(product.itemId || '');
+          const itemCode = trimmed(product.ecommItemCode).toLowerCase();
+          const barcodes = new Set([product.barcode, product.barcodeNo, product.barcodeGenerated]
+            .map((value) => String(value || '').trim().toLowerCase())
+            .filter(Boolean));
+          const backed = blockedRows.some((row) => (
+            (itemId && String(row.itemId || '') === itemId)
+            || (itemCode && String(row.itemCode || '').trim().toLowerCase() === itemCode)
+            || [row.barcodeNo, row.barcodeGenerated, row.oldBarcode]
+              .some((value) => barcodes.has(String(value || '').trim().toLowerCase()))
+          ));
+          if (backed) blockedIds.add(String(product._id));
+        });
+      }
+    }
     products.forEach((product) => {
       if (matchedProductIds.has(String(product._id))) return;
+      if (blockedIds.has(String(product._id))) return;
+      if (!(Number(product.barcodeQtyOverride) > 0)) return;
       const row = plain(product);
       const item = itemById.get(String(row.itemId))
         || itemByCode.get(String(row.ecommItemCode || '').trim().toLowerCase());

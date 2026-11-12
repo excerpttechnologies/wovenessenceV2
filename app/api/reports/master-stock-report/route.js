@@ -1266,6 +1266,21 @@ export async function GET(req) {
   const ands = [];
   const exprs = [];
 
+  /* LOCATION FILTER (inside the filter card) is separate from the top bar's
+     `location` scope above. It matches the location the row PRINTS: the
+     current location when the unit has moved, otherwise its originating
+     location. Empty = no extra constraint, so the screen keeps the top bar's
+     existing scope behaviour. */
+  const locationFilter = s(sp.get('locationFilter'));
+  if (locationFilter) {
+    exprs.push({
+      $eq: [
+        { $toString: { $ifNull: ['$currentLocationId', '$locationId'] } },
+        String(locationFilter),
+      ],
+    });
+  }
+
   /* ---- filters, all server-side ---------------------------------------- */
   const search = s(sp.get('search'));
   if (search) {

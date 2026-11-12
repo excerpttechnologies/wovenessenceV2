@@ -366,11 +366,12 @@ module.exports = {
       },
       fontFamily: {
         sans: [
-          '"Nunito Sans"',
+          "var(--font-inter)",
+          "Inter",
+          "system-ui",
+          "-apple-system",
+          "BlinkMacSystemFont",
           '"Segoe UI"',
-          "Roboto",
-          "Helvetica",
-          "Arial",
           "sans-serif",
         ],
       },

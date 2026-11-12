@@ -1,163 +1,23 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Icon from './Icon';
-import MultiSelect from './MultiSelect';
+import StockFilterCard from './StockFilterCard';
 import { filterDefaults } from './FilterPanel';
-import { useOptions } from './useOptions';
 import { useScope } from './ScopeContext';
 
-/* The filter card on Ecommerce -> Product, drawn the way the Master Stock
-   Report draws its own: one collapsible bordered section per filter group
-   (Basic, Supplier & Inventory, Price, Barcode Pattern), each with its own
-   Clear, plus one Reset Filters for the whole card.
+/* The filter card on Ecommerce -> Product.
 
-   The card owns only the boxes. The APPLIED filters live in ListviewEccom,
-   which sends them to /api/product-eccom - so Clear and Reset re-run the
-   list immediately instead of leaving a cleared box in front of stale rows.
+   The card itself is StockFilterCard - the same component the Master Stock
+   Report renders - so both screens have the same scope row (Company +
+   Location + date range), section order, Clear placement, typography and
+   actions.
 
-   A field entry is either a filter key or { label, range: [minKey, maxKey] },
-   which puts one label over a Start / End pair. ref fields load their choices
-   from /api/options; a field with `dependsOn` stays disabled until that box
-   has a value (the supplier and agent pickers wait for the city). */
-
-/* A group is one compact row: its controls, then its Clear, in the same flow.
-   The label sits directly on top of its control and the row's items are
-   bottom-aligned, so every input, dropdown and the Clear share one baseline.
-   ROW_WIDTH is what makes that true for the Price group: its six Start/End
-   pairs are wider than one row, so it wraps to a second line and the Clear
-   lands there with the remaining controls rather than in a block underneath. */
-const GROUP_LABEL = 'mb-0.5 block text-[11px] font-semibold uppercase tracking-wide text-[#5d6b83]';
-const ROW_WIDTH = 1120;
-const TEXT_FIELD = 'w-[150px] shrink-0';
-const RANGE_FIELD = 'w-[210px] shrink-0';
-
-/* `hint` is the (value, label) of a reference the barcode lookup just wrote:
-   the record's own name, so a filled picker reads as a name instead of the raw
-   id it would fall back to when the id is not in the first options page. */
-function RefField({ f, value, onChange, waiting, params, hint = [] }) {
-  const [searchTerm, setSearchTerm] = useState('');
-  const { options, loading, error } = useOptions(f.ref, searchTerm, !waiting, params);
-  const uniqueOptions = useMemo(() => {
-    const seen = new Set();
-    const out = [];
-    for (const option of options) {
-      if (!option?.label || typeof option.label !== 'string') continue;
-      const trimmed = option.label.trim();
-      if (!trimmed) continue;
-      const key = trimmed.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push({ ...option, label: trimmed });
-    }
-    return out;
-  }, [options]);
-  const merged = hint.length
-    ? uniqueOptions.concat(hint.filter((h) => !uniqueOptions.some((o) => o.value === h.value)))
-    : uniqueOptions;
-  return (
-    <MultiSelect
-      mode={f.multi ? 'multi' : 'single'}
-      /* a picker waiting for its city shows nothing to pick from - but a value
-         the barcode lookup already gave it still has to read as a name */
-      options={waiting ? hint : merged}
-      loading={loading}
-      error={error}
-      disabled={waiting && !hint.length}
-      value={f.multi ? (Array.isArray(value) ? value : value ? [value] : []) : value || ''}
-      placeholder={waiting ? (f.waitPlaceholder || 'Select...') : (f.all || 'Select...')}
-      maxOptions={f.showAllOptions ? Infinity : undefined}
-      onSearch={setSearchTerm}
-      onChange={onChange}
-    />
-  );
-}
-
-/* A free-text city with suggestions from the canonical city master. Picking a
-   suggestion only completes the spelling - the typed text is the value, which
-   is what /api/product-eccom matches against the supplier's billing or
-   shipping city. */
-function CityField({ f, value, onChange }) {
-  const term = String(value || '');
-  const [open, setOpen] = useState(false);
-  const [cities, setCities] = useState([]);
-
-  useEffect(() => {
-    let off = false;
-    const timer = setTimeout(() => {
-      const qs = new URLSearchParams({ q: term });
-      fetch('/api/cities?' + qs, { cache: 'no-store' })
-        .then((r) => r.json())
-        .then((d) => { if (!off) setCities(Array.isArray(d.options) ? d.options : []); })
-        .catch(() => { if (!off) setCities([]); });
-    }, 200);
-    return () => { off = true; clearTimeout(timer); };
-  }, [term]);
-
-  const picks = cities.filter((c) => String(c.value).toLowerCase() !== term.trim().toLowerCase());
-
-  return (
-    <div className="relative">
-      <input
-        className="f-input"
-        placeholder={f.placeholder || 'Type city'}
-        value={term}
-        onChange={(e) => { onChange(e.target.value); setOpen(true); }}
-        onFocus={() => setOpen(true)}
-        onBlur={() => setOpen(false)}
-      />
-      {open && picks.length > 0 && (
-        <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-56 overflow-auto rounded border border-line bg-white shadow-lg">
-          {picks.map((c) => (
-            <button
-              key={c.value}
-              type="button"
-              className="block w-full border-b border-line px-2 py-1.5 text-left text-[12.5px] last:border-b-0 hover:bg-[#f4f7fb]"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => { onChange(c.value); setOpen(false); }}
-            >
-              {c.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Field({ f, value, onChange, draft, hint }) {
-  if (f.type === 'city') return <CityField f={f} value={value} onChange={onChange} />;
-  if (f.type === 'ref') {
-    const waiting = Boolean(f.dependsOn) && !String(draft[f.dependsOn] || '').trim();
-    const params = {};
-    if (f.dependsOn && !waiting) params[f.dependsParam || f.dependsOn] = String(draft[f.dependsOn]).trim();
-    return (
-      <RefField
-        f={f}
-        value={value}
-        onChange={onChange}
-        waiting={waiting}
-        params={Object.keys(params).length ? params : null}
-        hint={hint}
-      />
-    );
-  }
-  return (
-    <input
-      type={f.type === 'date' ? 'date' : 'text'}
-      className="f-input"
-      placeholder={f.type === 'date' ? '' : f.placeholder || ''}
-      value={value || ''}
-      onChange={(e) => onChange(e.target.value)}
-    />
-  );
-}
-
-/* every key an entry touches - used by Clear */
-const keysOf = (entries) => (entries || []).flatMap((entry) => {
-  if (typeof entry === 'string') return [entry];
-  if (entry.range) return entry.range;
-  return entry.k ? [entry.k] : [];
-});
+   This wrapper owns only what is specific to this screen: the draft values
+   and the barcode lookup that fills the Supplier & Inventory and Price boxes
+   from one scanned code. The APPLIED filters live in ListviewEccom, which
+   sends them to /api/product-eccom. Search applies the draft; a section's
+   Clear blanks only that section; Reset Filters blanks every box, Location
+   included, and re-runs the list. */
 
 /* what the barcode lookup is allowed to write - the barcode box itself is the
    trigger and is never rewritten by it */
@@ -187,13 +47,12 @@ export default function EccomProductFilterCard({
 }) {
   const { business } = useScope();
   const [draft, setDraft] = useState(() => filterDefaults(filters));
-  const [folded, setFolded] = useState({});
-  /* names for the references the lookup filled - see RefField hint */
+  /* names for the references the lookup filled - see StockFilterCard's
+     RefField hint */
   const [hints, setHints] = useState({});
   const [status, setStatus] = useState({ state: 'idle', message: '' });
   const [candidates, setCandidates] = useState([]);
-  const byKey = new Map(filters.map((f) => [f.k, f]));
-  const [fromK, toK] = headerDates;
+  const byKey = useMemo(() => new Map(filters.map((f) => [f.k, f])), [filters]);
 
   /* `typed` holds the keys the operator changed by hand and `filled` the ones
      the barcode lookup wrote. The next barcode clears exactly its own values,
@@ -206,8 +65,30 @@ export default function EccomProductFilterCard({
   const set = (k, v) => {
     typedRef.current.add(k);
     filledRef.current.delete(k);
-    setDraft((d) => ({ ...d, [k]: v }));
+    const dependents = (filters || [])
+      .filter((f) => f.dependsOn === k)
+      .map((f) => f.k);
+    dependents.forEach((key) => {
+      typedRef.current.delete(key);
+      filledRef.current.delete(key);
+    });
+    setDraft((d) => {
+      const next = { ...d, [k]: v };
+      dependents.forEach((key) => {
+        const f = byKey.get(key);
+        next[key] = f?.multi ? [] : '';
+      });
+      return next;
+    });
+    if (dependents.length) {
+      setHints((current) => {
+        const rest = { ...current };
+        dependents.forEach((key) => delete rest[key]);
+        return rest;
+      });
+    }
   };
+
   const apply = (next) => { setDraft(next); onSearch?.(next); };
 
   /* Write one stock record's details into the boxes. `clearFirst` drops what
@@ -336,21 +217,32 @@ export default function EccomProductFilterCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft.barcodeNo, business]);
 
-  const clearGroup = (g) => {
-    const next = { ...draft };
-    const cleared = keysOf(g.fields);
-    cleared.forEach((k) => {
-      const f = byKey.get(k);
-      next[k] = f?.multi ? [] : '';
-      typedRef.current.delete(k);
-      filledRef.current.delete(k);
+  /* A section's Clear blanks only its own keys. Any filter that depends on
+     one of those keys goes too, so clearing City cannot leave a Supplier
+     picked for the old city behind. The values stay in the draft until
+     Search is pressed, the same as typing into a box does. */
+  const clearGroup = (keys) => {
+    const drop = new Set(keys);
+    (filters || []).forEach((f) => {
+      if (drop.has(f.dependsOn)) drop.add(f.k);
+    });
+    drop.forEach((key) => {
+      typedRef.current.delete(key);
+      filledRef.current.delete(key);
+    });
+    setDraft((d) => {
+      const next = { ...d };
+      drop.forEach((key) => {
+        const f = byKey.get(key);
+        next[key] = f?.multi ? [] : '';
+      });
+      return next;
     });
     setHints((current) => {
       const rest = { ...current };
-      cleared.forEach((k) => delete rest[k]);
+      drop.forEach((key) => delete rest[key]);
       return rest;
     });
-    apply(next);
   };
 
   const reset = () => {
@@ -362,132 +254,43 @@ export default function EccomProductFilterCard({
     apply(filterDefaults(filters));
   };
 
-  return (
-    <div className="card mb-3">
-      <div className="card-head">
-        <span className="card-title"><Icon name="filter" size={15} /> Filter</span>
-        <span className="flex-1" />
-        <button type="button" className="btn" onClick={reset}>
-          <Icon name="refresh" size={14} /> Reset Filters
+  const notice = status.message ? (
+    <div
+      className={'stock-filter-notice ' + (STATUS_TONE[status.state] || STATUS_TONE.loading)}
+      role="status"
+      aria-live="polite"
+    >
+      {status.state === 'loading'
+        ? <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent" />
+        : <Icon name={status.state === 'error' ? 'x' : status.state === 'success' ? 'check' : 'barcode'} size={13} />}
+      <span className="font-semibold">{status.message}</span>
+      {candidates.map((candidate) => (
+        <button
+          key={candidate.id}
+          type="button"
+          className="btn !h-7 !px-2 !text-[11.5px]"
+          title={candidate.label}
+          onClick={() => chooseCandidate(candidate)}
+        >
+          {candidate.label || 'Stock record'}
         </button>
-        <button type="button" className="btn btn-primary" onClick={() => onSearch?.(draft)}>
-          <Icon name="search" size={14} /> Search
-        </button>
-      </div>
-
-      <div className="card-body">
-        {fromK && (
-          <div className="mb-2 flex flex-wrap items-center justify-end gap-x-4 gap-y-2">
-            {[[fromK, 'From Date'], [toK, 'To Date']].filter(([k]) => k).map(([k, label]) => (
-              <label key={k} className="flex items-center gap-2 text-[11.5px] font-semibold uppercase tracking-wide text-[#5d6b83]">
-                {label}
-                <input type="date" className="f-input !w-[150px]" value={draft[k] || ''} onChange={(e) => set(k, e.target.value)} />
-              </label>
-            ))}
-          </div>
-        )}
-
-        {status.message && (
-          <div
-            className={'mb-2 flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded border px-2.5 py-1.5 text-[12px] '
-              + (STATUS_TONE[status.state] || STATUS_TONE.loading)}
-            role="status"
-            aria-live="polite"
-          >
-            {status.state === 'loading'
-              ? <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent" />
-              : <Icon name={status.state === 'error' ? 'x' : status.state === 'success' ? 'check' : 'barcode'} size={13} />}
-            <span className="font-semibold">{status.message}</span>
-            {candidates.map((candidate) => (
-              <button
-                key={candidate.id}
-                type="button"
-                className="btn !h-7 !px-2 !text-[11.5px]"
-                title={candidate.label}
-                onClick={() => chooseCandidate(candidate)}
-              >
-                {candidate.label || 'Stock record'}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {groups.map((g) => {
-          const shut = Boolean(folded[g.title]);
-          return (
-            <div key={g.title} className="relative mb-2 rounded-md border border-line" style={{ borderLeft: '4px solid ' + g.color }}>
-              <div className="flex items-center gap-2 rounded-tr-md px-3 py-1.5" style={{ backgroundColor: g.color + '0d' }}>
-                <span className="flex h-6 w-6 items-center justify-center rounded" style={{ backgroundColor: g.color + '22', color: g.color }}>
-                  <Icon name={g.icon || 'filter'} size={13} />
-                </span>
-                <span className="text-[13px] font-bold uppercase tracking-wide text-ink">{g.title}</span>
-                <span className="flex-1" />
-                <button
-                  type="button"
-                  aria-label={(shut ? 'Expand ' : 'Collapse ') + g.title}
-                  className="flex h-6 w-6 items-center justify-center rounded border border-line bg-white text-inkmuted hover:text-ink"
-                  onClick={() => setFolded((o) => ({ ...o, [g.title]: !shut }))}
-                >
-                  <Icon name={shut ? 'plus' : 'minus'} size={12} />
-                </button>
-              </div>
-
-              {!shut && (
-                /* No separate Clear row and no tall padding: the fields keep a
-                   single line each, wrap naturally when the screen is narrow,
-                   and the Clear closes the row it lands on. */
-                <div
-                  className="flex flex-wrap items-end gap-x-2.5 gap-y-2 px-3 pb-2.5 pt-2"
-                  style={{ maxWidth: ROW_WIDTH }}
-                >
-                  {(g.fields || []).map((entry) => {
-                    if (typeof entry === 'string' || !entry.range) {
-                      const f = byKey.get(typeof entry === 'string' ? entry : entry.k);
-                      if (!f) return null;
-                      return (
-                        <div key={f.k} className={TEXT_FIELD}>
-                          <label className={GROUP_LABEL}>{f.label}</label>
-                          <Field f={f} value={draft[f.k]} onChange={(v) => set(f.k, v)} draft={draft} hint={hints[f.k]} />
-                        </div>
-                      );
-                    }
-                    const [lo, hi] = entry.range;
-                    return (
-                      <div key={lo} className={RANGE_FIELD}>
-                        <label className={GROUP_LABEL}>{entry.label}</label>
-                        <div className="flex gap-1.5">
-                          <input
-                            type="text"
-                            className="f-input min-w-0 flex-1"
-                            placeholder="Start"
-                            value={draft[lo] || ''}
-                            onChange={(e) => set(lo, e.target.value)}
-                          />
-                          <input
-                            type="text"
-                            className="f-input min-w-0 flex-1"
-                            placeholder="End"
-                            value={draft[hi] || ''}
-                            onChange={(e) => set(hi, e.target.value)}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
-                  <button
-                    type="button"
-                    className="btn !h-9 shrink-0"
-                    title={'Clear ' + g.title}
-                    onClick={() => clearGroup(g)}
-                  >
-                    <Icon name="refresh" size={13} /> Clear
-                  </button>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+      ))}
     </div>
+  ) : null;
+
+  return (
+    <StockFilterCard
+      title="Filter"
+      filters={filters}
+      groups={groups}
+      headerDates={headerDates}
+      draft={draft}
+      onChange={set}
+      onClear={clearGroup}
+      onReset={reset}
+      onSearch={() => apply(draft)}
+      business={business}
+      beforeGroups={notice}
+    />
   );
 }

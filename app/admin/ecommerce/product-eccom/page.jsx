@@ -467,15 +467,16 @@ export default function ProductEccomPage() {
         { k: 'hsn', label: 'HSN', type: 'text', placeholder: 'HSN code' },
         { k: 'gst', label: 'GST %', type: 'text', placeholder: 'GST %' },
 
+        /* Location is drawn in the filter card's scope row, from the same
+           useScope().locations list the top bar uses. Empty = All Locations. */
+        { k: 'locationFilter', label: 'Location', type: 'location', all: 'All Locations' },
+
         { k: 'city', label: 'City', type: 'city', placeholder: 'Type city', suggest: '/api/cities' },
         {
           k: 'supplierId', label: 'Supplier Name', type: 'ref', ref: 'supplier', multi: true,
           dependsOn: 'city', dependsParam: 'city', waitPlaceholder: 'Enter city first', all: 'Type to search',
         },
-        {
-          k: 'agentId', label: 'Agent', type: 'ref', ref: 'agent', multi: true,
-          dependsOn: 'city', dependsParam: 'city', waitPlaceholder: 'Enter city first', all: 'Type to search',
-        },
+        { k: 'agentId', label: 'Agent', type: 'ref', ref: 'agent', multi: true, all: 'Type to search' },
         { k: 'uom', label: 'UOM', type: 'ref', ref: 'uom', all: 'All UOM' },
 
         { k: 'rspMin', label: 'RSP Min', type: 'text', placeholder: 'Min RSP' },
@@ -510,7 +511,7 @@ export default function ProductEccomPage() {
           title: 'Supplier & Inventory',
           icon: 'truck',
           color: '#16a34a',
-          fields: ['city', 'supplierId', 'agentId', 'uom'],
+          fields: ['agentId', 'city', 'supplierId', 'uom'],
         },
         {
           title: 'Price Filters',

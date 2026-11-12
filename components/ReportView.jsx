@@ -3182,6 +3182,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Icon from './Icon';
 import MultiSelect from './MultiSelect';
+import StockFilterCard from './StockFilterCard';
 import { useScope } from './ScopeContext';
 import NumberedPager from './NumberedPager';
 import { useOptions } from './useOptions';
@@ -4129,124 +4130,6 @@ function GrandTotal({ columns, totals }) {
   );
 }
 
-/* ---- grouped filter layout (filterLayout: 'groups') ----------------------
-
-   The filter card as the Master Stock Report mock draws it: the date range
-   on its own line top right, then one bordered section per entry of
-   spec.filterGroups - coloured left edge, icon, a fold button - each
-   holding labelled inputs. A field entry is a filter KEY, or
-   { label, range: [minKey, maxKey] }, which renders one label over a
-   Start / End pair so eleven Min/Max keys read as the six ranges they are. */
-const GROUP_LABEL = 'mb-1 block text-[11.5px] font-semibold uppercase tracking-wide text-[#5d6b83]';
-
-function FilterGroups({ spec, draft, set, business }) {
-  const [folded, setFolded] = useState({});
-  const byKey = new Map((spec.filters || []).map((f) => [f.k, f]));
-  const [fromK, toK] = spec.headerDates || [];
-
-  return (
-    <>
-      {fromK && (
-        <div className="mb-4 flex flex-wrap items-center justify-end gap-x-5 gap-y-2">
-          {[[fromK, 'From Date'], [toK, 'To Date']].filter(([k]) => k).map(([k, lab]) => (
-            <label key={k} className="flex items-center gap-2 text-[11.5px] font-semibold uppercase tracking-wide text-[#5d6b83]">
-              {lab}
-              <input type="date" className="f-input !w-[150px]" value={draft[k] || ''} onChange={(e) => set(k, e.target.value)} />
-            </label>
-          ))}
-        </div>
-      )}
-
-      {(spec.filterGroups || []).map((g) => {
-        const shut = Boolean(folded[g.title]);
-        return (
-          /* no overflow-hidden here: it clipped the dropdowns (barcode
-             suggestions, item / supplier pickers) at the section's edge.
-             The header rounds its own top corners instead. */
-          <div key={g.title} className="relative mb-3 rounded-md border border-line" style={{ borderLeft: '4px solid ' + g.color }}>
-            <div className="flex items-center gap-2.5 rounded-tr-md px-4 py-2.5" style={{ backgroundColor: g.color + '0d' }}>
-              <span className="flex h-7 w-7 items-center justify-center rounded" style={{ backgroundColor: g.color + '22', color: g.color }}>
-                <Icon name={g.icon || 'filter'} size={14} />
-              </span>
-              <span className="text-[13px] font-bold uppercase tracking-wide text-ink">{g.title}</span>
-              <span className="flex-1" />
-              <button
-                type="button"
-                aria-label={(shut ? 'Expand ' : 'Collapse ') + g.title}
-                className="flex h-6 w-6 items-center justify-center rounded border border-line bg-white text-inkmuted hover:text-ink"
-                onClick={() => setFolded((o) => ({ ...o, [g.title]: !shut }))}
-              >
-                <Icon name={shut ? 'plus' : 'minus'} size={12} />
-              </button>
-            </div>
-            {!shut && (
-              <>
-              <div className="flex flex-wrap items-start gap-x-4 gap-y-3 px-4 pb-4 pt-3">
-                {(g.fields || []).map((entry, index) => {
-                  if (typeof entry === 'string' || !entry.range) {
-                    const f = byKey.get(typeof entry === 'string' ? entry : entry.k);
-                    if (!f) return null;
-                    const isBarcodePattern = g.title === 'Barcode Pattern';
-                    return (
-                      <div
-                        key={f.k}
-                        className={isBarcodePattern ? 'flex items-end gap-2' : (
-                          'w-full '
-                          + (f.k === 'barcodePattern'
-                            ? 'max-w-[300px]'
-                            : f.k === 'discount'
-                              ? 'max-w-[110px]'
-                              : g.title === 'Basic Filters'
-                                ? 'max-w-[145px]'
-                                : 'max-w-[180px]')
-                        )}
-                      >
-                        <div className={isBarcodePattern ? 'w-[160px]' : ''}>
-                          <label className={GROUP_LABEL + (isBarcodePattern || f.k === 'barcodePattern' ? ' whitespace-nowrap' : '')}>{f.label}{(f.req || f.oneOf) && <span className="f-req">*</span>}</label>
-                          <Filter f={f} value={draft[f.k]} onChange={(v) => set(f.k, v)} business={business} depValue={f.dependsOn ? draft[f.dependsOn] : undefined} filterValues={draft} />
-                        </div>
-                        {isBarcodePattern && index < g.fields.length - 1 && (
-                          <span className="pb-1 text-[24px] font-bold leading-none text-ink">*</span>
-                        )}
-                      </div>
-                    );
-                  }
-                  const [lo, hi] = entry.range;
-                  return (
-                    <div key={lo} className="w-full max-w-[180px]">
-                      <label className={GROUP_LABEL}>{entry.label}</label>
-                      <div className="flex gap-2">
-                        <input type="text" className="f-input min-w-0 flex-1" placeholder="Start" value={draft[lo] || ''} onChange={(e) => set(lo, e.target.value)} />
-                        <input type="text" className="f-input min-w-0 flex-1" placeholder="End" value={draft[hi] || ''} onChange={(e) => set(hi, e.target.value)} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="flex justify-end px-4 pb-3">
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => {
-                    (g.fields || []).flatMap((entry) => {
-                      if (typeof entry === 'string') return [entry];
-                      if (entry.range) return entry.range;
-                      return entry.k ? [entry.k] : [];
-                    }).forEach((key) => set(key, ''));
-                  }}
-                >
-                  <Icon name="refresh" size={14} /> Clear
-                </button>
-              </div>
-              </>
-            )}
-          </div>
-        );
-      })}
-    </>
-  );
-}
-
 /* What a report's API is asked: the page, the scope from the top bar, the tab
    and the filters as last searched. One builder for the screen and for its
    exports, so an export asks exactly what the screen shows. */
@@ -4333,12 +4216,34 @@ export default function ReportView({ spec, toolbar = null }) {
     setSearched(true);
   }, [spec]);
 
+  const filterByKey = useMemo(
+    () => new Map((spec.filters || []).map((f) => [f.k, f])),
+    [spec.filters],
+  );
+
   /* Setting a filter clears every filter that depends on it: the suppliers
      picked for one city are not a valid pick for another. */
   const set = (k, v) => setDraft((d) => {
     const next = { ...d, [k]: v };
     (spec.filters || []).forEach((f) => {
       if (f.dependsOn === k) next[f.k] = Array.isArray(d[f.k]) ? [] : '';
+    });
+    return next;
+  });
+
+  /* A section's Clear blanks only the keys that section owns. Any filter that
+     depends on one of those keys is blanked too - clearing City must not leave
+     a Supplier picked for the old city behind. The values stay in the draft
+     until Search is pressed, the same as typing into a box does. */
+  const clearGroup = (keys) => setDraft((d) => {
+    const next = { ...d };
+    const blank = (key) => {
+      const f = filterByKey.get(key);
+      next[key] = f?.multi ? [] : '';
+    };
+    keys.forEach(blank);
+    (spec.filters || []).forEach((f) => {
+      if (keys.includes(f.dependsOn)) blank(f.k);
     });
     return next;
   });
@@ -4584,92 +4489,112 @@ export default function ReportView({ spec, toolbar = null }) {
       {spec.tabsPosition === 'top' && tabStrip}
 
       {/* ------------------------------------------------------- filters --- */}
-      <div className="card">
-        {spec.filterLayout !== 'groups' && (
+      {spec.filterLayout === 'groups' ? (
+        <StockFilterCard
+          title={spec.filterTitle || 'Filter'}
+          filters={spec.filters || []}
+          groups={spec.filterGroups || []}
+          headerDates={spec.headerDates || []}
+          draft={draft}
+          onChange={set}
+          onClear={clearGroup}
+          onReset={reset}
+          onSearch={search}
+          loading={loading}
+          business={business}
+          messages={(
+            <>
+              {error && <div className="flash flash-err">{error}</div>}
+              {!business && <div className="flash flash-err">Select a business in the top bar.</div>}
+            </>
+          )}
+          hint={spec.hint || ''}
+          toolbar={toolbar ? toolbar({ searchFor, filters: applied, searched }) : null}
+        />
+      ) : (
+        <div className="card">
           <div className="card-head">
             <span className="card-title">
               <Icon name="filter" size={15} />
               {spec.filterTitle || (spec.subtitle ? 'Report Filters' : 'Filters')}
             </span>
           </div>
-        )}
-        <div className="card-body">
-          {error && <div className="flash flash-err">{error}</div>}
-          {!business && <div className="flash flash-err">Select a business in the top bar.</div>}
+          <div className="card-body">
+            {error && <div className="flash flash-err">{error}</div>}
+            {!business && <div className="flash flash-err">Select a business in the top bar.</div>}
 
-          {spec.filterLayout === 'groups' ? (
-            <FilterGroups spec={spec} draft={draft} set={set} business={business} />
-          ) : spec.filterLayout === 'grid' ? (
-            <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2 xl:grid-cols-4">
-              {(spec.filters || []).map((f) => (
-                <div key={f.k} className="min-w-0">
-                  <label className="mb-1 block text-[12.5px] leading-tight text-ink">
-                    {f.label}{(f.req || f.oneOf) && <span className="f-req">*</span>}
-                  </label>
-                  <Filter f={f} value={draft[f.k]} onChange={(v) => set(f.k, v)} business={business} depValue={f.dependsOn ? draft[f.dependsOn] : undefined} filterValues={draft} />
-                </div>
-              ))}
-            </div>
-          ) : spec.filterLayout === 'rows' ? (
-            /* EVERY FILTER ON SCREEN, name on the left and its input on the
-               right. A report opts into this with filterLayout: 'rows' when its
-               filters are the point of the screen; the default stays the
-               "pick what you need" panel, which is what keeps the other
-               reports from opening as a wall of empty boxes.
-
-               No Add Filter button and no per-filter remove: nothing is hidden,
-               so there is nothing to add back or take away. */
-            <div className="grid grid-cols-1 gap-x-6 gap-y-2.5 md:grid-cols-2 xl:grid-cols-4">
-              {(spec.filters || []).map((f) => (
-                <div key={f.k} className="flex items-center gap-3">
-                  <label className="w-[104px] shrink-0 text-[12.5px] leading-tight text-ink">
-                    {f.label}{(f.req || f.oneOf) && <span className="f-req">*</span>}
-                  </label>
-                  <div className="min-w-0 flex-1">
-                    <Filter f={f} value={draft[f.k]} onChange={(v) => set(f.k, v)} business={business} depValue={f.dependsOn ? draft[f.dependsOn] : undefined} filterValues={draft} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="flex flex-wrap items-end gap-x-[18px] gap-y-3.5">
-              {(spec.filters || []).filter((f) => visible.has(f.k)).map((f) => (
-                <div key={f.k} className="w-full sm:w-[228px]">
-                  <div className="mb-[5px] flex items-center justify-between">
-                    <label className="block text-[13px] text-ink">
+            {spec.filterLayout === 'grid' ? (
+              <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2 xl:grid-cols-4">
+                {(spec.filters || []).map((f) => (
+                  <div key={f.k} className="min-w-0">
+                    <label className="mb-1 block text-[12.5px] leading-tight text-ink">
                       {f.label}{(f.req || f.oneOf) && <span className="f-req">*</span>}
                     </label>
-                    {!f.req && !f.oneOf && (
-                      <button
-                        type="button"
-                        className="text-[#9aa6ba] hover:text-danger"
-                        title={'Remove ' + f.label}
-                        onClick={() => removeFilter(f.k)}
-                      >
-                        <Icon name="x" size={12} />
-                      </button>
-                    )}
+                    <Filter f={f} value={draft[f.k]} onChange={(v) => set(f.k, v)} business={business} depValue={f.dependsOn ? draft[f.dependsOn] : undefined} filterValues={draft} />
                   </div>
-                  <Filter f={f} value={draft[f.k]} onChange={(v) => set(f.k, v)} business={business} depValue={f.dependsOn ? draft[f.dependsOn] : undefined} filterValues={draft} />
-                </div>
-              ))}
-              <AddFilterMenu filters={spec.filters || []} visible={visible} onAdd={addFilter} />
-            </div>
-          )}
+                ))}
+              </div>
+            ) : spec.filterLayout === 'rows' ? (
+              /* EVERY FILTER ON SCREEN, name on the left and its input on the
+                 right. A report opts into this with filterLayout: 'rows' when its
+                 filters are the point of the screen; the default stays the
+                 "pick what you need" panel, which is what keeps the other
+                 reports from opening as a wall of empty boxes.
 
-          <div className="mt-4 flex items-center gap-2">
-            {spec.hint && <span className="text-[12.5px] text-inkmuted">{spec.hint}</span>}
-            <span className="flex-1" />
-            {toolbar ? toolbar({ searchFor, filters: applied, searched }) : null}
-            <button type="button" className="btn" onClick={reset}>
-              <Icon name="refresh" size={14} /> Reset
-            </button>
-            <button type="button" className="btn btn-primary" onClick={search} disabled={loading}>
-              {loading ? <span className="spin" /> : <Icon name="search" size={14} />} Search
-            </button>
+                 No Add Filter button and no per-filter remove: nothing is hidden,
+                 so there is nothing to add back or take away. */
+              <div className="grid grid-cols-1 gap-x-6 gap-y-2.5 md:grid-cols-2 xl:grid-cols-4">
+                {(spec.filters || []).map((f) => (
+                  <div key={f.k} className="flex items-center gap-3">
+                    <label className="w-[104px] shrink-0 text-[12.5px] leading-tight text-ink">
+                      {f.label}{(f.req || f.oneOf) && <span className="f-req">*</span>}
+                    </label>
+                    <div className="min-w-0 flex-1">
+                      <Filter f={f} value={draft[f.k]} onChange={(v) => set(f.k, v)} business={business} depValue={f.dependsOn ? draft[f.dependsOn] : undefined} filterValues={draft} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-end gap-x-[18px] gap-y-3.5">
+                {(spec.filters || []).filter((f) => visible.has(f.k)).map((f) => (
+                  <div key={f.k} className="w-full sm:w-[228px]">
+                    <div className="mb-[5px] flex items-center justify-between">
+                      <label className="block text-[13px] text-ink">
+                        {f.label}{(f.req || f.oneOf) && <span className="f-req">*</span>}
+                      </label>
+                      {!f.req && !f.oneOf && (
+                        <button
+                          type="button"
+                          className="text-[#9aa6ba] hover:text-danger"
+                          title={'Remove ' + f.label}
+                          onClick={() => removeFilter(f.k)}
+                        >
+                          <Icon name="x" size={12} />
+                        </button>
+                      )}
+                    </div>
+                    <Filter f={f} value={draft[f.k]} onChange={(v) => set(f.k, v)} business={business} depValue={f.dependsOn ? draft[f.dependsOn] : undefined} filterValues={draft} />
+                  </div>
+                ))}
+                <AddFilterMenu filters={spec.filters || []} visible={visible} onAdd={addFilter} />
+              </div>
+            )}
+
+            <div className="mt-4 flex items-center gap-2">
+              {spec.hint && <span className="text-[12.5px] text-inkmuted">{spec.hint}</span>}
+              <span className="flex-1" />
+              {toolbar ? toolbar({ searchFor, filters: applied, searched }) : null}
+              <button type="button" className="btn" onClick={reset}>
+                <Icon name="refresh" size={14} /> Reset
+              </button>
+              <button type="button" className="btn btn-primary" onClick={search} disabled={loading}>
+                {loading ? <span className="spin" /> : <Icon name="search" size={14} />} Search
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {!searched ? (
         <div className="card">

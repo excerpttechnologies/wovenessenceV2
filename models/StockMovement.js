@@ -32,6 +32,16 @@ export const MOVEMENT_TYPES = {
   ADJUST_OUT: 'ADJUST_OUT',             // stock adjustment, negative
   ORIGIN_CORRECTION: 'ORIGIN_CORRECTION', // audit-only correction to a barcode's origin location
   ECOM_OUT: 'ECOM_OUT',                 // e-commerce direct transfer, despatched
+  /* Barcode Split / Barcode Merge (Tools). The original keeps its row and
+     loses quantity on a split; each child gains it. A merge consumes its
+     sources and creates one new unit. All four are reversible by a
+     cancellation, which posts the matching *REVERSE row. */
+  SPLIT_OUT: 'SPLIT_OUT',               // original barcode reduced by the split
+  SPLIT_IN: 'SPLIT_IN',                 // child barcode created in stock
+  SPLIT_REVERSE: 'SPLIT_REVERSE',       // split cancelled - child removed, original restored
+  MERGE_OUT: 'MERGE_OUT',               // source barcode consumed by a merge
+  MERGE_IN: 'MERGE_IN',                 // merged barcode created in stock
+  MERGE_REVERSE: 'MERGE_REVERSE',       // merge cancelled - sources restored, merged removed
 };
 
 const StockMovementSchema = new mongoose.Schema(
