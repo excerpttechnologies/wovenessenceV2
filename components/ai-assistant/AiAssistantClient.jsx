@@ -31,7 +31,13 @@ const STAGE_LABELS = {
   composing: 'Preparing charts and figures',
 };
 
-const WELCOME = 'Welcome to Woven Essence AI Business Assistant. Ask questions about your sales, inventory, purchases, branches, customers, website orders, and business performance.';
+/* The welcome greeting follows the clock on the user's own machine, so it
+   reads naturally instead of saying "good morning" at 9pm. */
+function welcomeGreeting() {
+  const hour = new Date().getHours();
+  const part = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  return `${part}! I'm AI Intelligence, your assistant for general knowledge, business support, technical help, and Woven Essence ERP. Ask me anything.`;
+}
 
 function Spinner({ className = '' }) {
   return (
@@ -476,13 +482,13 @@ export default function AiAssistantClient({ variant = 'page', onClose = null }) 
       <header className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <h1 className={compact ? 'text-[15px] font-bold text-ink' : 'text-[19px] font-bold tracking-tight text-ink'}>
-            AI Business Assistant
+            AI Intelligence
           </h1>
-          {provider?.configured && (
-            <p className="mt-0.5 text-[11.5px] text-inkmuted">
-              {`Grounded in ERP and storefront data · ${provider.provider} ${provider.model}`}
-            </p>
-          )}
+          <p className="mt-0.5 text-[11.5px] text-inkmuted">
+            {provider?.configured
+              ? `General knowledge and your ERP data · ${provider.provider} ${provider.model}`
+              : 'ERP answers are live · general questions need an AI provider key'}
+          </p>
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
@@ -614,9 +620,9 @@ export default function AiAssistantClient({ variant = 'page', onClose = null }) 
                     <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#e8f7ee] text-brand">
                       <Icon name="spark" size={15} />
                     </span>
-                    <p className="text-[13px] font-bold text-ink">Woven Essence AI Business Assistant</p>
+                    <p className="text-[13px] font-bold text-ink">AI Intelligence</p>
                   </div>
-                  <p className="text-[12.5px] leading-relaxed text-cell">{WELCOME}</p>
+                  <p className="text-[12.5px] leading-relaxed text-cell">{welcomeGreeting()}</p>
                 </div>
 
                 <div>
@@ -701,8 +707,8 @@ export default function AiAssistantClient({ variant = 'page', onClose = null }) 
                   }
                 }}
                 rows={compact ? 1 : 2}
-                placeholder="Ask about sales, stock, purchases, customers, branches or the website..."
-                aria-label="Ask the business assistant"
+                placeholder="Ask anything - sales, stock, a general question, writing or code..."
+                aria-label="Ask AI Intelligence"
                 className="max-h-32 min-h-[38px] flex-1 resize-y rounded-lg border border-line bg-white px-3 py-2 text-[13px] text-ink outline-none placeholder:text-inkmuted/80 focus:border-brand focus:ring-2 focus:ring-brand/20"
                 disabled={busy}
               />
@@ -718,7 +724,7 @@ export default function AiAssistantClient({ variant = 'page', onClose = null }) 
             </div>
             <div className="mt-1 flex flex-wrap items-center justify-between gap-1 px-0.5">
               <p className="text-[10.5px] text-inkmuted">
-                Enter sends · Shift + Enter adds a line · answers cover the period shown in each result.
+                Enter sends · Shift + Enter adds a line · business answers cover the period shown in each result.
               </p>
               {input.length > 800 && <span className="text-[10.5px] text-inkmuted">{input.length}/1000</span>}
             </div>

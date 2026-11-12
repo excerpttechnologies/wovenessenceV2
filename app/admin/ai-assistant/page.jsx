@@ -1,8 +1,8 @@
 import AiAssistantClient from '@/components/ai-assistant/AiAssistantClient';
 
 export const metadata = {
-  title: 'AI Business Assistant · Woven Essence ERP',
-  description: 'Ask authorised business questions across sales, inventory, purchases, customers and the storefront.',
+  title: 'AI Intelligence · Woven Essence ERP',
+  description: 'AI Intelligence answers general questions, writing, technical help and authorised business questions across sales, inventory, purchases, customers and the storefront.',
 };
 
 /* The workspace is a client component because it holds a conversation,

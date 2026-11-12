@@ -3425,9 +3425,9 @@ import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
 import { escapeRegex } from '@/lib/validate';
 import ProductImage from '@/models/ProductImage';
-import { barcodeFilter as inventoryBarcodeFilter, imageUrl, unitFor } from '@/lib/inventory';
+import { barcodeFilter as inventoryBarcodeFilter, erpImageForBarcode, imageUrl, unitFor } from '@/lib/inventory';
 import { classificationOptionsById, listClassificationOptions } from '@/lib/classificationCollections';
-import { Supplier } from '@/lib/contacts';
+import { Agent, Supplier } from '@/lib/contacts';
 
 /* /api/product-eccom - list only, read-only (19-10-2026).
 
@@ -3455,7 +3455,6 @@ import { Supplier } from '@/lib/contacts';
 const json = (d, s = 200) => Response.json(d, { status: s });
 const COLLECTION = 'ecommerceproduct';
 const PER_PAGE = 10;
-const DEPLOYED_IMAGE_ORIGIN = 'https://erp.wovenessence.in';
 /* fields never shown as columns */
 const HIDDEN = new Set(['_id', '__v']);
 
@@ -3485,12 +3484,66 @@ function classificationTextValues(record) {
     .filter((value) => typeof value === 'string' || typeof value === 'number');
 }
 
-function productImageSource(value, ...barcodes) {
-  const source = imageUrl(value, ...barcodes);
-  return source.startsWith('/august_8A_images/')
-    ? `${DEPLOYED_IMAGE_ORIGIN}${source}`
-    : source;
-}
+/* One resolver for every image source this screen reads: barcodeLabel.imageUrl /
+   filePath, ecommerceproduct.image, or an uploaded productImage record. imageUrl()
+   turns a stored path into a URL that actually loads (the legacy ERP files under
+   /images/<prefix>/ are served from the ERP media origin, not from this app) and
+   answers '' - not a dead link - when the photo genuinely is not there. */
+const productImageSource = (value, ...barcodes) => imageUrl(value, ...barcodes)
+  /* nothing stored on the row: the legacy ERP still files a photo under the
+     barcode itself, so try that before giving up on this product */
+  || barcodes.map((barcode) => erpImageForBarcode(barcode)).find(Boolean)
+  || '';
+
+/* ONE PRODUCT ROW, MANY BARCODES.
+
+   The e-commerce collection holds one row per ITEM (unique index businessId +
+   itemId), but an item is not a piece: 3PC-ASUIT carries a whole batch of
+   labels (8A2837, 9A1058, ...), and each of those is a different physical
+   garment with its own photo, its own print description and its own price.
+   The row itself names the barcode it was saved for (`barcode`).
+
+   So its image, its product type and its By Weave / By Fabric / By Craft /
+   By Occasion choices describe THAT barcode and nobody else's. Reading them
+   for a sibling barcode is what put 9A1058's beige photo, and its saree
+   classification, under 8A2837 - which is why the reference ERP (one row per
+   barcode) and this screen disagreed about the same number.
+
+   `productOwnsBarcode` is the whole rule, used by both the listing and the
+   single-barcode lookup so the two can never drift. An empty `barcode` on the
+   saved row predates the barcode box: it names no other piece, so it is taken
+   as belonging to whichever barcode is being looked at. */
+const productOwnsBarcode = (product, barcode) => {
+  const saved = String(product?.barcode || '').trim().toLowerCase();
+  if (!saved) return true;
+  return saved === String(barcode || '').trim().toLowerCase();
+};
+
+/* the fields of a saved product that describe its own barcode rather than the
+   item - dropped entirely when the product belongs to a different label */
+const PER_BARCODE_FIELDS = [
+  'image', 'productType', 'printDescriptionOverride',
+  'barcodePriceOverride', 'barcodeQtyOverride',
+  'byWeave', 'byFabric', 'byCraft', 'byOccasion', 'byColour',
+];
+const withoutPerBarcodeFields = (product) => {
+  if (!product) return {};
+  const row = { ...product };
+  PER_BARCODE_FIELDS.forEach((key) => { delete row[key]; });
+  return row;
+};
+
+/* A stored image whose file name is ANOTHER barcode's number is a sibling
+   piece's photo living on the item's single row (e.g. 4A1174.jpg saved on the
+   row filed for 4A1139), so it must not be shown for this label. Files named
+   after anything else - item codes, uploaded hashes - are left alone. */
+const BARCODE_FILE_NAME = /^\d{1,2}[A-Z]\d{3,6}$/i;
+const imageBelongsToBarcode = (src, codes) => {
+  const stem = String(src || '').split(/[?#]/)[0].split('/').pop().replace(/\.[a-z0-9]+$/i, '');
+  if (!BARCODE_FILE_NAME.test(stem)) return true;
+  return codes.some((code) => code.toLowerCase() === stem.toLowerCase());
+};
+const ownBarcodeImage = (src, codes) => (src && imageBelongsToBarcode(src, codes) ? src : '');
 
 /* ObjectIds become their string, everything else is passed through */
 function plain(value) {
@@ -3761,7 +3814,9 @@ async function listAllErpBarcodes({ businessId, search, page, perPage, sortBy, s
   const barcodeCollection = database.collection('barcodeLabel');
   const productCollection = database.collection(COLLECTION);
   const items = await itemCollection.find({ businessId: idMatch(businessId) }, {
-    projection: { itemCode: 1, name: 1, image: 1 },
+    /* subGroupId is the item's GROUP - the product type is read from its name
+       (see the page's type map below) */
+    projection: { itemCode: 1, name: 1, image: 1, subGroupId: 1 },
   }).toArray();
   const itemIds = items.flatMap((item) => [
     item._id,
@@ -3866,6 +3921,57 @@ async function listAllErpBarcodes({ businessId, search, page, perPage, sortBy, s
     if (code && !productByItemCode.has(code)) productByItemCode.set(code, product);
   });
 
+  /* THE TYPE OF EACH ROW, from its item's group (the item master), then from the
+     label's own group name - the same chain the single-barcode form uses.
+
+     A row whose item's saved product is filed under a sibling barcode has no
+     type of its own (see productOwnsBarcode), and a saved type that contradicts
+     the item's group is stale (written before the form locked the field to the
+     group), so a group that names a real product type wins over it. */
+  const pageGroupIds = [...new Set(barcodeRows.flatMap((barcodeRow) => [
+    itemById.get(String(barcodeRow.itemId))?.subGroupId,
+    barcodeRow.groupId,
+  ]).map((value) => String(value || '').trim()).filter((value) => isValidObjectId(value)))];
+  const groupNameById = new Map();
+  const typeByGroupName = new Map();
+  if (pageGroupIds.length) {
+    const [pageGroups, typeRows] = await Promise.all([
+      database.collection('productgroup')
+        .find({ _id: { $in: pageGroupIds.map((gid) => new Types.ObjectId(gid)) } })
+        .project({ name: 1 }).toArray(),
+      database.collection('producttypes')
+        .find({ businessId: { $in: [businessId, new Types.ObjectId(businessId)] }, isActive: { $ne: false } })
+        .project({ value: 1, label: 1 }).toArray(),
+    ]);
+    pageGroups.forEach((group) => groupNameById.set(String(group._id), String(group.name || '')));
+    typeRows.forEach((type) => {
+      const value = String(type.value || '').trim();
+      if (!value) return;
+      if (!typeByGroupName.has(value.toLowerCase())) typeByGroupName.set(value.toLowerCase(), value);
+      const label = String(type.label || '').trim().toLowerCase();
+      if (label && !typeByGroupName.has(label)) typeByGroupName.set(label, value);
+    });
+  }
+  /* one pass over the rows, keyed by each item - never a scan per group */
+  const typeByItemId = new Map();
+  if (typeByGroupName.size) {
+    for (const barcodeRow of barcodeRows) {
+      const itemId = String(barcodeRow.itemId);
+      if (typeByItemId.has(itemId)) continue;
+      const item = itemById.get(itemId);
+      const candidates = [
+        groupNameById.get(String(item?.subGroupId || '')),
+        barcodeRow.customFields?.groupName,
+        isValidObjectId(String(barcodeRow.groupId || '')) ? '' : barcodeRow.groupId,
+        groupNameById.get(String(barcodeRow.groupId || '')),
+      ];
+      for (const candidate of candidates) {
+        const matched = typeByGroupName.get(String(candidate || '').trim().toLowerCase());
+        if (matched) { typeByItemId.set(itemId, matched); break; }
+      }
+    }
+  }
+
   const matchedProductIds = new Set();
   const records = barcodeRows.map((barcodeRow) => {
     const barcode = String(
@@ -3878,16 +3984,29 @@ async function listAllErpBarcodes({ businessId, search, page, perPage, sortBy, s
       || (barcodeRow.itemId && productByItemId.get(String(barcodeRow.itemId)))
       || productByItemCode.get(String(barcodeRow.itemCode || item?.itemCode || '').trim().toLowerCase());
     if (product) matchedProductIds.add(String(product._id));
+    /* the saved product's own photo/type/classifications belong to ITS barcode
+       (see productOwnsBarcode) - this row keeps its own otherwise */
+    const productForBarcode = product && productOwnsBarcode(product, barcode) ? product : null;
     const itemCode = String(item?.itemCode || barcodeRow.itemCode || '').trim();
     const itemName = String(item?.name || barcodeRow.itemName || '').trim();
+    const barcodeCodes = [barcodeRow.barcodeNo, barcodeRow.barcodeGenerated, barcodeRow.oldBarcode]
+      .map((value) => String(value || '').trim()).filter(Boolean);
+    /* the item's group (what the Add form locks the field to) wins; a saved
+       type only fills in when no group names a real product type */
+    const resolvedProductType = typeByItemId.get(String(barcodeRow.itemId))
+      || productForBarcode?.productType
+      || '';
     const image = productImageSource(
-      barcodeRow.imageUrl || barcodeRow.filePath || product?.image || item?.image || '',
-      barcodeRow.barcodeNo,
-      barcodeRow.barcodeGenerated,
-      barcodeRow.oldBarcode,
+      barcodeRow.imageUrl || barcodeRow.filePath
+        || ownBarcodeImage(productForBarcode?.image, barcodeCodes)
+        || ownBarcodeImage(item?.image, barcodeCodes)
+        || '',
+      ...barcodeCodes,
     );
     return {
-      ...(product ? plain(product) : {}),
+      ...(product
+        ? (productForBarcode ? plain(product) : withoutPerBarcodeFields(plain(product)))
+        : {}),
       _id: `erp-barcode-${String(barcodeRow._id)}`,
       barcode,
       barcodeImage: image,
@@ -3897,15 +4016,18 @@ async function listAllErpBarcodes({ businessId, search, page, perPage, sortBy, s
       displayName: product?.displayName || barcodeRow.printDescription || itemName || itemCode,
       businessId: String(barcodeRow.currentBusinessId || barcodeRow.businessId || businessId),
       businessName: '',
-      productType: product?.productType || '',
+      productType: resolvedProductType,
       isPublished: Boolean(product?.isPublished),
       salesCount: product?.salesCount || 0,
+      /* qtyNum comes from the live barcodeLabel row - this is the stock
+         quantity in the DB, not the override stored in the ecommerceproduct */
+      dbQty: barcodeRow.qtyNum != null ? Number(barcodeRow.qtyNum) || 0 : null,
       createdAt: product?.createdAt || barcodeRow.createdAt,
       updatedAt: product?.updatedAt || barcodeRow.updatedAt,
       _searchText: [
         barcode, itemCode, itemName, barcodeRow.printDescription,
         barcodeRow.supplierDescription, product?.ecommItemCode,
-        product?.displayName, product?.productType, product?.status,
+        product?.displayName, resolvedProductType, product?.status,
       ].filter(Boolean).join(' ').toLowerCase(),
     };
   });
@@ -3957,6 +4079,53 @@ async function listAllErpBarcodes({ businessId, search, page, perPage, sortBy, s
   });
   const total = filtered.length;
   const rows = filtered.slice((page - 1) * perPage, page * perPage);
+
+  /* Staff-uploaded photos live in `productImage` (written by the mobile app),
+     keyed by the barcode they were shot against - a source the barcode row
+     itself does not carry. They were only ever read by the single-barcode
+     lookup, so a product whose photo came from the app showed no image in this
+     listing at all. Fill only this page's rows that have no photo of their own,
+     matched strictly on the row's own barcode first (then the item code), so a
+     photo can never land on another product. Records that carry inline
+     imageData instead of a URL cannot be served and are skipped. */
+  const missingPhoto = rows.filter((row) => !row.barcodeImage);
+  if (missingPhoto.length) {
+    const wantedBarcodes = [...new Set(missingPhoto
+      .map((row) => String(row.barcode || '').trim())
+      .filter(Boolean))];
+    const wantedCodes = [...new Set(missingPhoto
+      .map((row) => String(row.ecommItemCode || '').trim())
+      .filter(Boolean))];
+    const uploadedPhotos = (wantedBarcodes.length || wantedCodes.length)
+      ? await ProductImage.find({
+        $or: [
+          ...(wantedBarcodes.length ? [{ barcodeGenerated: { $in: wantedBarcodes } }] : []),
+          ...(wantedCodes.length ? [{ itemCode: { $in: wantedCodes } }] : []),
+        ],
+      })
+        .collation({ locale: 'en', strength: 2 })
+        .sort({ createdAt: -1 })
+        .select('barcodeGenerated itemCode imageUrl filePath')
+        .lean()
+      : [];
+    const photoByBarcode = new Map();
+    const photoByItemCode = new Map();
+    uploadedPhotos.forEach((photo) => {
+      const url = productImageSource(photo.imageUrl || photo.filePath || '');
+      if (!url) return;
+      const barcodeKey = String(photo.barcodeGenerated || '').trim().toLowerCase();
+      if (barcodeKey && !photoByBarcode.has(barcodeKey)) photoByBarcode.set(barcodeKey, url);
+      const codeKey = String(photo.itemCode || '').trim().toLowerCase();
+      if (codeKey && !photoByItemCode.has(codeKey)) photoByItemCode.set(codeKey, url);
+    });
+    rows.forEach((row) => {
+      if (row.barcodeImage) return;
+      row.barcodeImage = photoByBarcode.get(String(row.barcode || '').trim().toLowerCase())
+        || photoByItemCode.get(String(row.ecommItemCode || '').trim().toLowerCase())
+        || '';
+    });
+  }
+
   const classificationIds = [...new Set(rows.flatMap((row) =>
     ['byFabric', 'byColour', 'byCraft', 'byOccasion', 'byWeave']
       .flatMap((key) => Array.isArray(row[key]) ? row[key] : [])
@@ -4084,6 +4253,381 @@ export async function GET(req) {
       }
     });
     return json({ options: [...options.values()] });
+  }
+
+  /* ------------------------------------------------ identify lookup ---
+
+     ?productLookup=<value>&by=<field> answers the products that match one
+     identifying value, for the Add form's other identifier boxes.
+
+     Every candidate carries the barcode the form's existing lookup already
+     knows how to expand into a full product, so nothing is populated a second
+     time here: the form feeds the barcode back through ?barcodeLookup and the
+     price, quantity, supplier, classification and photo all come from that one
+     code path.
+
+     by: barcode | itemCode | ecommItemCode | name | supplierCode. A unique
+     identifier is matched exactly first (case-insensitive) and only falls back
+     to a contains match when nothing matched exactly, so a partial code never
+     wins over the real one. Several matches come back as a list - the form
+     shows it and the user picks, rather than an arbitrary product being taken.
+     -------------------------------------------------------------------- */
+  const identifyValue = (sp.get('productLookup') || '').trim();
+  if (identifyValue) {
+    if (!b || !isValidObjectId(b)) {
+      return json({ error: 'Select a valid business before looking up a product.' }, 422);
+    }
+    if (identifyValue.length < 2) return json({ matches: [] });
+
+    const BY = ['barcode', 'itemCode', 'ecommItemCode', 'name', 'supplierCode'];
+    const byParam = (sp.get('by') || '').trim();
+    const by = BY.includes(byParam) ? byParam : 'barcode';
+
+    const database = mongoose.connection.db;
+    const itemCollection = database.collection('item');
+    const barcodeCollection = database.collection('barcodeLabel');
+    const itemProjection = { itemCode: 1, name: 1, itemType: 1 };
+    const barcodeProjection = {
+      itemId: 1,
+      itemCode: 1,
+      itemName: 1,
+      barcodeNo: 1,
+      barcodeGenerated: 1,
+      oldBarcode: 1,
+    };
+    const barcodeScope = {
+      $or: [
+        { businessId: idMatch(b) },
+        { currentBusinessId: idMatch(b) },
+      ],
+    };
+    const exactRx = (value) => ({ $regex: `^\\s*${escapeRegex(value)}\\s*$`, $options: 'i' });
+    const anyRx = (value) => ({ $regex: escapeRegex(value), $options: 'i' });
+
+    /* items matching one field: exact first, then a contains match */
+    const findItems = async (field) => {
+      const exact = await itemCollection.find(
+        { businessId: idMatch(b), [field]: exactRx(identifyValue) },
+        { projection: itemProjection },
+      ).limit(20).toArray();
+      if (exact.length) return exact;
+      return itemCollection.find(
+        { businessId: idMatch(b), [field]: anyRx(identifyValue) },
+        { projection: itemProjection },
+      ).limit(20).toArray();
+    };
+
+    /* the barcode rows a set of items is filed under */
+    const findBarcodeRowsForItems = async (items) => {
+      const ids = items.map((item) => String(item._id));
+      const codes = [...new Set(items
+        .map((item) => String(item.itemCode || '').trim())
+        .filter(Boolean))];
+      if (!ids.length && !codes.length) return [];
+      return barcodeCollection.find({
+        $and: [
+          barcodeScope,
+          {
+            $or: [
+              { itemId: { $in: [...ids, ...ids.filter(isValidObjectId).map((id) => new Types.ObjectId(id))] } },
+              ...(codes.length ? [{ itemCode: { $in: codes } }] : []),
+            ],
+          },
+        ],
+      }, { projection: barcodeProjection }).limit(200).toArray();
+    };
+
+    let barcodeRows = [];
+    let items = [];
+
+    if (by === 'barcode') {
+      const fields = ['barcodeNo', 'barcodeGenerated', 'oldBarcode'];
+      barcodeRows = await barcodeCollection.find({
+        $and: [barcodeScope, { $or: fields.map((field) => ({ [field]: exactRx(identifyValue) })) }],
+      }, { projection: barcodeProjection }).limit(20).toArray();
+      if (!barcodeRows.length) {
+        barcodeRows = await barcodeCollection.find({
+          $and: [barcodeScope, { $or: fields.map((field) => ({ [field]: anyRx(identifyValue) })) }],
+        }, { projection: barcodeProjection }).limit(20).toArray();
+      }
+    } else if (by === 'supplierCode') {
+      /* the Supplier No. the barcode pattern section filters on: the vendor's
+         contactId, exact first */
+      let vendors = await Supplier.find({ contactId: exactRx(identifyValue) })
+        .select('contactId').limit(20).lean();
+      if (!vendors.length) {
+        vendors = await Supplier.find({ contactId: anyRx(identifyValue) })
+          .select('contactId').limit(20).lean();
+      }
+      const keys = vendorKeys(vendors);
+      if (keys.length) {
+        barcodeRows = await barcodeCollection.find({
+          $and: [barcodeScope, { supplierId: { $in: keys } }],
+        }, { projection: barcodeProjection }).limit(50).toArray();
+      }
+    } else if (by === 'name') {
+      items = await findItems('name');
+    } else {
+      /* itemCode, and ecommItemCode which is the same code on every product
+         this screen writes */
+      items = await findItems('itemCode');
+      if (!items.length && by === 'ecommItemCode') {
+        const products = await col.find(
+          { businessId: idMatch(b), ecommItemCode: anyRx(identifyValue) },
+          { projection: { itemId: 1 } },
+        ).limit(20).toArray();
+        const productItemIds = products
+          .map((product) => String(product.itemId || ''))
+          .filter(isValidObjectId)
+          .map((id) => new Types.ObjectId(id));
+        if (productItemIds.length) {
+          items = await itemCollection.find(
+            { _id: { $in: productItemIds } },
+            { projection: itemProjection },
+          ).toArray();
+        }
+      }
+    }
+
+    if (items.length && !barcodeRows.length) barcodeRows = await findBarcodeRowsForItems(items);
+
+    const itemById = new Map(items.map((item) => [String(item._id), item]));
+    const matches = new Map();
+    barcodeRows.forEach((row) => {
+      const value = String(row.barcodeNo || row.barcodeGenerated || row.oldBarcode || '').trim();
+      const item = itemById.get(String(row.itemId));
+      const itemCode = String(item?.itemCode || row.itemCode || '').trim();
+      const itemName = String(item?.name || row.itemName || '').trim();
+      const key = value.toLowerCase() || 'item:' + String(row.itemId || '');
+      if (matches.has(key)) return;
+      matches.set(key, {
+        barcode: value,
+        itemId: String(row.itemId || (item ? item._id : '')),
+        itemCode,
+        name: itemName,
+        label: [value, itemCode, itemName].filter(Boolean).join(' - '),
+      });
+    });
+    /* an item with no barcode row of its own can still be chosen - the form
+       fills what it can and says the item has no barcode */
+    items.forEach((item) => {
+      const key = 'item:' + String(item._id);
+      if ([...matches.values()].some((match) => match.itemId === String(item._id))) return;
+      matches.set(key, {
+        barcode: '',
+        itemId: String(item._id),
+        itemCode: String(item.itemCode || '').trim(),
+        name: String(item.name || '').trim(),
+        label: [item.itemCode, item.name].filter(Boolean).join(' - '),
+      });
+    });
+
+    return json({ by, value: identifyValue, matches: [...matches.values()].slice(0, 20) });
+  }
+
+  /* ------------------------------------------ barcode filter profile ---
+
+     ?barcodeProfile=<barcode> answers the FILTER values of one product, so the
+     Ecommerce -> Product filter card can fill every section from the barcode
+     the operator typed.
+
+     The values come back in exactly the shapes resolveProductFilters() reads
+     them back in: a ref picker carries the record's _id, GST and the pattern
+     figures are numbers as text, and each price range gets the SAME figure at
+     both ends, because the filter is inclusive - Min 180 / Max 180 selects the
+     product priced 180 instead of inventing a range around it. Nothing is
+     invented: a price, HSN, city or unit the row does not carry comes back
+     empty and the card leaves that box alone.
+
+     Duplicate barcode rows are NOT merged and no one of them is chosen for the
+     operator: identical value sets collapse, and each remaining set comes back
+     as a candidate the card lists so the supplier and price are a choice, not
+     an accident of row order.
+     -------------------------------------------------------------------- */
+  const profileBarcode = (sp.get('barcodeProfile') || '').trim();
+  if (profileBarcode) {
+    if (!b || !isValidObjectId(b)) {
+      return json({ error: 'Select a valid business before looking up a barcode.' }, 422);
+    }
+    if (profileBarcode.length < 2) return json({ barcode: profileBarcode, candidates: [] });
+
+    const database = mongoose.connection.db;
+    const text = (value) => String(value ?? '').trim();
+    /* the figure as the filter compares it - '' when the row has none, so a
+       missing price leaves its box empty instead of filtering on 0 */
+    const figure = (value) => {
+      if (text(value) === '') return '';
+      const number = Number(text(value));
+      return Number.isFinite(number) ? String(Number(number.toFixed(2))) : '';
+    };
+
+    const exact = { $regex: `^\\s*${escapeRegex(profileBarcode)}\\s*$`, $options: 'i' };
+    const rows = await database.collection('barcodeLabel').find({
+      $and: [
+        { $or: [{ businessId: idMatch(b) }, { currentBusinessId: idMatch(b) }] },
+        { $or: [{ barcodeNo: exact }, { barcodeGenerated: exact }, { oldBarcode: exact }] },
+      ],
+    }).limit(50).toArray();
+    if (!rows.length) {
+      return json({ error: `Barcode "${profileBarcode}" was not found in this business.` }, 404);
+    }
+
+    const itemIds = [...new Set(rows.map((row) => text(row.itemId)).filter(isValidObjectId))]
+      .map((id) => new Types.ObjectId(id));
+    const itemCodes = [...new Set(rows.map((row) => text(row.itemCode)).filter(Boolean))];
+    const items = (itemIds.length || itemCodes.length)
+      ? await database.collection('item').find({
+        $and: [
+          { businessId: idMatch(b) },
+          {
+            $or: [
+              ...(itemIds.length ? [{ _id: { $in: itemIds } }] : []),
+              ...(itemCodes.length ? [{ itemCode: { $in: itemCodes } }] : []),
+            ],
+          },
+        ],
+      }, { projection: { itemCode: 1, name: 1, subGroupId: 1 } }).toArray()
+      : [];
+
+    const groupIds = [...new Set(items.map((item) => text(item.subGroupId)).filter(isValidObjectId))]
+      .map((id) => new Types.ObjectId(id));
+    const groups = groupIds.length
+      ? await database.collection('productgroup')
+        .find({ _id: { $in: groupIds } }, { projection: { name: 1 } }).toArray()
+      : [];
+
+    /* the row's supplier is stored as the vendor's id on generated rows and as
+       its G-code on imported ones - read it either way */
+    const supplierKeys = [...new Set(rows.map((row) => text(row.supplierId)).filter(Boolean))];
+    const supplierIds = supplierKeys.filter(isValidObjectId).map((id) => new Types.ObjectId(id));
+    const suppliers = supplierKeys.length
+      ? await Supplier.find({
+        $or: [
+          ...(supplierIds.length ? [{ _id: { $in: supplierIds } }] : []),
+          { contactId: { $in: supplierKeys } },
+        ],
+      }).select('businessName firstName lastName contactId billingCity shippingCity agentId').lean()
+      : [];
+    const agentIds = [...new Set(suppliers.map((vendor) => text(vendor.agentId)).filter(isValidObjectId))]
+      .map((id) => new Types.ObjectId(id));
+    const agents = agentIds.length
+      ? await Agent.find({ _id: { $in: agentIds } })
+        .select('businessName firstName lastName contactId').lean()
+      : [];
+
+    /* UOM is stored on the row as the unit's NAME, while the picker (and so
+       the filter) uses its _id */
+    const uomNames = [...new Set(rows.map((row) => text(row.uom)).filter(Boolean))];
+    const units = uomNames.length
+      ? await database.collection('uom')
+        .find({ $or: [{ name: { $in: uomNames } }, { shortName: { $in: uomNames } }] })
+        .collation({ locale: 'en', strength: 2 })
+        .project({ name: 1, shortName: 1 }).toArray()
+      : [];
+
+    const contactName = (contact) => text(contact.businessName)
+      || [contact.firstName, contact.lastName].map(text).filter(Boolean).join(' ')
+      || '(untitled)';
+    const contactLabel = (contact) => {
+      const name = contactName(contact);
+      const code = text(contact.contactId);
+      return code ? `${name} (${code})` : name;
+    };
+    const itemById = new Map(items.map((item) => [String(item._id), item]));
+    const itemByCode = new Map(items.map((item) => [text(item.itemCode).toLowerCase(), item]));
+    const groupById = new Map(groups.map((group) => [String(group._id), group]));
+    const agentById = new Map(agents.map((agent) => [String(agent._id), agent]));
+    const supplierByKey = new Map();
+    suppliers.forEach((vendor) => {
+      supplierByKey.set(String(vendor._id), vendor);
+      if (text(vendor.contactId)) supplierByKey.set(text(vendor.contactId).toLowerCase(), vendor);
+    });
+    const unitByName = new Map();
+    units.forEach((unit) => {
+      [unit.name, unit.shortName].forEach((value) => {
+        if (text(value)) unitByName.set(text(value).toLowerCase(), unit);
+      });
+    });
+
+    const candidates = new Map();
+    rows.forEach((row) => {
+      const item = itemById.get(text(row.itemId))
+        || itemByCode.get(text(row.itemCode).toLowerCase()) || null;
+      const groupValue = item?.subGroupId && isValidObjectId(text(item.subGroupId))
+        ? text(item.subGroupId) : '';
+      const group = groupValue ? groupById.get(groupValue) : null;
+      const vendor = supplierByKey.get(text(row.supplierId))
+        || supplierByKey.get(text(row.supplierId).toLowerCase()) || null;
+      const agent = vendor?.agentId ? agentById.get(text(vendor.agentId)) : null;
+      const unit = unitByName.get(text(row.uom).toLowerCase()) || null;
+      /* COST PRICE as the filter computes it: finalNet when it carries a
+         figure, else purRate */
+      const finalNet = Number(text(row.finalNet));
+      const cost = Number.isFinite(finalNet) && finalNet > 0 ? finalNet : figure(row.purRate);
+      const rsp = figure(row.retailPrice);
+      const offer = figure(row.offerPrice);
+      const wsp = figure(row.wspPrice);
+      const ecom = figure(row.dpPrice);
+      const age = figure(row.stockAge);
+
+      const values = {
+        barcodeNo: text(row.barcodeNo || row.barcodeGenerated || row.oldBarcode),
+        /* ONLY when the group document still exists. The filter resolves a
+           group to its items through that document, so filling an id whose
+           group was deleted (16 of this business's 25) would make Search
+           return nothing at all - worse than leaving the box empty. */
+        groupName: group ? groupValue : '',
+        itemId: item ? [String(item._id)] : [],
+        hsn: text(row.hsn),
+        gst: figure(row.gst),
+        city: text(vendor?.billingCity) || text(vendor?.shippingCity),
+        supplierId: vendor ? [String(vendor._id)] : [],
+        agentId: agent ? [String(agent._id)] : [],
+        uom: unit ? String(unit._id) : '',
+        rspMin: rsp, rspMax: rsp,
+        rspOfferPriceMin: offer, rspOfferPriceMax: offer,
+        wspMin: wsp, wspMax: wsp,
+        ecomMin: ecom, ecomMax: ecom,
+        ageMin: age, ageMax: age,
+        costPriceMin: figure(cost), costPriceMax: figure(cost),
+        discount: figure(row.disc2),
+        patternSupplierNo: text(vendor?.contactId),
+        patternGrcNo: text(row.grcNo).replace(/^GRC\s*/i, ''),
+        patternSlNo: text(row.billSlNo),
+        patternQty: figure(row.qtyNum),
+      };
+      /* what the card shows in each picker, so a filled ref reads as a name
+         rather than a raw id */
+      const labels = {
+        groupName: [group ? text(group.name) : ''],
+        itemId: [item ? (text(item.name) || text(item.itemCode)) : ''],
+        supplierId: [vendor ? contactLabel(vendor) : ''],
+        agentId: [agent ? contactLabel(agent) : ''],
+        uom: [unit ? (text(unit.name) || text(unit.shortName)) : ''],
+      };
+
+      const key = JSON.stringify(values);
+      if (candidates.has(key)) return;
+      const stockDate = row.stockDate ? new Date(row.stockDate) : null;
+      candidates.set(key, {
+        id: String(row._id),
+        label: [
+          vendor ? contactName(vendor) : '',
+          rsp ? 'RSP ' + rsp : '',
+          values.patternQty ? 'Qty ' + values.patternQty : '',
+          stockDate && !Number.isNaN(stockDate.getTime())
+            ? stockDate.toLocaleDateString('en-IN') : '',
+        ].filter(Boolean).join(' · '),
+        values,
+        labels,
+      });
+    });
+
+    return json({
+      barcode: profileBarcode,
+      rows: rows.length,
+      candidates: [...candidates.values()].slice(0, 8),
+    });
   }
 
   const barcode = (sp.get('barcodeLookup') || '').trim();
@@ -4224,19 +4768,24 @@ export async function GET(req) {
       barcodeRow.barcodeNo,
       barcodeRow.oldBarcode,
     ].map((value) => String(value || '').trim()).filter(Boolean))];
-    const barcodeImageRecord = barcodeImageCodes.length || item.itemCode
-      ? await ProductImage.findOne({
-        $or: [
-          ...(barcodeImageCodes.length ? [{ barcodeGenerated: { $in: barcodeImageCodes } }] : []),
-          ...(item.itemCode ? [{ itemCode: item.itemCode }] : []),
-        ],
-      }).sort({ createdAt: -1 }).select('imageUrl filePath').lean()
+    /* a staff photo is filed against the BARCODE it was shot at; the item-code
+       clause is only the fallback for photos taken before that number existed.
+       Asked in that order, so a photo of a sibling piece can never win. */
+    const barcodeImageRecord = barcodeImageCodes.length
+      ? await ProductImage.findOne({ barcodeGenerated: { $in: barcodeImageCodes } })
+        .sort({ createdAt: -1 }).select('imageUrl filePath').lean()
+      : null;
+    const barcodeImageRecordByItem = !barcodeImageRecord && item.itemCode
+      ? await ProductImage.findOne({ itemCode: item.itemCode })
+        .sort({ createdAt: -1 }).select('imageUrl filePath').lean()
       : null;
     const barcodeImage = productImageSource(
       barcodeRow.imageUrl
         || barcodeRow.filePath
         || barcodeImageRecord?.imageUrl
         || barcodeImageRecord?.filePath
+        || barcodeImageRecordByItem?.imageUrl
+        || barcodeImageRecordByItem?.filePath
         || '',
       ...barcodeImageCodes,
     );
@@ -4270,7 +4819,21 @@ export async function GET(req) {
       isPublished: false,
       isFeatured: false,
     };
-    const savedProduct = product ? plain(product) : {};
+    /* THIS BARCODE'S OWN NUMBER, as stored - what productOwnsBarcode compares
+       the saved row against */
+    const lookedUpBarcode = String(
+      barcodeRow.barcodeNo || barcodeRow.barcodeGenerated || barcodeRow.oldBarcode || barcode
+    ).trim();
+    const productForBarcode = product && productOwnsBarcode(product, lookedUpBarcode)
+      ? product
+      : null;
+    /* when the row belongs to a SIBLING barcode of the same item, its photo,
+       type, print description, price/qty override and classification choices
+       are another garment's and are dropped here - once, for every field
+       below that reads savedProduct (image, productType, byWeave...) */
+    const savedProduct = product
+      ? (productForBarcode ? plain(product) : withoutPerBarcodeFields(plain(product)))
+      : {};
     const classificationById = new Map(classificationOptions.map((option) => [
       String(option._id),
       option,
@@ -4327,6 +4890,13 @@ export async function GET(req) {
       barcode: barcodeRow.barcodeGenerated || barcodeRow.barcodeNo || barcodeRow.oldBarcode || barcode,
       /* the label's own number, as stored (case included) - what the Add form saves */
       barcodeNo: barcodeRow.barcodeNo || barcodeRow.oldBarcode || '',
+      /* which saved product this barcode relates to, and whether that product
+         is actually its own - the form warns before a save moves it */
+      productMatch: product ? {
+        id: String(product._id),
+        savedBarcode: String(product.barcode || '').trim(),
+        ownsBarcode: Boolean(productForBarcode),
+      } : null,
       item: {
         id: String(item._id),
         itemCode,
@@ -4344,9 +4914,19 @@ export async function GET(req) {
         ...classificationDefaults,
         displayName: savedProduct.displayName || defaultData.displayName,
         ecommItemCode: savedProduct.ecommItemCode || defaultData.ecommItemCode,
-        image: savedProduct.image || defaultData.image,
-        /* a saved product keeps the type it was saved with, so editing never resets it */
-        productType: savedProduct.productType || defaultData.productType || '',
+        /* resolved, not echoed: a saved image may be a legacy relative
+           "/images/<prefix>/..." path, which only loads from the ERP media
+           origin. The label's own file comes first, exactly as in the listing,
+           so the form and the row show the same photo; a stored path that
+           names a SIBLING barcode's file is skipped (imageBelongsToBarcode). */
+        image: productImageSource(
+          barcodeRow.imageUrl || barcodeRow.filePath
+            || ownBarcodeImage(savedProduct.image, barcodeImageCodes) || '',
+          ...barcodeImageCodes,
+        ) || defaultData.image,
+        /* the item's group names a real type -> that is the type (the form locks
+           the field to it); a saved type only fills in when the group names none */
+        productType: matchedProductType?.value || savedProduct.productType || defaultData.productType || '',
         printDescriptionOverride: savedProduct.printDescriptionOverride || defaultData.printDescriptionOverride,
         ecommOffPercent: savedProduct.ecommOffPercent ?? defaultData.ecommOffPercent,
         barcodePriceOverride: savedProduct.barcodePriceOverride ?? defaultData.barcodePriceOverride,

@@ -69,6 +69,7 @@ const PosInvoiceSchema = new mongoose.Schema(
 PosInvoiceSchema.index({ businessId: 1, date: 1 });
 PosInvoiceSchema.index({ businessId: 1, locationId: 1, date: 1 });
 PosInvoiceSchema.index({ businessId: 1, invoiceNo: 1 });
+PosInvoiceSchema.index({ businessId: 1, customerId: 1, finYear: 1, locationId: 1, date: 1 });
 /* Channel is an equality match on the dashboard's Instagram scope, alongside
    the same business/date range the report already uses. */
 PosInvoiceSchema.index({ businessId: 1, salesChannel: 1, date: 1 });

@@ -31,6 +31,7 @@ export const REPORT = {
   title: 'Sales Analysis Report',
   /* three independent tables - paging one of them would be meaningless */
   paginated: false,
+  locationAll: true,
 
   filters: [
     { k: 'location', label: 'Business Location', type: 'ref', ref: 'companylocations', all: 'All Locations' },

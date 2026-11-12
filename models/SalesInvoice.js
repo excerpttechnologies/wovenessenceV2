@@ -42,6 +42,7 @@ SalesInvoiceSchema.index({ businessId: 1, createdAt: 1 });
 SalesInvoiceSchema.index({ businessId: 1, locationId: 1, createdAt: 1 });
 SalesInvoiceSchema.index({ businessId: 1, salesInvoiceNo: 1 });
 SalesInvoiceSchema.index({ businessId: 1, salesChannel: 1, createdAt: 1 });
+SalesInvoiceSchema.index({ businessId: 1, customerId: 1, finYear: 1, locationId: 1, createdAt: 1 });
 
 export default mongoose.models.salesInvoice ||
   mongoose.model('salesInvoice', SalesInvoiceSchema, 'salesinvoice');

@@ -44,11 +44,17 @@ export const REPORT = {
   filterTitle: 'Item Stock Report Filters',
   hint: 'Opening, inward, outward and closing stock for the selected window. The tabs share these filters.',
   perPage: 15,
+  /* The Location filter offers All Locations, and choosing it overrides the
+     top-bar location rather than falling back to it. */
+  locationAll: true,
 
   filters: [
-    { k: 'location', label: 'Business Location', type: 'ref', ref: 'companylocations', all: 'All Locations' },
+    { k: 'location', label: 'Business Location', type: 'ref', ref: 'companylocations', all: 'All Locations', always: true },
     { k: 'fromDate', label: 'Date From', type: 'date', req: true, def: '-1month' },
     { k: 'toDate', label: 'Date To', type: 'date', req: true, def: 'today' },
+    /* a parent group also covers its children (ProductGroup.parentId) */
+    { k: 'subGroupId', label: 'Item Group / Sub Group', type: 'ref', ref: 'product/group', multi: true, all: 'All Groups', always: true },
+    { k: 'itemSearch', label: 'Item Code / Name', type: 'text', placeholder: 'Code or name', always: true },
   ],
 
   tiles: [
@@ -91,6 +97,7 @@ export const REPORT = {
           { k: 'group', t: 'Group Name' },
           { k: 'code', t: 'Item Code' },
           { k: 'itemName', t: 'Item Name' },
+          { k: 'uom', t: 'UOM' },
           ...MOVEMENT,
           ...BREAKDOWN,
         ],
@@ -107,6 +114,7 @@ export const REPORT = {
           { k: 'code', t: 'Item Code' },
           { k: 'itemName', t: 'Item Name' },
           { k: 'group', t: 'Group Name' },
+          { k: 'uom', t: 'UOM' },
           ...MOVEMENT,
           ...BREAKDOWN,
         ],

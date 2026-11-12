@@ -103,12 +103,13 @@
 import { isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
-import { PRODUCT_TYPES } from '@/lib/productClassificationConstants';
+import { CLASSIFICATION_TYPES, PRODUCT_TYPES } from '@/lib/productClassificationConstants';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { businessMatch } from '@/lib/classificationCollections';
 
 const json = (data, status = 200) => Response.json(data, { status });
 const TYPE_COLLECTION = 'producttypes';
+const VALID_FILTERS = new Set(Object.values(CLASSIFICATION_TYPES));
 
 export async function GET(req) {
   const session = await requireSession();
@@ -139,7 +140,7 @@ export async function GET(req) {
 
   const types = await collection.find({ businessId, isActive: true })
     .sort({ displayOrder: 1, label: 1 })
-    .project({ value: 1, label: 1, _id: 0 })
+    .project({ value: 1, label: 1, filters: 1, _id: 0 })
     .toArray();
 
   return json({
@@ -213,9 +214,20 @@ export async function PUT(req) {
   if (duplicates.some((row) => [row.value, row.label].some((value) => String(value || '').trim().toUpperCase() === label))) {
     return json({ error: '"' + label + '" already exists.' }, 409);
   }
+  const hasFilters = Array.isArray(body.filters);
+  const filters = hasFilters
+    ? [...new Set(body.filters.map((filter) => String(filter || '').trim()).filter((filter) => VALID_FILTERS.has(filter)))]
+    : undefined;
   await collection.updateOne(
     { _id: current._id },
-    { $set: { label, ...(builtIn ? {} : { value: newValue }), updatedAt: new Date() } },
+    {
+      $set: {
+        label,
+        ...(builtIn ? {} : { value: newValue }),
+        ...(hasFilters ? { filters } : {}),
+        updatedAt: new Date(),
+      },
+    },
   );
   if (!builtIn && newValue !== oldValue) {
     await db.collection('ecommerceproduct').updateMany(
@@ -223,7 +235,7 @@ export async function PUT(req) {
       { $set: { productType: newValue, updatedAt: new Date() } },
     );
   }
-  return json({ ok: true, type: { value: newValue, label } });
+  return json({ ok: true, type: { value: newValue, label, ...(hasFilters ? { filters } : {}) } });
 }
 
 export async function DELETE(req) {

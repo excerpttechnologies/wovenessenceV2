@@ -113,6 +113,16 @@ function buildGroups() {
   const groups = [];
   const general = { group: 'General', resources: [] };
 
+  const collectResources = (items, group) => (items || []).flatMap((child) => {
+    if (child.adminOnly) return [];
+    if (child.href) {
+      return SKIP_HREFS.has(child.href)
+        ? []
+        : [{ k: child.href, label: child.label, href: child.href, group }];
+    }
+    return collectResources(child.children, group + ' / ' + child.label);
+  });
+
   NAV.forEach((item) => {
     /* Administrator-only screens are not part of the customer's permission
        matrix: the server gates them on ADMIN_ALL, not on a box somebody can
@@ -125,9 +135,7 @@ function buildGroups() {
       general.resources.push({ k: item.href, label: item.label, href: item.href, group: 'General' });
       return;
     }
-    const resources = (item.children || [])
-      .filter((c) => c.href && !SKIP_HREFS.has(c.href) && !c.adminOnly)
-      .map((c) => ({ k: c.href, label: c.label, href: c.href, group: item.label }));
+    const resources = collectResources(item.children, item.label);
 
     if (resources.length) groups.push({ group: item.label, resources });
   });

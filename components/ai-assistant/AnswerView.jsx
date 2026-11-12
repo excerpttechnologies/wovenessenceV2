@@ -167,7 +167,7 @@ function openPrintView(answer, options) {
   const meta = answer.metadata || {};
 
   win.document.write(`<!doctype html><html><head><meta charset="utf-8">
-    <title>${escapeHtml(answer.title || 'AI Business Assistant')}</title>
+    <title>${escapeHtml(answer.title || 'AI Intelligence')}</title>
     <style>
       @page { size: A4; margin: 14mm; }
       body { font-family: "Nunito Sans", "Segoe UI", Arial, sans-serif; color: #223047; font-size: 11px; }
@@ -182,7 +182,7 @@ function openPrintView(answer, options) {
       ul { margin: 4px 0 0 16px; padding: 0; }
       .foot { margin-top: 18px; border-top: 1px solid #e3e8f0; padding-top: 8px; }
     </style></head><body>
-    <h1>${escapeHtml(answer.title || 'AI Business Assistant')}</h1>
+    <h1>${escapeHtml(answer.title || 'AI Intelligence')}</h1>
     <p class="muted">Woven Essence &middot; ${escapeHtml(meta.period?.label || '')} &middot; ${escapeHtml(meta.filters?.company || '')} / ${escapeHtml(meta.filters?.branch || '')}</p>
     <div class="summary">${escapeHtml(String(answer.summary || '').replace(/\*\*/g, ''))}</div>
     ${kpis ? `<h2>Key figures</h2><table><thead><tr><th>Metric</th><th class="right">Value</th><th class="right">Change</th></tr></thead><tbody>${kpis}</tbody></table>` : ''}

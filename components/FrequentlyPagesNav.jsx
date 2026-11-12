@@ -1,50 +1,46 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   LuChevronDown, LuChevronRight, LuHistory, LuStar,
 } from 'react-icons/lu';
 import { useScope } from './ScopeContext';
-import {
-  canonicalHref, isAdminOnlyHref, isFrequentHref, navEntry,
-} from '@/lib/navRegistry';
+import { isAdminOnlyHref, isFrequentHref, navEntry } from '@/lib/navRegistry';
 
 /* ==========================================================================
-   Frequently Visited Pages.
+   Frequently Visited Pages – display component.
 
-   A short, ranked list of the sidebar screens this account opens most often,
-   sitting directly under Dashboard. The ranking is per user and per business,
-   stored server-side by /api/user-activity; this component only records a
-   visit and renders what the API says the account may still open.
+   Reads the user's visit history from /api/user-activity and renders a short
+   ranked list in the sidebar, directly under Dashboard.
 
-   TRACKING IS DELIBERATELY QUIET. One POST per navigation, guarded by a ref
-   keyed on business + canonical page, so React re-renders and Strict Mode
-   double effects cannot inflate the count. A detail URL is mapped back to its
-   sidebar leaf first (lib/navRegistry.js), so /admin/pos/add counts as POS
-   rather than creating a second entry.
+   TRACKING IS HANDLED BY NavTracker (components/NavTracker.jsx), which is
+   mounted once at the admin layout level. That component fires one POST to
+   /api/user-activity per pathname change, so this component does NOT make
+   any tracking requests of its own. Keeping tracking in one place prevents
+   double-counting.
 
-   THE DASHBOARD IS EXCLUDED. It is the fixed first row of the rail; counting
-   it would put it at the top of every user's shortcuts and push out the
-   operational pages this section exists for.
+   OPTIMISTIC UPDATE. When the user clicks a link in this list, mergeActivity
+   updates the in-memory list immediately — no need to wait for a fresh fetch.
+   The write itself is handled by NavTracker; this only adjusts the UI order.
+
+   THE DASHBOARD IS EXCLUDED. It is the fixed first row of the rail; ranking
+   it would push operational pages out of view.
    ========================================================================== */
 
 const OPEN_KEY = 'orbit.freq.open';
 const MAX_ITEMS = 8;
 const ACTIONS = ['create', 'read', 'update', 'download', 'delete'];
 
-/* The same rule the API applies: an ungoverned role may open everything, a
-   governed one needs at least one action on the screen. */
+/* Same rule the API applies: ungoverned role can open everything; a governed
+   one needs at least one action on the screen. */
 function holdsScreen(perms, href) {
   if (!perms?.governed) return true;
   const held = perms.screens?.[href];
   return Array.isArray(held) && held.some((action) => ACTIONS.includes(action));
 }
 
-/* Short, human wording for the tooltip. The rail is too narrow to print a
-   timestamp on every row, but the second ranking input should still be
-   readable when the pointer rests on a shortcut. */
+/* Human-readable "last visited" string for the tooltip. */
 function visitedLabel(value) {
   const date = new Date(value || 0);
   if (Number.isNaN(date.getTime())) return '';
@@ -62,17 +58,20 @@ function visitedLabel(value) {
   return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
 }
 
-function mergeActivity(list, activity) {
-  const entry = navEntry(activity?.href);
+/* Re-orders the in-memory list optimistically after a click, so the sidebar
+   responds immediately without waiting for the next full fetch. */
+function mergeActivity(list, href) {
+  const entry = navEntry(href);
   if (!entry) return list;
 
-  const next = list.filter((item) => item.href !== activity.href);
+  const existing = list.find((item) => item.href === href);
+  const next = list.filter((item) => item.href !== href);
   next.push({
-    href: activity.href,
+    href,
     label: entry.label,
     group: entry.group,
-    count: Number(activity.count || 0),
-    lastVisitedAt: activity.lastVisitedAt || new Date().toISOString(),
+    count: Number(existing?.count || 0) + 1,
+    lastVisitedAt: new Date().toISOString(),
   });
 
   next.sort((a, b) => {
@@ -85,7 +84,6 @@ function mergeActivity(list, activity) {
 }
 
 export default function FrequentlyPagesNav({ collapsed, onExpandRail }) {
-  const pathname = usePathname();
   const {
     user, userReady, business, perms, permsReady,
   } = useScope();
@@ -97,7 +95,6 @@ export default function FrequentlyPagesNav({ collapsed, onExpandRail }) {
   const [tick, setTick] = useState(0);
 
   const mounted = useRef(true);
-  const lastTracked = useRef('');
   const isAdmin = user?.role === 'Super Admin' || user?.role === 'Admin';
 
   useEffect(() => {
@@ -105,12 +102,11 @@ export default function FrequentlyPagesNav({ collapsed, onExpandRail }) {
     return () => { mounted.current = false; };
   }, []);
 
-  /* Restore the open state once, after mount. Defaulting to open means the
-     section is useful on a first visit; a user who closes it keeps it closed. */
+  /* Restore collapsed/expanded state across reloads. */
   useEffect(() => {
     try {
       if (localStorage.getItem(OPEN_KEY) === '0') setOpen(false);
-    } catch { /* storage unavailable - keep the default */ }
+    } catch { /* ignore */ }
   }, []);
 
   const persistOpen = (next) => {
@@ -118,7 +114,7 @@ export default function FrequentlyPagesNav({ collapsed, onExpandRail }) {
     try { localStorage.setItem(OPEN_KEY, next ? '1' : '0'); } catch { /* ignore */ }
   };
 
-  /* ------------------------------------------------------------- read --- */
+  /* ---------------------------------------------------------------- read -- */
   useEffect(() => {
     if (!userReady || !business || !permsReady) {
       setItems([]);
@@ -160,39 +156,7 @@ export default function FrequentlyPagesNav({ collapsed, onExpandRail }) {
     };
   }, [userReady, business, permsReady, tick]);
 
-  /* ------------------------------------------------------------ track --- */
-  const track = useCallback((value) => {
-    if (!userReady || !business || !permsReady) return;
-
-    const href = canonicalHref(value);
-    if (!href || !isFrequentHref(href)) return;
-    if (isAdminOnlyHref(href) && !isAdmin) return;
-    if (!holdsScreen(perms, href)) return;
-
-    const key = business + '|' + href;
-    if (lastTracked.current === key) return;
-    lastTracked.current = key;
-
-    fetch('/api/user-activity', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ href, businessId: business }),
-      /* keepalive lets the request finish if the navigation is a full load */
-      keepalive: true,
-    })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((data) => {
-        if (!mounted.current || !data?.activity) return;
-        setItems((prev) => mergeActivity(prev, data.activity));
-      })
-      .catch(() => { /* activity is a convenience; never block navigation */ });
-  }, [userReady, business, permsReady, isAdmin, perms]);
-
-  useEffect(() => {
-    track(pathname);
-  }, [pathname, track]);
-
-  /* ------------------------------------------------------------- view --- */
+  /* ---------------------------------------------------------- view filter -- */
   const visible = items.filter((item) => {
     if (!isFrequentHref(item.href)) return false;
     if (isAdminOnlyHref(item.href) && !isAdmin) return false;
@@ -205,8 +169,8 @@ export default function FrequentlyPagesNav({ collapsed, onExpandRail }) {
       && typeof window !== 'undefined'
       && window.matchMedia('(min-width: 1024px)').matches;
 
-    /* On the icon rail the sub-list is hidden by CSS, so the useful action is
-       to bring the labels back rather than toggle a list nobody can see. */
+    /* On the mini rail the list is hidden by CSS; the useful action is to
+       expand the rail so the labels are readable. */
     if (mini) {
       persistOpen(true);
       onExpandRail?.();
@@ -214,6 +178,12 @@ export default function FrequentlyPagesNav({ collapsed, onExpandRail }) {
     }
 
     persistOpen(!open);
+  };
+
+  /* Optimistically reorder the list when the user clicks a shortcut, without
+     waiting for the NavTracker's server round-trip to complete. */
+  const onLinkClick = (href) => {
+    setItems((prev) => mergeActivity(prev, href));
   };
 
   const emptyText = !business
@@ -260,7 +230,7 @@ export default function FrequentlyPagesNav({ collapsed, onExpandRail }) {
                 key={item.href}
                 href={item.href}
                 tabIndex={open ? undefined : -1}
-                onClick={() => track(item.href)}
+                onClick={() => onLinkClick(item.href)}
                 title={[
                   item.group,
                   item.label,

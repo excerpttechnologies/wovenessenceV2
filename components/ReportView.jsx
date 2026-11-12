@@ -3257,7 +3257,7 @@ const initialVisible = (spec) => {
   const blanks = blankFilters(spec);
   return new Set(
     (spec.filters || [])
-      .filter((f) => f.req || f.oneOf || (Array.isArray(blanks[f.k]) ? blanks[f.k].length : blanks[f.k]))
+      .filter((f) => f.req || f.oneOf || f.always || (Array.isArray(blanks[f.k]) ? blanks[f.k].length : blanks[f.k]))
       .map((f) => f.k)
   );
 };
@@ -3995,7 +3995,7 @@ function ItemDetailsModal({ row, business, onClose }) {
 
 
 
-function Section({ section, data, tone, onSupplierSelect, onItemSelect }) {
+function Section({ section, data, tone, onSupplierSelect, onItemSelect, filters }) {
   const columns = section.columns || [];
   const rows = data?.rows || [];
   const totals = data?.totals || {};
@@ -4068,8 +4068,8 @@ function Section({ section, data, tone, onSupplierSelect, onItemSelect }) {
                              barcode's own report. Blank cells stay plain, so
                              a row with nothing to point at has nothing to
                              click. */
-                          ? (cellOf(row, c) && c.link(row)
-                            ? <a className="text-brand underline hover:opacity-80" href={c.link(row)}>{cellOf(row, c)}</a>
+                          ? (cellOf(row, c) && c.link(row, filters)
+                            ? <a className="text-brand underline hover:opacity-80" href={c.link(row, filters)}>{cellOf(row, c)}</a>
                             : cellOf(row, c))
                           : cellOf(row, c)}
                     </td>
@@ -4250,7 +4250,7 @@ function FilterGroups({ spec, draft, set, business }) {
 /* What a report's API is asked: the page, the scope from the top bar, the tab
    and the filters as last searched. One builder for the screen and for its
    exports, so an export asks exactly what the screen shows. */
-function reportQuery({ page, perPage, business, location, finYear, tab, applied }, extra = {}) {
+function reportQuery({ page, perPage, business, location, finYear, tab, applied, allLocations }, extra = {}) {
   const qs = new URLSearchParams({
     page: String(page),
     perPage: String(perPage),
@@ -4258,6 +4258,9 @@ function reportQuery({ page, perPage, business, location, finYear, tab, applied 
     location: location || '',
     finYear: finYear || '',
   });
+  /* the report's own Location filter chose All Locations - the top-bar
+     location must not be applied on top of that */
+  if (allLocations) qs.set('allLocations', '1');
   if (tab) qs.set('tab', tab);
   Object.entries(applied).forEach(([k, v]) => {
     if (Array.isArray(v)) { if (v.length) qs.set(k, v.join(',')); }
@@ -4293,6 +4296,42 @@ export default function ReportView({ spec, toolbar = null }) {
   const [exporting, setExporting] = useState('');
   const [selectedSupplierRow, setSelectedSupplierRow] = useState(null);
   const [selectedItemRow, setSelectedItemRow] = useState(null);
+
+  /* FILTERS CARRIED IN THE URL.
+
+     A drill-down (Supplier Summary -> Bill-wise -> Batch-wise, Batch-wise ->
+     Item Stock) puts the supplier, the bill and the dates in the query
+     string. Reading them here is what stops the next screen asking again for
+     what was just chosen - the behaviour the reports are specified with.
+
+     Seeded in an effect, not in useState, for two reasons: the server does
+     not have a URL to read, so seeding in the initial state would render one
+     thing on the server and another in the browser (a hydration mismatch on
+     the very inputs being filled in); and only the keys THIS spec declares
+     are read, so an unrelated parameter cannot invent a filter. A report
+     opened normally has none of them and behaves exactly as before. */
+  const seededFromUrl = useRef(false);
+  useEffect(() => {
+    if (seededFromUrl.current) return;
+    seededFromUrl.current = true;
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const values = {};
+    (spec.filters || []).forEach((f) => {
+      const raw = params.get(f.k);
+      if (raw === null || !String(raw).trim()) return;
+      values[f.k] = f.multi
+        ? String(raw).split(',').map((v) => v.trim()).filter(Boolean)
+        : raw;
+    });
+    const keys = Object.keys(values);
+    if (!keys.length) return;
+    const blank = blankFilters(spec);
+    setDraft({ ...blank, ...values });
+    setApplied({ ...blank, ...values });
+    setVisible((v) => { const n = new Set(v); keys.forEach((k) => n.add(k)); return n; });
+    setSearched(true);
+  }, [spec]);
 
   /* Setting a filter clears every filter that depends on it: the suppliers
      picked for one city are not a valid pick for another. */
@@ -4335,7 +4374,12 @@ export default function ReportView({ spec, toolbar = null }) {
     setLoading(true);
     setError('');
 
-    const qs = reportQuery({ page, perPage: perPageSel || spec.perPage || 15, business, location, finYear, tab, applied });
+    const qs = reportQuery({
+      page,
+      perPage: perPageSel || spec.perPage || 15,
+      business, location, finYear, tab, applied,
+      allLocations: spec.locationAll && !applied.location ? '1' : '',
+    });
 
     try {
       const r = await fetch('/api/reports/' + spec.slug + '?' + qs);
@@ -4408,7 +4452,12 @@ export default function ReportView({ spec, toolbar = null }) {
     let rows = (data?.sections?.[0]?.rows) || [];
     let short = '';
     if (spec.exportAll && searched && business) {
-      const qs = reportQuery({ page: 1, perPage: spec.perPage || 15, business, location, finYear, tab, applied }, { export: '1' });
+      const qs = reportQuery({
+        page: 1,
+        perPage: spec.perPage || 15,
+        business, location, finYear, tab, applied,
+        allLocations: spec.locationAll && !applied.location ? '1' : '',
+      }, { export: '1' });
       const r = await fetch('/api/reports/' + spec.slug + '?' + qs, { cache: 'no-store' });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || 'Could not export that report.');
@@ -4550,6 +4599,17 @@ export default function ReportView({ spec, toolbar = null }) {
 
           {spec.filterLayout === 'groups' ? (
             <FilterGroups spec={spec} draft={draft} set={set} business={business} />
+          ) : spec.filterLayout === 'grid' ? (
+            <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2 xl:grid-cols-4">
+              {(spec.filters || []).map((f) => (
+                <div key={f.k} className="min-w-0">
+                  <label className="mb-1 block text-[12.5px] leading-tight text-ink">
+                    {f.label}{(f.req || f.oneOf) && <span className="f-req">*</span>}
+                  </label>
+                  <Filter f={f} value={draft[f.k]} onChange={(v) => set(f.k, v)} business={business} depValue={f.dependsOn ? draft[f.dependsOn] : undefined} filterValues={draft} />
+                </div>
+              ))}
+            </div>
           ) : spec.filterLayout === 'rows' ? (
             /* EVERY FILTER ON SCREEN, name on the left and its input on the
                right. A report opts into this with filterLayout: 'rows' when its
@@ -4698,6 +4758,9 @@ export default function ReportView({ spec, toolbar = null }) {
               tone={spec.dynamicSections ? 'green' : undefined}
               onSupplierSelect={setSelectedSupplierRow}
               onItemSelect={setSelectedItemRow}
+              /* the applied filters, so a link column can carry the chosen
+                 supplier and dates into the next report */
+              filters={applied}
             />
           ))}
 

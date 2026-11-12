@@ -1,34 +1,43 @@
-import { isValidObjectId } from 'mongoose';
+import { isValidObjectId, Types } from 'mongoose';
 import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
 import PosInvoice from '@/models/PosInvoice';
 import PosReturn from '@/models/PosReturn';
 import { Customer } from '@/lib/contacts';
 import {
-  json, num, r2, scopeOf, scopeFilter, dateRange, pageOf, paged,
+  json, num, r2, scopeOf, scopeFilter, dateRange, pageOf,
 } from '@/lib/reports';
 
 /* /api/reports/customer-outstanding - read-only.
 
-   What each customer still owes on their till bills.
+   Each customer's till bills and what remains due on them.
 
      Total Due = outstanding POS Invoices - outstanding POS Returns
 
-   "Outstanding" on an invoice is PosInvoice.sellDue - the part of the bill
-   that was not paid at the counter - not the whole bill. A fully paid cash
-   sale contributes nothing, which is why a busy shop can still show a short
-   list here.
+   "Outstanding" on an invoice is PosInvoice.sellDue - the part of the bill not
+   paid at the counter - NOT the whole bill. A fully paid cash sale contributes
+   nothing. The summary still includes customers with bills in the selected
+   period so their activity remains visible when every bill is paid.
 
-   Two tabs share the filters:
-     summary    one row per customer
-     detailed   one row per bill
+   The summary and detailed tabs use the same filtered bill and return set;
+   customers with a zero balance are shown with a zero due.
 
-   It reports nothing today only because the POS till never posts - PosTill
-   issues only GET requests, so no PosInvoice is ever written. */
+   THE AGGREGATE CASTING BUG that made this page look broken is the same one
+   supplier-outstanding had: scopeFilter() returns the business id as a
+   STRING, and Mongoose does not cast an aggregation pipeline, so
+   { businessId: '6a85...' } matched no ObjectId and every number came back 0.
+   Every id in an aggregate match is cast here.
 
-const nameOf = (c) => (c
-  ? (c.businessName || [c.firstName, c.lastName].filter(Boolean).join(' ') || '')
-  : '');
+   Returns: PosReturn has businessId/locationId/finYear/date, so it scopes the
+   same way. A return reduces the receivable, so its amount is negative.
+
+   PAGING is done in the database with $sort/$skip/$limit over the union of
+   bills and returns; the summary is one $group bounded by the customer
+   count. Nothing loads a whole period into memory. */
+
+const s = (v) => String(v ?? '').trim();
+
+const oid = (v) => (v && isValidObjectId(String(v)) ? new Types.ObjectId(String(v)) : null);
 
 export async function GET(req) {
   const session = await requireSession();
@@ -41,124 +50,208 @@ export async function GET(req) {
   const { page, perPage } = pageOf(sp);
   const tab = sp.get('tab') === 'detailed' ? 'detailed' : 'summary';
 
+  /* the report's own Location filter says All Locations -> the top-bar
+     location must not be applied on top of it */
+  if (sp.get('allLocations') === '1') scope.locationId = null;
+
   if (!sp.get('fromDate') || !sp.get('toDate')) {
     return json({ error: 'Date From and Date To are required.' }, 422);
   }
 
   const base = scopeFilter(scope);
   const customerId = sp.get('customerId');
-  const byCustomer = customerId && isValidObjectId(customerId) ? { customerId } : {};
 
-  const [bills, returns] = await Promise.all([
-    PosInvoice.find({ ...base, ...byCustomer, ...dateRange(sp, 'date') }).limit(5000).lean(),
-    PosReturn.find({ ...base, ...byCustomer, ...dateRange(sp, 'date') }).limit(5000).lean(),
+  const aggBase = {};
+  const biz = oid(base.businessId);
+  const loc = oid(base.locationId);
+  const cust = customerId && isValidObjectId(customerId) ? oid(customerId) : null;
+  if (biz) aggBase.businessId = biz;
+  if (loc) aggBase.locationId = loc;
+  if (base.finYear) aggBase.finYear = base.finYear;
+  if (cust) aggBase.customerId = cust;
+
+  const dateMatch = dateRange(sp, 'date');
+  const billMatch = { ...aggBase, ...dateMatch };
+  const returnMatch = { ...aggBase, ...dateMatch };
+
+  const documentStages = [
+    {
+      $project: {
+        customerId: 1,
+        docType: { $literal: 'POS Invoice' },
+        docNo: { $ifNull: ['$invoiceNo', ''] },
+        date: '$date',
+        amount: { $ifNull: ['$totalAmount', 0] },
+        paid: { $ifNull: ['$paid', 0] },
+        due: { $ifNull: ['$sellDue', 0] },
+      },
+    },
+    {
+      $unionWith: {
+        coll: 'posreturn',
+        pipeline: [
+          { $match: returnMatch },
+          {
+            $project: {
+              customerId: 1,
+              docType: { $literal: 'POS Return' },
+              docNo: { $ifNull: ['$invoiceNo', ''] },
+              date: '$date',
+              /* a return takes value off what the customer owes */
+              amount: { $multiply: [{ $ifNull: ['$totalAmount', 0] }, -1] },
+              /* $literal: a bare 0 in a $project is an EXCLUSION, and MongoDB
+                 refuses to mix it with the inclusion fields beside it */
+              paid: { $literal: 0 },
+              due: { $multiply: [{ $ifNull: ['$totalAmount', 0] }, -1] },
+            },
+          },
+        ],
+      },
+    },
+  ];
+
+  const skip = (page - 1) * perPage;
+
+  const [summaryRaw, detailRaw] = await Promise.all([
+    PosInvoice.aggregate([
+      { $match: billMatch },
+      ...documentStages,
+      {
+        $group: {
+          _id: '$customerId',
+          invoice: {
+            $sum: { $cond: [{ $eq: ['$docType', 'POS Invoice'] }, '$due', 0] },
+          },
+          returned: {
+            $sum: {
+              $cond: [
+                { $eq: ['$docType', 'POS Return'] },
+                { $multiply: ['$due', -1] },
+                0,
+              ],
+            },
+          },
+          due: { $sum: '$due' },
+          documents: { $sum: 1 },
+        },
+      },
+      { $sort: { due: -1, _id: 1 } },
+    ]).allowDiskUse(true),
+
+    tab === 'detailed'
+      ? PosInvoice.aggregate([
+        { $match: billMatch },
+        ...documentStages,
+        { $sort: { date: -1, _id: -1 } },
+        { $skip: skip },
+        { $limit: perPage },
+      ]).allowDiskUse(true)
+      : Promise.resolve([]),
   ]);
 
-  const custIds = [...new Set(
-    [...bills, ...returns].map((d) => d.customerId).filter(Boolean).map(String)
-  )];
-  const customers = custIds.length
-    ? await Customer.find({ _id: { $in: custIds } })
-      .select('businessName firstName lastName prefix').lean()
-    : [];
-  const custById = new Map(customers.map((c) => [String(c._id), c]));
+  const totalDocuments = summaryRaw.reduce((a, r) => a + num(r.documents), 0);
 
-  const label = (id) => {
-    const c = custById.get(String(id));
+  const summary = summaryRaw.map((r) => ({
+    _id: r._id ? String(r._id) : '(walk-in)',
+    customerId: r._id ? String(r._id) : '',
+    outstandingInvoice: r2(r.invoice),
+    outstandingReturn: r2(r.returned),
+    totalDue: r2(r.due),
+    documents: num(r.documents),
+  }));
+
+  const totalOf = (k) => r2(summary.reduce((a, r) => a + num(r[k]), 0));
+  const totals = {
+    outstandingInvoice: totalOf('outstandingInvoice'),
+    outstandingReturn: totalOf('outstandingReturn'),
+    totalDue: totalOf('totalDue'),
+  };
+  const tiles = {
+    totalCustomers: summary.length,
+    outstandingInvoice: totals.outstandingInvoice,
+    outstandingReturn: totals.outstandingReturn,
+    grandTotalDue: totals.totalDue,
+  };
+
+  const nameIn = async (ids) => {
+    const list = [...new Set(ids.filter((v) => v && isValidObjectId(v)).map(String))];
+    if (!list.length) return new Map();
+    const docs = await Customer.find({ _id: { $in: list } })
+      .select('businessName firstName lastName prefix').lean();
+    return new Map(docs.map((c) => [String(c._id), c]));
+  };
+
+  const nameOf = (c) => (c
+    ? (c.businessName || [c.firstName, c.lastName].filter(Boolean).join(' ') || '')
+    : '');
+
+  const label = (byId, id) => {
+    const c = byId.get(String(id));
     if (!c) return '(walk-in)';
     return [c.prefix, nameOf(c)].filter(Boolean).join(' ') || '(walk-in)';
   };
 
-  /* the unpaid part of a bill, not the whole bill */
-  const dueOf = (d) => r2(num(d.sellDue) || 0);
-
   /* -------------------------------------------------------- detailed --- */
   if (tab === 'detailed') {
-    const rows = [
-      ...bills.map((d) => ({
-        _id: String(d._id),
-        customer: label(d.customerId),
-        docType: 'POS Invoice',
-        docNo: d.invoiceNo || '',
-        date: d.date || d.createdAt || null,
-        outstandingInvoice: dueOf(d),
-        outstandingReturn: 0,
-        totalDue: dueOf(d),
-      })),
-      ...returns.map((d) => ({
-        _id: String(d._id),
-        customer: label(d.customerId),
-        docType: 'POS Return',
-        docNo: d.invoiceNo || '',
-        date: d.date || d.createdAt || null,
-        outstandingInvoice: 0,
-        outstandingReturn: r2(d.totalAmount),
-        totalDue: r2(-num(d.totalAmount)),
-      })),
-    ].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+    const byId = await nameIn(detailRaw.map((r) => r.customerId));
+    const rows = detailRaw.map((r) => {
+      const amount = r2(r.amount);
+      const paid = r2(r.paid);
+      return {
+        _id: String(r._id),
+        customerId: String(r.customerId || ''),
+        customer: label(byId, r.customerId),
+        docType: r.docType,
+        docNo: s(r.docNo),
+        date: r.date || null,
+        amount,
+        paid,
+        balance: r2(r.due),
+      };
+    });
 
-    const sum = (k) => r2(rows.reduce((a, r) => a + r[k], 0));
-    const p = paged(rows, page, perPage);
+    const sum = (k) => r2(rows.reduce((a, r) => a + num(r[k]), 0));
 
     return json({
-      tiles: {},
+      tiles,
       sections: [{
-        rows: p.rows,
-        count: p.total,
-        totals: {
-          outstandingInvoice: sum('outstandingInvoice'),
-          outstandingReturn: sum('outstandingReturn'),
-          totalDue: sum('totalDue'),
-        },
+        key: 'detailed',
+        rows,
+        count: totalDocuments,
+        totals: { amount: sum('amount'), paid: sum('paid'), balance: sum('balance') },
       }],
-      total: p.total,
-      pages: p.pages,
+      total: totalDocuments,
+      pages: Math.max(1, Math.ceil(totalDocuments / perPage)),
       page,
       perPage,
+      ...(tiles.grandTotalDue === 0
+        ? { note: totalDocuments === 0
+          ? 'No till bills or POS returns in this period for these filters.'
+          : `All ${totalDocuments} till bill(s) in this period are fully paid - there is nothing outstanding.` }
+        : {}),
     });
   }
 
   /* --------------------------------------------------------- summary --- */
-  const acc = new Map();
-  const touch = (id) => {
-    const key = String(id || '');
-    if (!acc.has(key)) acc.set(key, { key, inv: 0, ret: 0 });
-    return acc.get(key);
-  };
-
-  bills.forEach((d) => { touch(d.customerId).inv += dueOf(d); });
-  returns.forEach((d) => { touch(d.customerId).ret += num(d.totalAmount); });
-
-  const rows = [...acc.values()]
-    .map((r) => ({
-      _id: r.key || '(walk-in)',
-      customer: label(r.key),
-      outstandingInvoice: r2(r.inv),
-      outstandingReturn: r2(r.ret),
-      totalDue: r2(r.inv - r.ret),
-    }))
-    /* a customer who owes nothing is not outstanding - keeping them would
-       fill the page with zero rows */
-    .filter((r) => r.outstandingInvoice || r.outstandingReturn)
-    .sort((a, b) => b.totalDue - a.totalDue);
-
-  const sum = (k) => r2(rows.reduce((a, r) => a + r[k], 0));
-  const p = paged(rows, page, perPage);
+  const pageRows = summary.slice(skip, skip + perPage);
+  const byId = await nameIn(pageRows.map((r) => r.customerId));
 
   return json({
-    tiles: {},
+    tiles,
     sections: [{
-      rows: p.rows,
-      count: p.total,
-      totals: {
-        outstandingInvoice: sum('outstandingInvoice'),
-        outstandingReturn: sum('outstandingReturn'),
-        totalDue: sum('totalDue'),
-      },
+      key: 'summary',
+      rows: pageRows.map((r) => ({ ...r, customer: label(byId, r.customerId) })),
+      count: summary.length,
+      totals,
     }],
-    total: p.total,
-    pages: p.pages,
+    total: summary.length,
+    pages: Math.max(1, Math.ceil(summary.length / perPage)),
     page,
     perPage,
+    ...(summary.length === 0
+      ? { note: totalDocuments === 0
+        ? 'No till bills or POS returns in this period for these filters.'
+        : `All ${totalDocuments} till bill(s) in this period are fully paid - there is nothing outstanding.` }
+      : {}),
   });
 }

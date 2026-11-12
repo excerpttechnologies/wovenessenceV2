@@ -49,7 +49,7 @@ export default function FloatingAssistant() {
       {open && (
         <div
           role="dialog"
-          aria-label="AI Business Assistant"
+          aria-label="AI Intelligence"
           className="no-print fixed inset-x-3 bottom-20 z-[85] flex h-[min(80dvh,720px)] flex-col overflow-hidden rounded-2xl border border-line bg-[#fbfdfc] shadow-[0_24px_60px_rgba(15,35,25,0.25)] sm:left-auto sm:right-4 sm:w-[440px]"
         >
           <AiAssistantClient variant="panel" onClose={() => setOpen(false)} />
@@ -59,9 +59,9 @@ export default function FloatingAssistant() {
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        aria-label={open ? 'Close AI Business Assistant' : 'Open AI Business Assistant'}
+        aria-label={open ? 'Close AI Intelligence' : 'Open AI Intelligence'}
         aria-expanded={open}
-        title={open ? 'Close AI Business Assistant' : 'Ask the AI Business Assistant'}
+        title={open ? 'Close AI Intelligence' : 'Ask AI Intelligence'}
         className={
           /* Below the existing help dialog (z-60) so opening that panel
              covers this launcher instead of the other way round. */

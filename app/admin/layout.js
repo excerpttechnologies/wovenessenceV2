@@ -44,6 +44,7 @@ import Topbar from '@/components/Topbar';
 import ChatBot, { ChatBotProvider } from '@/components/ChatBot';
 import FloatingAssistant from '@/components/ai-assistant/FloatingAssistant';
 import { ScopeProvider } from '@/components/ScopeContext';
+import NavTracker from '@/components/NavTracker';
 import { disableSelectScroll } from '@/lib/disableSelectScroll';
 
 export default function AdminLayout({ children }) {
@@ -67,6 +68,10 @@ export default function AdminLayout({ children }) {
 
   return (
     <ScopeProvider>
+     {/* Global page-visit recorder. Fires once per pathname change for every
+         trackable ERP page, regardless of how the user navigated there.
+         Mounted inside ScopeProvider so it can read business and perms. */}
+     <NavTracker />
      <ChatBotProvider>
       <div className="flex min-h-screen">
         <Sidebar

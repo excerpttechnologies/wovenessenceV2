@@ -3803,6 +3803,7 @@ import Toolbar from "./Toolbar";
 import ModalForm from "./ModalForm";
 import FilterPanel, { filterDefaults } from "./FilterPanel";
 import EccomProductFilterCard from "./EccomProductFilterCard";
+import ProductImage from "./ProductImage";
 import { useScope } from "./ScopeContext";
 import NumberedPager, { SortHeader } from "./NumberedPager";
 import Modal from "./Modal";
@@ -4269,16 +4270,20 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
 
       
     } else if (col.f === "dash") {
-      } else if (col.f === "image") {
-      content = raw ? (
-        <img
-          src={raw}
-          alt=""
-          className="h-10 w-10 rounded object-cover border border-line"
-          onError={(e) => { e.currentTarget.style.display = "none"; }}
+    } else if (col.f === "image") {
+      /* ProductImage keeps a fixed 40px box whatever happens: no photo, a photo
+         still loading and a broken photo all occupy exactly the same square.
+         The old inline <img> hid itself on error, which left an empty cell and
+         pushed the row out of alignment, and showed the browser's broken-image
+         icon while a missing file was being fetched. It also takes the
+         placeholder (the item's initials) from the row, so a product with no
+         image is still identifiable rather than just blank. */
+      content = (
+        <ProductImage
+          src={raw ? String(raw) : ""}
+          alt={String(row.displayName || row.barcode || row.itemLabel || row.name || "")}
+          size={40}
         />
-      ) : (
-        <span className="text-cell">—</span>
       );
     } else {
       

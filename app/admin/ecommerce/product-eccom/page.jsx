@@ -252,23 +252,40 @@ import { useScope } from '@/components/ScopeContext';
 
 /* shown first, in this order, when the collection has them */
 const FIRST = [
-  'ecommItemCode', 'productType', 'isPublished', 'isFeatured',
+  'ecommItemCode', 'productType', 'isFeatured',
   'ecommOffPercent', 'barcodePriceOverride', 'barcodeQtyOverride', 'salesCount',
 ];
+const PRODUCT_LIST_FIXED_QUERY = { allErpBarcodes: '1' };
 
 /* camelCase -> "Camel Case" */
 const labelOf = (k) => k.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/^./, (c) => c.toUpperCase());
 const isId = (v) => /^[0-9a-f]{24}$/i.test(String(v || ''));
 const CLASSIFICATION_COLUMNS = new Set(['byFabric', 'byColour', 'byCraft', 'byOccasion', 'byWeave']);
+const CLASSIFICATION_FILTERS = [
+  ['byWeave', 'By Weave'],
+  ['byFabric', 'By Fabric'],
+  ['byCraft', 'By Craft'],
+  ['byOccasion', 'By Occasion'],
+  ['byColour', 'By Colour'],
+];
 const HIDDEN_COLUMNS = new Set([
   'barcodeQtyOverride', 'barcodeQualityOverride', 'barcodePriceOverride',
   'colorDescription', 'colourDescription', 'craftDescription', 'fabricDescription',
   'occasionDescription', 'printDescriptionOverride', 'weaveDescription',
   'image', 'images', 'additionalImages', 'byColour',
   'slug',
+  'isPublished', 'isFeatured',
   /* only Is Published decides what the website shows */
   'status', 'isActive',
 ]);
+
+const selectedFiltersFor = (row) => CLASSIFICATION_FILTERS
+  .map(([key, label]) => {
+    const value = String(row[`${key}Display`] || '').trim();
+    return value ? `${label}: ${value}` : '';
+  })
+  .filter(Boolean)
+  .join('; ');
 
 function columnFor({ k, type }) {
   if (k === 'barcode') return { k, t: 'Barcode', value: (r) => r.barcode || '' };
@@ -312,13 +329,17 @@ const VIEW_FIELDS = [
   ['Is Published', (r) => (r.isPublished ? 'Yes' : 'No')],
   ['Is Featured', (r) => (r.isFeatured ? 'Yes' : 'No')],
   ['Price', (r) => r.barcodePriceOverride],
-  ['Quantity', (r) => r.barcodeQtyOverride],
+  /* Quantity comes from the live DB (barcodeLabel.qtyNum); fall back to the
+     stored override only when no live row was found */
+  ['Quantity', (r) => (r.dbQty != null ? r.dbQty : r.barcodeQtyOverride)],
   ['E-Comm Off (%)', (r) => r.ecommOffPercent],
-  ['By Weave', (r) => r.byWeaveDisplay],
-  ['By Fabric', (r) => r.byFabricDisplay],
-  ['By Craft', (r) => r.byCraftDisplay],
-  ['By Occasion', (r) => r.byOccasionDisplay],
-  ['By Colour', (r) => r.byColourDisplay],
+  /* Collection fields — only shown when the array is non-empty */
+  ['By Weave', (r) => r.byWeaveDisplay || null],
+  ['By Fabric', (r) => r.byFabricDisplay || null],
+  ['By Craft', (r) => r.byCraftDisplay || null],
+  ['By Occasion', (r) => r.byOccasionDisplay || null],
+  ['By Colour', (r) => r.byColourDisplay || null],
+  ['Selected Filters', selectedFiltersFor],
   ['Print Description', (r) => r.printDescriptionOverride],
   ['Slug', (r) => r.slug],
   ['SEO Title', (r) => r.seoTitle],
@@ -339,10 +360,12 @@ function ProductView({ row }) {
       <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-[13px] sm:grid-cols-2">
         {VIEW_FIELDS.map(([label, get]) => {
           const value = get(row);
+          /* skip fields that explicitly returned null (e.g. empty collection arrays) */
+          if (value === null) return null;
           return (
             <div key={label} className="border-b border-line pb-1.5">
               <dt className="text-[11px] uppercase text-inkmuted">{label}</dt>
-              <dd className="break-words text-ink">{value === undefined || value === null || value === '' ? '—' : String(value)}</dd>
+              <dd className="break-words text-ink">{value === undefined || value === '' ? '—' : String(value)}</dd>
             </div>
           );
         })}
@@ -357,6 +380,37 @@ export default function ProductEccomPage() {
   const [fields, setFields] = useState(null);
   const [viewing, setViewing] = useState(null);
   const [selectedProducts, setSelectedProducts] = useState(() => new Set());
+  const [bulkSaving, setBulkSaving] = useState(false);
+  const [bulkError, setBulkError] = useState('');
+  const [listVersion, setListVersion] = useState(0);
+
+  useEffect(() => {
+    setSelectedProducts(new Set());
+    setBulkError('');
+  }, [business]);
+
+  const enableSelectedProducts = async () => {
+    const productIds = [...selectedProducts].map(String).filter(Boolean);
+    if (!business || !productIds.length || bulkSaving) return;
+    setBulkSaving(true);
+    setBulkError('');
+
+    try {
+      const response = await fetch('/api/product-eccom', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ business, productIds, isPublished: true }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Could not enable selected products.');
+      setSelectedProducts(new Set());
+      setListVersion((version) => version + 1);
+    } catch (error) {
+      setBulkError(error.message || 'Could not enable selected products.');
+    } finally {
+      setBulkSaving(false);
+    }
+  };
 
   useEffect(() => {
     /* wait for the scoped business before asking the API for field metadata -
@@ -395,7 +449,7 @@ export default function ProductEccomPage() {
       slugPath: 'product-eccom',
       endpoint: '/api/product-eccom',
       scope: ['business'],
-      fixedQuery: { allErpBarcodes: '1' },
+      fixedQuery: PRODUCT_LIST_FIXED_QUERY,
       fullExport: {
         endpoint: '/api/product-eccom',
         title: 'Ecommerce Product Export',
@@ -481,6 +535,30 @@ export default function ProductEccomPage() {
       ],
       /* ADD opens a form with every field of the collection (./add) */
       addHref: '/admin/ecommerce/product-eccom/add',
+      beforeTable: selectedProducts.size > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded border border-line bg-white p-3">
+          <span className="mr-2 text-[13px] font-medium text-ink">
+            {selectedProducts.size} product{selectedProducts.size === 1 ? '' : 's'} selected
+          </span>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={bulkSaving || !business}
+            onClick={enableSelectedProducts}
+          >
+            {bulkSaving ? 'Saving...' : 'Enable'}
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            disabled={bulkSaving}
+            onClick={() => setSelectedProducts(new Set())}
+          >
+            Clear selection
+          </button>
+          {bulkError && <span className="w-full text-[12px] text-danger" role="alert">{bulkError}</span>}
+        </div>
+      ),
       pager: 'numbered',
       sortable: true,
       actionVariant: 'buttons',
@@ -521,15 +599,21 @@ export default function ProductEccomPage() {
         },
         { k: 'barcodeImage', t: 'Images', f: 'image', value: (r) => r.barcodeImage || '' },
         ...ordered.map(columnFor),
+        {
+          k: 'selectedFilters',
+          t: 'Selected Filters',
+          minWidth: 280,
+          value: selectedFiltersFor,
+        },
       ],
     };
-  }, [fields, selectedProducts]);
+  }, [bulkError, bulkSaving, business, fields, selectedProducts]);
 
   if (!business) return <div className="card p-6 text-[13px] text-inkmuted">Select a Business in the top bar first.</div>;
   if (fields === null) return <div className="card p-6 text-[13px] text-inkmuted">Loading...</div>;
   return (
     <>
-      <ListView key={cfg.columns.map((c) => c.k).join('|')} cfg={cfg} />
+      <ListView key={cfg.columns.map((c) => c.k).join('|')} cfg={cfg} reloadKey={listVersion} />
       <Modal
         open={Boolean(viewing)}
         title="Product details"
@@ -549,4 +633,3 @@ export default function ProductEccomPage() {
     </>
   );
 }
-

@@ -87,7 +87,7 @@ export function trendTone(change) {
 /* Plain-text version for the clipboard and the print window. */
 export function answerToText(answer) {
   if (!answer) return '';
-  const lines = [answer.title || 'AI Business Assistant'];
+  const lines = [answer.title || 'AI Intelligence'];
   if (answer.summary) lines.push('', answer.summary.replace(/\*\*/g, ''));
   if (answer.kpis?.length) {
     lines.push('', 'Key figures');

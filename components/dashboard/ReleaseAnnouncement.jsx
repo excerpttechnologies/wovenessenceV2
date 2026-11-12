@@ -31,10 +31,12 @@ export default function ReleaseAnnouncement() {
 
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedId, setSelectedId] = useState('');
   const [dismissed, setDismissed] = useState(false);
   const [dismissChecked, setDismissChecked] = useState(false);
+  const [fetchTick, setFetchTick] = useState(0);
 
   const latest = data?.latest || null;
   const releases = useMemo(
@@ -50,6 +52,9 @@ export default function ReleaseAnnouncement() {
   useEffect(() => {
     let cancelled = false;
 
+    setLoading(true);
+    setError(false);
+
     fetch('/api/releases?limit=50', { cache: 'no-store' })
       .then((response) => {
         if (!response.ok) throw new Error('Could not load release notes.');
@@ -58,11 +63,13 @@ export default function ReleaseAnnouncement() {
       .then((payload) => {
         if (!cancelled) setData(payload || null);
       })
-      .catch(() => { /* the dashboard works without an announcement */ })
+      .catch(() => {
+        if (!cancelled) setError(true);
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
 
     return () => { cancelled = true; };
-  }, []);
+  }, [fetchTick]);
 
   /* Decide whether this version has already been dismissed. Waiting for
      userReady avoids showing the panel for a frame under the wrong key. */
@@ -84,12 +91,20 @@ export default function ReleaseAnnouncement() {
     setDismissChecked(true);
   }, [dismissKey, latest?.version, userReady]);
 
-  const selected = releases.find((release) => release.id === selectedId)
-    || latest
-    || null;
+  const selected = selectedId
+    ? (releases.find((release) => release.id === selectedId) || latest || null)
+    : (modalOpen ? null : latest);
 
   const openNotes = (release) => {
     setSelectedId(release?.id || latest?.id || '');
+    setModalOpen(true);
+  };
+
+  /* "All Releases" opens the same modal but clears the selection so the
+     history list on the left is the focus rather than a specific release.
+     The user can then click any entry to read it. */
+  const openAllReleases = () => {
+    setSelectedId('');
     setModalOpen(true);
   };
 
@@ -108,7 +123,31 @@ export default function ReleaseAnnouncement() {
     openNotes(latest);
   };
 
-  if (!userReady || loading || !latest || !dismissChecked) return null;
+  if (!userReady || loading) return null;
+
+  /* Failed to load — show a minimal retry option so the user is not left with
+     a silently empty dashboard section. */
+  if (error) {
+    return (
+      <div className="rel-error">
+        <span>Release notes could not be loaded.</span>
+        <button
+          type="button"
+          className="btn rel-retry"
+          onClick={() => setFetchTick((t) => t + 1)}
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  /* No releases in the database yet — render nothing rather than a broken panel. */
+  if (!latest) return null;
+
+  /* Wait for the dismiss-check effect to settle so we don't flash the panel
+     for a frame before realising it was already dismissed. */
+  if (!dismissChecked) return null;
 
   if (dismissed) {
     return (
@@ -174,7 +213,7 @@ export default function ReleaseAnnouncement() {
           <button
             type="button"
             className="btn rel-action-secondary"
-            onClick={() => openNotes(latest)}
+            onClick={openAllReleases}
           >
             All releases
           </button>
@@ -193,7 +232,7 @@ export default function ReleaseAnnouncement() {
       <Modal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
-        title="Release notes"
+        title={selectedId ? 'Release notes' : 'All releases'}
         size="lg"
         footer={(
           <button type="button" className="btn" onClick={() => setModalOpen(false)}>
@@ -226,7 +265,13 @@ export default function ReleaseAnnouncement() {
           </aside>
 
           <div className="rel-modal-detail">
-            <ReleaseDetail release={selected} />
+            {selected ? (
+              <ReleaseDetail release={selected} />
+            ) : (
+              <div className="rel-empty">
+                Select a release from the list to view its notes.
+              </div>
+            )}
           </div>
         </div>
       </Modal>

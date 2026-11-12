@@ -317,14 +317,27 @@ const NAV_LOGOUT = NAV.find((n) => n.href === '/logout');
    the insertion correct if the menu is ever reordered. */
 const FREQUENT_AFTER = NAV_MAIN.findIndex((n) => n.href === '/admin');
 
+function containsHref(items, href) {
+  return Boolean(href) && (items || []).some(
+    (item) => item.href === href || containsHref(item.children, href)
+  );
+}
+
+function labelForHref(items, href) {
+  for (const item of items || []) {
+    if (item.href === href) return item.label;
+    const nestedLabel = labelForHref(item.children, href);
+    if (nestedLabel) return nestedLabel;
+  }
+  return '';
+}
+
 export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile }) {
   const pathname = usePathname();
   const { user } = useScope();
-  const [open, setOpen] = useState(null);
-
-  /* Administrator-only screens are hidden from every other role. The server
-     applies the same rule, so this is a convenience rather than the lock. */
   const isAdminUser = user?.role === 'Super Admin' || user?.role === 'Admin';
+  const [open, setOpen] = useState(null);
+  const [openNested, setOpenNested] = useState(null);
 
   /* Which row's flyout is showing on the mini rail, and where to put it:
      { i, top, left, pad }. Null when nothing is hovered. */
@@ -346,9 +359,13 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
       if (href.length > best.length) best = href;
     };
 
+    const visit = (items) => (items || []).forEach((item) => {
+      consider(item.href);
+      visit(item.children);
+    });
     NAV.forEach((n) => {
       consider(n.href);
-      (n.children || []).forEach((c) => consider(c.href));
+      visit(n.children);
     });
 
     return best;
@@ -357,12 +374,12 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
   /* Keep the parent of the current route expanded. Declared after
      activeHref, which it reads. */
   useEffect(() => {
-    const idx = NAV_MAIN.findIndex(
-      (n) => n.children && n.children.some((c) => c.href === activeHref)
-    );
+    const idx = NAV_MAIN.findIndex((n) => containsHref(n.children, activeHref));
 
     if (idx >= 0) {
       setOpen(idx);
+      const nested = NAV_MAIN[idx].children?.find((child) => containsHref(child.children, activeHref));
+      setOpenNested(nested?.label || null);
     }
   }, [activeHref]);
 
@@ -370,11 +387,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
      "Edit Suppliers") so tabs opened from the menu can be told apart
      (30-10-2026). Screens outside the menu keep the site title. */
   useEffect(() => {
-    let label = '';
-    NAV.forEach((n) => {
-      if (n.href === activeHref) label = n.label;
-      (n.children || []).forEach((c) => { if (c.href === activeHref) label = c.label; });
-    });
+    const label = labelForHref(NAV, activeHref);
     if (!label) return undefined;
     const rest = pathname.slice(activeHref.length);
     const title = rest === '/add' ? 'Add ' + label
@@ -541,7 +554,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
 
           const isActive = item.href
             ? item.href === activeHref
-            : children.some((c) => c.href === activeHref);
+            : containsHref(children, activeHref);
 
           const ItemIcon = item.icon;
 
@@ -564,8 +577,6 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
                 >
                 <Link
                   href={item.href}
-                  target="_blank"
-                  rel="noopener"
                   className={'sb-item ' + (isActive ? 'sb-item-active' : '')}
                 >
                   <span className="sb-item-ico">
@@ -651,12 +662,48 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
 
                         const childActive = c.href === activeHref;
 
+                        if (c.children?.length) {
+                          const nestedOpen = openNested === c.label;
+                          return (
+                            <div key={c.label}>
+                              <button
+                                type="button"
+                                aria-expanded={nestedOpen}
+                                onClick={() => setOpenNested(nestedOpen ? null : c.label)}
+                                tabIndex={isOpen ? undefined : -1}
+                                className="sb-sub-link flex w-full items-center gap-2 text-left"
+                              >
+                                {ChildIcon && <ChildIcon size={15} strokeWidth={1.8} />}
+                                <span className="min-w-0 flex-1 truncate">{c.label}</span>
+                                {nestedOpen ? <LuChevronDown size={13} /> : <LuChevronRight size={13} />}
+                              </button>
+                              {nestedOpen && (
+                                <div className="ml-3 border-l border-white/10 pl-2">
+                                  {c.children.map((nested) => {
+                                    const NestedIcon = nested.icon;
+                                    const nestedActive = nested.href === activeHref;
+                                    return (
+                                      <Link
+                                        key={nested.href}
+                                        href={nested.href}
+                                        tabIndex={isOpen ? undefined : -1}
+                                        className={'sb-sub-link ' + (nestedActive ? 'sb-sub-link-active' : '')}
+                                      >
+                                        {NestedIcon && <NestedIcon size={14} strokeWidth={1.8} />}
+                                        <span className="truncate">{nested.label}</span>
+                                      </Link>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        }
+
                         return (
                           <Link
                             key={c.href}
                             href={c.href}
-                            target="_blank"
-                            rel="noopener"
                             tabIndex={isOpen ? undefined : -1}
                             className={
                               'sb-sub-link ' +
@@ -695,12 +742,35 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
 
                       const childActive = c.href === activeHref;
 
+                      if (c.children?.length) {
+                        return (
+                          <div key={c.label} className="border-b border-slate-100 py-1 last:border-0">
+                            <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                              {c.label}
+                            </div>
+                            {c.children.map((nested) => {
+                              const NestedIcon = nested.icon;
+                              const nestedActive = nested.href === activeHref;
+                              return (
+                                <Link
+                                  key={nested.href}
+                                  href={nested.href}
+                                  onClick={hideFlyout}
+                                  className={'sb-fly-link ' + (nestedActive ? 'sb-fly-link-active' : '')}
+                                >
+                                  {NestedIcon && <NestedIcon size={16} strokeWidth={1.8} />}
+                                  <span className="truncate">{nested.label}</span>
+                                </Link>
+                              );
+                            })}
+                          </div>
+                        );
+                      }
+
                       return (
                         <Link
                           key={c.href}
                           href={c.href}
-                          target="_blank"
-                          rel="noopener"
                           onClick={hideFlyout}
                           className={
                             'sb-fly-link ' +

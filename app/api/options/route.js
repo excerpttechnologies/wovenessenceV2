@@ -6067,14 +6067,33 @@ export async function GET(req) {
     if (business && isValidObjectId(business)) filter.businessId = business;
     if (location && isValidObjectId(location)) filter.locationId = location;
     if (finYear) filter.finYear = finYear;
-    const supplierNo = (sp.get('supplierNo') || '').trim();
-    if (supplierNo) {
+    /* Which supplier's bills.
+
+       Two spellings, because the two callers send different ones: the
+       supplier-code picker sends the vendor's contactId (&supplierNo=G524),
+       while a report's Supplier filter sends the vendor's _id
+       (&supplierId=...). A comma-joined list is accepted from both - the
+       filter on those screens can hold several suppliers.
+
+       Grc.supplierId is an ObjectId, so a code has to be resolved to the
+       vendor first; an id is used as it stands. Either way the answer is a
+       list of ids, and a pick that matches no vendor means no bills. */
+    const rawSupplier = (sp.get('supplierId') || sp.get('supplierNo') || '').trim();
+    if (rawSupplier) {
+      const picks = rawSupplier.split(',').map((v) => v.trim()).filter(Boolean);
+      const ids = picks.filter((v) => isValidObjectId(v));
+      const codes = picks.filter((v) => !isValidObjectId(v));
+      const or = [];
+      if (ids.length) or.push({ _id: { $in: ids } });
+      if (codes.length) or.push({ contactId: { $in: codes } });
       const { Supplier } = await import('@/lib/contacts');
-      const supplierIds = await Supplier.distinct('_id', {
-        contactKind: 'Supplier',
-        contactId: supplierNo,
-        ...(business && isValidObjectId(business) ? { businessId: business } : {}),
-      });
+      const supplierIds = or.length
+        ? await Supplier.distinct('_id', {
+          contactKind: 'Supplier',
+          $or: or,
+          ...(business && isValidObjectId(business) ? { businessId: business } : {}),
+        })
+        : [];
       filter.supplierId = { $in: supplierIds };
     }
 

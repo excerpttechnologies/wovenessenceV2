@@ -80,12 +80,11 @@ export const NAV = [
     href: '/admin',
   },
 
-  /* The AI Business Assistant sits directly under the dashboard: it is the
-     other place an operator starts their day. Its API is gated by the
-     existing reports.view permission, so no new permission key is invented
-     for it. */
+  /* AI Intelligence sits directly under the dashboard: it is the other place
+     an operator starts their day. Its API is gated by the existing
+     reports.view permission, so no new permission key is invented for it. */
   {
-    label: 'AI Business Assistant',
+    label: 'AI Intelligence',
     icon: LuSparkles,
     href: '/admin/ai-assistant',
   },
@@ -654,8 +653,27 @@ export const NAV = [
         href: '/admin/reports/supplier-bill' },
       { label: 'Supplier Outstanding Report', icon: LuCreditCard,
         href: '/admin/reports/supplier-outstanding' },
-      { label: 'Customer Outstanding Report', icon: LuContactRound,
-        href: '/admin/reports/customer-outstanding' },
+      {
+        label: 'Customer Reports',
+        icon: LuContactRound,
+        children: [
+          { label: 'Customer Report', icon: LuContactRound,
+            href: '/admin/reports/customer-report' },
+          { label: 'Customer Outstanding Report', icon: LuContactRound,
+            href: '/admin/reports/customer-outstanding' },
+        ],
+      },
+      /* Supplier stock reports - Summary -> Bill-wise -> Batch-wise, and the
+         visual gallery. The two supplier reports above are the money side
+         (what a bill is, what is still owed); these are the stock side. */
+      { label: 'Supplier Summary Report', icon: LuChartNoAxesColumn,
+        href: '/admin/reports/supplier-summary-report' },
+      { label: 'Supplier Bill-wise Report', icon: LuReceipt,
+        href: '/admin/reports/supplier-summary-report/bill-wise' },
+      { label: 'Supplier Batch-wise Report', icon: LuFileText,
+        href: '/admin/reports/supplier-summary-report/batch-wise' },
+      { label: 'Stock Gallery View', icon: LuWarehouse,
+        href: '/admin/reports/stock-gallery-view' },
     ],
   },
 

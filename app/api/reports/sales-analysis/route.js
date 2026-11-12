@@ -3,9 +3,13 @@ import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
 import CompanyLocation from '@/models/CompanyLocation';
 import Item from '@/models/Item';
+import SalesInvoice from '@/models/SalesInvoice';
+import SalesReturn from '@/models/SalesReturn';
+import PosInvoice from '@/models/PosInvoice';
+import PosReturn from '@/models/PosReturn';
 import ProductGroup from '@/models/ProductGroup';
 import {
-  json, r2, scopeOf, salesDocuments, docValue, docQty,
+  json, r2, scopeOf, scopeFilter, dateRange, docValue, docQty,
   linesOf, lineItemCode, lineItemName, lineQty, lineNet,
 } from '@/lib/reports';
 
@@ -37,12 +41,21 @@ export async function GET(req) {
   await dbConnect();
 
   const scope = scopeOf(sp);
+  if (sp.get('allLocations') === '1') scope.locationId = null;
 
   if (!sp.get('fromDate') || !sp.get('toDate')) {
     return json({ error: 'From Date and End Date are required.' }, 422);
   }
 
-  const { sales, returns } = await salesDocuments(sp, scope);
+  const base = scopeFilter(scope);
+  const [invoices, salesReturns, pos, posReturns] = await Promise.all([
+    SalesInvoice.find({ ...base, ...dateRange(sp, 'createdAt') }).lean(),
+    SalesReturn.find({ ...base, ...dateRange(sp, 'returnDate') }).lean(),
+    PosInvoice.find({ ...base, ...dateRange(sp, 'date') }).lean(),
+    PosReturn.find({ ...base, ...dateRange(sp, 'date') }).lean(),
+  ]);
+  const sales = [...invoices, ...pos];
+  const returns = [...salesReturns, ...posReturns];
 
   /* one accumulator shape for all three tables */
   const touch = (map, key) => {

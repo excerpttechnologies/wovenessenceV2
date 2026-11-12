@@ -2,7 +2,11 @@
 
    What you still owe each supplier.
 
-     Total Due = outstanding Purchase Invoices - outstanding Debit Notes
+     Total Due = purchase documents - debit notes
+
+   Purchase documents are the GRCs (goods receipts) that have not been turned
+   into a Purchase Invoice, plus the Purchase Invoices themselves - see the
+   route for why counting both without that test bills a GRC twice.
 
    Tabs sit ABOVE the filter card here, matching the deployed screen, because
    each tab is a different question rather than a different view of one answer.
@@ -19,6 +23,9 @@ export const REPORT = {
   hint: 'One row per supplier, netting outstanding invoices against debit notes.',
   tabsPosition: 'top',
   perPage: 15,
+  /* the report's own Location filter says All Locations -> the top-bar
+     location is not applied on top of it */
+  locationAll: true,
 
   filters: [
     { k: 'location', label: 'Business Location', type: 'ref', ref: 'companylocations', all: 'All Locations' },
@@ -62,9 +69,10 @@ export const REPORT = {
           { k: 'docType', t: 'Document' },
           { k: 'docNo', t: 'Doc No' },
           { k: 'date', t: 'Date', f: 'date' },
-          { k: 'outstandingPi', t: 'Outstanding Purchase Invoice', f: 'amount', total: true },
-          { k: 'outstandingDn', t: 'Outstanding Debit Note', f: 'amount', total: true },
-          { k: 'totalDue', t: 'Total Due', f: 'amount', total: true },
+          { k: 'amount', t: 'Amount', f: 'amount', total: true },
+          /* no payment document exists in this database - see the route */
+          { k: 'paid', t: 'Paid / Adjusted', f: 'amount', total: true },
+          { k: 'balance', t: 'Balance', f: 'amount', total: true },
         ],
       }],
     },
