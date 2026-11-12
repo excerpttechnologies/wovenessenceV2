@@ -5801,6 +5801,7 @@ const REFS = {
   uom:                       { load: () => import('@/models/Uom') },
   'attribute-addon':         { load: () => import('@/models/AttributeAddon'), where: { name: { $nin: ['SUPPLIER DESCRIPTION', 'Supplier Description', 'supplier description'] } } },
   item:                      { load: () => import('@/models/Item'), parentField: 'subGroupId', parentParam: 'groupId' },
+  'item-code':               { load: () => import('@/models/Item'), label: 'itemCode', nameFallback: ['name'], parentField: 'subGroupId', parentParam: 'groupId', includeAll: true },
   logistic:                  { load: () => import('@/models/Logistic') },
  
   /* Transportation module */

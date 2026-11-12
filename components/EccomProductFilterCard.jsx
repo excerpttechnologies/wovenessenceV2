@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Icon from './Icon';
 import MultiSelect from './MultiSelect';
 import { filterDefaults } from './FilterPanel';
@@ -35,10 +35,25 @@ const RANGE_FIELD = 'w-[210px] shrink-0';
    the record's own name, so a filled picker reads as a name instead of the raw
    id it would fall back to when the id is not in the first options page. */
 function RefField({ f, value, onChange, waiting, params, hint = [] }) {
-  const { options, loading, error } = useOptions(f.ref, '', !waiting, params);
+  const [searchTerm, setSearchTerm] = useState('');
+  const { options, loading, error } = useOptions(f.ref, searchTerm, !waiting, params);
+  const uniqueOptions = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    for (const option of options) {
+      if (!option?.label || typeof option.label !== 'string') continue;
+      const trimmed = option.label.trim();
+      if (!trimmed) continue;
+      const key = trimmed.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ ...option, label: trimmed });
+    }
+    return out;
+  }, [options]);
   const merged = hint.length
-    ? options.concat(hint.filter((h) => !options.some((o) => o.value === h.value)))
-    : options;
+    ? uniqueOptions.concat(hint.filter((h) => !uniqueOptions.some((o) => o.value === h.value)))
+    : uniqueOptions;
   return (
     <MultiSelect
       mode={f.multi ? 'multi' : 'single'}
@@ -51,6 +66,7 @@ function RefField({ f, value, onChange, waiting, params, hint = [] }) {
       value={f.multi ? (Array.isArray(value) ? value : value ? [value] : []) : value || ''}
       placeholder={waiting ? (f.waitPlaceholder || 'Select...') : (f.all || 'Select...')}
       maxOptions={f.showAllOptions ? Infinity : undefined}
+      onSearch={setSearchTerm}
       onChange={onChange}
     />
   );
@@ -114,7 +130,16 @@ function Field({ f, value, onChange, draft, hint }) {
     const waiting = Boolean(f.dependsOn) && !String(draft[f.dependsOn] || '').trim();
     const params = {};
     if (f.dependsOn && !waiting) params[f.dependsParam || f.dependsOn] = String(draft[f.dependsOn]).trim();
-    return <RefField f={f} value={value} onChange={onChange} waiting={waiting} params={params} hint={hint} />;
+    return (
+      <RefField
+        f={f}
+        value={value}
+        onChange={onChange}
+        waiting={waiting}
+        params={Object.keys(params).length ? params : null}
+        hint={hint}
+      />
+    );
   }
   return (
     <input

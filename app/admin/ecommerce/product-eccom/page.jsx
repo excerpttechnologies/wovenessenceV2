@@ -463,7 +463,7 @@ export default function ProductEccomPage() {
       filters: [
         { k: 'barcodeNo', label: 'Barcode Number', type: 'text', placeholder: 'Barcode number' },
         { k: 'groupName', label: 'Group Name', type: 'ref', ref: 'product/group', all: 'Select Group', showAllOptions: true },
-        { k: 'itemId', label: 'Item Code', type: 'ref', ref: 'item', multi: true, all: 'Type to search' },
+        { k: 'itemId', label: 'Item Code', type: 'ref', ref: 'item-code', multi: true, all: 'Type to search', showAllOptions: true },
         { k: 'hsn', label: 'HSN', type: 'text', placeholder: 'HSN code' },
         { k: 'gst', label: 'GST %', type: 'text', placeholder: 'GST %' },
 
