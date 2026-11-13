@@ -3427,6 +3427,7 @@ import { escapeRegex } from '@/lib/validate';
 import { parseEcommerceVisibility } from '@/lib/ecommerceVisibility';
 import ProductImage from '@/models/ProductImage';
 import { barcodeFilter as inventoryBarcodeFilter, erpImageForBarcode, imageUrl, unitFor } from '@/lib/inventory';
+import { BARCODE_STATUS } from '@/lib/barcodeLabel';
 import { classificationOptionsById, listClassificationOptions } from '@/lib/classificationCollections';
 import { Agent, Supplier } from '@/lib/contacts';
 
@@ -3510,14 +3511,67 @@ const productImageSource = (value, ...barcodes) => imageUrl(value, ...barcodes)
    classification, under 8A2837 - which is why the reference ERP (one row per
    barcode) and this screen disagreed about the same number.
 
-   `productOwnsBarcode` is the whole rule, used by both the listing and the
-   single-barcode lookup so the two can never drift. An empty `barcode` on the
-   saved row predates the barcode box: it names no other piece, so it is taken
-   as belonging to whichever barcode is being looked at. */
+   An empty barcode on older rows predates the barcode box and remains eligible
+   for the barcode being looked up. Only the row's PRIMARY barcode owns its
+   per-barcode fields: a sibling number, even when listed in `barcodes`, is a
+   different piece and must never inherit this row's image/price/type. */
+const primaryBarcodeOf = (product) => String(
+  product?.barcode || product?.barcodeNo || product?.barcodeGenerated || ''
+).trim();
+
 const productOwnsBarcode = (product, barcode) => {
-  const saved = String(product?.barcode || '').trim().toLowerCase();
+  const saved = primaryBarcodeOf(product).toLowerCase();
   if (!saved) return true;
   return saved === String(barcode || '').trim().toLowerCase();
+};
+
+/* ------------------------------------------------- per-barcode visibility ---
+
+   One e-commerce product row describes one ITEM, but an item carries many
+   barcodes. The row-level `isPublished` used to answer "show in e-commerce"
+   for every one of them, so ticking the box on one barcode silently published
+   its siblings too. `publishedBarcodes` records the barcodes the operator
+   actually ticked, and `isPublished` stays as the aggregate the storefront
+   reads (one product per item).
+
+   Rows written before `publishedBarcodes` existed have no per-barcode answer.
+   For those only the barcode the row was saved for follows the old flag; a
+   sibling starts unchecked instead of inheriting another garment's setting. */
+const barcodeVisibilityKey = (value) => String(value || '').trim().toLowerCase();
+
+const explicitPublishedBarcodes = (product) => (
+  Array.isArray(product?.publishedBarcodes) ? product.publishedBarcodes : null
+);
+
+const productVisibleForBarcode = (product, barcode) => {
+  const key = barcodeVisibilityKey(barcode);
+  if (!product || !key) return false;
+  const explicit = explicitPublishedBarcodes(product);
+  if (explicit) return explicit.some((value) => barcodeVisibilityKey(value) === key);
+  /* legacy row: only its own saved barcode follows isPublished */
+  const primary = barcodeVisibilityKey(product.barcode || product.barcodeNo || product.barcodeGenerated);
+  return Boolean(primary && primary === key)
+    && parseEcommerceVisibility(product.isPublished) === true;
+};
+
+/* The product's published list after setting ONE barcode. Other barcodes are
+   carried over untouched, so saving 9A1058 can never disable 8A2837. */
+const withBarcodeVisibility = (product, barcode, publish) => {
+  const key = barcodeVisibilityKey(barcode);
+  const explicit = explicitPublishedBarcodes(product);
+  if (!explicit && publish === undefined) {
+    /* old caller that does not send the flag: leave the row exactly as it was */
+    return { list: undefined, isPublished: parseEcommerceVisibility(product?.isPublished) ?? false };
+  }
+  const primary = primaryBarcodeOf(product);
+  const base = explicit
+    ? explicit.filter(Boolean)
+    : (primary && productVisibleForBarcode(product, primary) ? [primary] : []);
+  const byKey = new Map(base.map((value) => [barcodeVisibilityKey(value), String(value).trim()]));
+  if (key && publish === true) byKey.set(key, String(barcode).trim());
+  if (key && publish === false) byKey.delete(key);
+  const list = [...byKey.values()].filter(Boolean);
+  return { list, isPublished: list.length > 0 };
 };
 
 /* the fields of a saved product that describe its own barcode rather than the
@@ -3901,6 +3955,18 @@ async function listAllErpBarcodes({ businessId, search, page, perPage, sortBy, s
   };
   const exprs = [{ $gt: [qtyValue, 0] }, ...(productFilter?.exprs || [])];
   barcodeFilter.$expr = exprs.length === 1 ? exprs[0] : { $and: exprs };
+  /* Available means the unit is still in stock. A SOLD / VOID / HISTORY /
+     IN_TRANSIT row can keep a positive qty in old data, but it is not stock
+     the shop can sell. Rows written before the lifecycle existed have no
+     status; they are treated as in stock so the list does not lose them. */
+  barcodeFilter.$and.push({
+    $or: [
+      { status: BARCODE_STATUS.IN_STOCK },
+      { status: { $exists: false } },
+      { status: '' },
+      { status: null },
+    ],
+  });
 
   const barcodeRows = await barcodeCollection.find(barcodeFilter, {
     projection: {
@@ -3996,7 +4062,6 @@ async function listAllErpBarcodes({ businessId, search, page, perPage, sortBy, s
     }
   }
 
-  const matchedProductIds = new Set();
   const records = barcodeRows.map((barcodeRow) => {
     const barcode = String(
       barcodeRow.barcodeNo || barcodeRow.barcodeGenerated || barcodeRow.oldBarcode || ''
@@ -4007,7 +4072,6 @@ async function listAllErpBarcodes({ businessId, search, page, perPage, sortBy, s
     const product = productByBarcode.get(barcode.toLowerCase())
       || (barcodeRow.itemId && productByItemId.get(String(barcodeRow.itemId)))
       || productByItemCode.get(String(barcodeRow.itemCode || item?.itemCode || '').trim().toLowerCase());
-    if (product) matchedProductIds.add(String(product._id));
     /* the saved product's own photo/type/classifications belong to ITS barcode
        (see productOwnsBarcode) - this row keeps its own otherwise */
     const productForBarcode = product && productOwnsBarcode(product, barcode) ? product : null;
@@ -4041,7 +4105,7 @@ async function listAllErpBarcodes({ businessId, search, page, perPage, sortBy, s
       businessId: String(barcodeRow.currentBusinessId || barcodeRow.businessId || businessId),
       businessName: '',
       productType: resolvedProductType,
-      isPublished: Boolean(product?.isPublished),
+      isPublished: productVisibleForBarcode(product, barcode),
       salesCount: product?.salesCount || 0,
       /* qtyNum comes from the live barcodeLabel row - this is the stock
          quantity in the DB, not the override stored in the ecommerceproduct.
@@ -4059,93 +4123,6 @@ async function listAllErpBarcodes({ businessId, search, page, perPage, sortBy, s
       ].filter(Boolean).join(' ').toLowerCase(),
     };
   });
-  /* A product with no barcode row of its own carries none of the fields the
-     filters read (supplier, HSN, GST, UOM, cost, age...). Listing it under a
-     filter would be an unrelated row, so while a filter is applied only the
-     rows that matched a barcode are kept. */
-  if (!productFilter?.active) {
-    /* A product whose barcode row exists but was removed by the positive-qty
-       rule is still a barcode-backed product - it must not come back as a
-       "standalone" row. Read the zero/unknown-quantity rows for just the
-       unmatched products and block those. A genuinely standalone product is
-       listed only while its own stored quantity is positive. */
-    const unmatchedProducts = products.filter(
-      (product) => !matchedProductIds.has(String(product._id)),
-    );
-    const blockedIds = new Set();
-    if (unmatchedProducts.length) {
-      const wantedItemIds = [...new Set(unmatchedProducts
-        .map((product) => String(product.itemId || ''))
-        .filter(isValidObjectId))];
-      const wantedCodes = [...new Set(unmatchedProducts
-        .map((product) => trimmed(product.ecommItemCode))
-        .filter(Boolean))];
-      const wantedBarcodes = [...new Set(unmatchedProducts
-        .flatMap((product) => [product.barcode, product.barcodeNo, product.barcodeGenerated])
-        .map((value) => String(value || '').trim())
-        .filter(Boolean))];
-      const productLinks = [
-        ...(wantedItemIds.length ? [{
-          itemId: {
-            $in: [...wantedItemIds, ...wantedItemIds.map((id) => new Types.ObjectId(id))],
-          },
-        }] : []),
-        ...(wantedCodes.length ? [{
-          itemCode: { $in: wantedCodes.map((code) => new RegExp('^' + escapeRegex(code) + '$', 'i')) },
-        }] : []),
-        ...(wantedBarcodes.length ? [
-          { barcodeNo: { $in: wantedBarcodes.map((code) => new RegExp('^' + escapeRegex(code) + '$', 'i')) } },
-          { barcodeGenerated: { $in: wantedBarcodes.map((code) => new RegExp('^' + escapeRegex(code) + '$', 'i')) } },
-          { oldBarcode: { $in: wantedBarcodes.map((code) => new RegExp('^' + escapeRegex(code) + '$', 'i')) } },
-        ] : []),
-      ];
-      if (productLinks.length) {
-        const blockedRows = await barcodeCollection.find({
-          $and: [
-            { $or: [barcodeScope, ...(legacyItemLinks.length ? [legacyScope] : [])] },
-            { $or: productLinks },
-            { $expr: { $lte: [qtyValue, 0] } },
-          ],
-        }, {
-          projection: {
-            itemId: 1, itemCode: 1, barcodeNo: 1, barcodeGenerated: 1, oldBarcode: 1,
-          },
-        }).toArray();
-        unmatchedProducts.forEach((product) => {
-          const itemId = String(product.itemId || '');
-          const itemCode = trimmed(product.ecommItemCode).toLowerCase();
-          const barcodes = new Set([product.barcode, product.barcodeNo, product.barcodeGenerated]
-            .map((value) => String(value || '').trim().toLowerCase())
-            .filter(Boolean));
-          const backed = blockedRows.some((row) => (
-            (itemId && String(row.itemId || '') === itemId)
-            || (itemCode && String(row.itemCode || '').trim().toLowerCase() === itemCode)
-            || [row.barcodeNo, row.barcodeGenerated, row.oldBarcode]
-              .some((value) => barcodes.has(String(value || '').trim().toLowerCase()))
-          ));
-          if (backed) blockedIds.add(String(product._id));
-        });
-      }
-    }
-    products.forEach((product) => {
-      if (matchedProductIds.has(String(product._id))) return;
-      if (blockedIds.has(String(product._id))) return;
-      if (!(Number(product.barcodeQtyOverride) > 0)) return;
-      const row = plain(product);
-      const item = itemById.get(String(row.itemId))
-        || itemByCode.get(String(row.ecommItemCode || '').trim().toLowerCase());
-      records.push({
-        ...row,
-        barcode: String(row.barcode || row.barcodeNo || row.barcodeGenerated || '').trim(),
-        barcodeImage: productImageSource(row.image || item?.image || ''),
-        itemLabel: [item?.itemCode, item?.name].filter(Boolean).join(' - '),
-        businessName: '',
-        _searchText: [
-          row.barcode, row.ecommItemCode, row.displayName, row.productType, row.status,
-        ].filter(Boolean).join(' ').toLowerCase(),
-      });
-    });
-  }
 
   const filtered = search
     ? records.filter((row) => row._searchText.includes(search.toLowerCase()))
@@ -4927,6 +4904,9 @@ export async function GET(req) {
     const savedProduct = product
       ? (productForBarcode ? plain(product) : withoutPerBarcodeFields(plain(product)))
       : {};
+    /* Visibility is answered per barcode below; the alias list and the primary
+       barcode are the row's business, not a value the form should echo back. */
+    ['barcode', 'barcodes', 'publishedBarcodes'].forEach((key) => { delete savedProduct[key]; });
     const classificationById = new Map(classificationOptions.map((option) => [
       String(option._id),
       option,
@@ -4987,7 +4967,7 @@ export async function GET(req) {
          is actually its own - the form warns before a save moves it */
       productMatch: product ? {
         id: String(product._id),
-        savedBarcode: String(product.barcode || '').trim(),
+        savedBarcode: primaryBarcodeOf(product),
         ownsBarcode: Boolean(productForBarcode),
       } : null,
       item: {
@@ -5005,7 +4985,10 @@ export async function GET(req) {
         ...defaultData,
         ...savedProduct,
         ...classificationDefaults,
-        isPublished: parseEcommerceVisibility(savedProduct.isPublished) ?? false,
+        /* the checkbox belongs to THIS barcode, never to the item's aggregate
+           flag or to whichever sibling barcode the row was saved for */
+        isPublished: productVisibleForBarcode(product, lookedUpBarcode),
+        barcode: lookedUpBarcode,
         displayName: savedProduct.displayName || defaultData.displayName,
         ecommItemCode: savedProduct.ecommItemCode || defaultData.ecommItemCode,
         /* resolved, not echoed: a saved image may be a legacy relative
@@ -5366,11 +5349,14 @@ export async function GET(req) {
 
 /* --------------------------------------------------- publish / show ---
 
-   The list's bulk Enable/Disable actions (and anything else that only wants
-   to flip visibility) send { business, productIds, isPublished }. A product
-   reaches the storefront only when it is published, isActive and status
-   "active", so publishing turns the other two on as well - otherwise the
-   operator ticks the box and the site still hides the row. */
+   The list's bulk Enable/Disable actions send the barcode rows the operator
+   selected: { business, items: [{ barcode, itemId }], isPublished }. Only the
+   named barcode's answer changes; a sibling barcode on the same item keeps
+   whatever it had. The legacy { productIds } form still works and toggles the
+   row's primary barcode.
+
+   A product reaches the storefront only when it is published, isActive and
+   status "active", so publishing turns the other two on as well. */
 export async function PATCH(req) {
   const session = await requireSession();
   if (!session) return json({ error: 'Unauthorized' }, 401);
@@ -5379,27 +5365,375 @@ export async function PATCH(req) {
   const business = body.business;
   if (!business || !isValidObjectId(business)) return json({ error: 'Select a Business in the top bar first.' }, 400);
 
+  const publish = parseEcommerceVisibility(body.isPublished);
+  if (publish === undefined) return json({ error: 'isPublished must be true or false.' }, 422);
+
+  const itemTargets = Array.isArray(body.items) ? body.items : [];
+  const barcodeTargets = (Array.isArray(body.barcodes) ? body.barcodes : [])
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
   const productIds = (Array.isArray(body.productIds) ? body.productIds : [])
     .map(String)
     .filter((id) => isValidObjectId(id));
-  if (!productIds.length) return json({ error: 'Select at least one product.' }, 422);
-
-  const publish = body.isPublished === true || body.isPublished === 'true';
-
-  await dbConnect();
-  const col = mongoose.connection.db.collection(COLLECTION);
-  const set = { isPublished: publish, updatedAt: new Date() };
-  if (publish) {
-    set.isActive = true;
-    set.status = 'active';
+  if (!itemTargets.length && !barcodeTargets.length && !productIds.length) {
+    return json({ error: 'Select at least one product.' }, 422);
   }
 
-  const result = await col.updateMany(
-    { businessId: idMatch(business), _id: { $in: productIds.map((id) => new Types.ObjectId(id)) } },
-    { $set: set }
-  );
+  await dbConnect();
+  const database = mongoose.connection.db;
+  const col = database.collection(COLLECTION);
+  const barcodeCol = database.collection('barcodeLabel');
+  const itemCol = database.collection('item');
+  const businessFilter = { businessId: idMatch(business) };
+  const exact = (value) => ({
+    $regex: `^${escapeRegex(String(value || '').trim())}$`,
+    $options: 'i',
+  });
+  const barcodeCodeMatch = (barcode) => ({
+    $or: [
+      { barcodeNo: exact(barcode) },
+      { barcodeGenerated: exact(barcode) },
+      { oldBarcode: exact(barcode) },
+    ],
+  });
 
-  return json({ ok: true, updated: result.modifiedCount, isPublished: publish });
+  const itemById = async (id) => (isValidObjectId(String(id || ''))
+    ? itemCol.findOne({ _id: new Types.ObjectId(String(id)), businessId: idMatch(business) })
+    : null);
+
+  /* Barcodes are NOT unique - the same number can sit on several labels, even
+     within one business. Fetch every candidate and keep only the label that
+     belongs to the item the caller named, so a recycled number can never
+     resolve to another item's product. */
+  const findBarcodeLabel = async (barcode, itemId) => {
+    if (!barcode) return null;
+    const rows = await barcodeCol.find({
+      $and: [
+        {
+          $or: [
+            { businessId: idMatch(business) },
+            { currentBusinessId: idMatch(business) },
+          ],
+        },
+        barcodeCodeMatch(barcode),
+      ],
+    }).limit(25).toArray();
+    if (!rows.length) return null;
+    const want = String(itemId || '').trim();
+    if (!isValidObjectId(want)) return rows[0];
+    const byItem = rows.filter((row) => String(row.itemId || '').trim() === want);
+    if (byItem.length) return byItem[0];
+    /* a label with no itemId can still be this item's when its item code is */
+    const item = await itemById(want);
+    const itemCode = String(item?.itemCode || '').trim().toLowerCase();
+    if (itemCode) {
+      const byCode = rows.filter((row) =>
+        !String(row.itemId || '').trim()
+        && String(row.itemCode || '').trim().toLowerCase() === itemCode);
+      if (byCode.length) return byCode[0];
+    }
+    return null;
+  };
+
+  /* The item this label belongs to: its own itemId wins; a label without one
+     is accepted only when the caller's item carries the same item code. */
+  const resolveItemIdForLabel = async (label, itemId) => {
+    const labelItemId = String(label?.itemId || '').trim();
+    if (isValidObjectId(labelItemId)) return labelItemId;
+    const want = String(itemId || '').trim();
+    if (!isValidObjectId(want)) return '';
+    const item = await itemById(want);
+    const labelCode = String(label?.itemCode || '').trim().toLowerCase();
+    const itemCode = String(item?.itemCode || '').trim().toLowerCase();
+    if (labelCode && itemCode && labelCode === itemCode) return want;
+    return '';
+  };
+
+  /* The e-commerce product is unique per (businessId, itemId). The ecommItemCode
+     fallback exists for rows filed under a code instead of the item id, and it
+     is only accepted when the row really belongs to THIS item - matching a code
+     alone used to attach the visibility flag to a different item's product. */
+  const findProductForItem = async (itemId, itemCode) => {
+    const byItem = await col.findOne({ ...businessFilter, itemId: idMatch(itemId) });
+    if (byItem) return byItem;
+    if (itemCode) {
+      const byCode = await col.findOne({
+        ...businessFilter,
+        ecommItemCode: exact(itemCode),
+      });
+      if (byCode && String(byCode.itemId || '').trim() === String(itemId)) return byCode;
+    }
+    return null;
+  };
+
+  /* Build the ecommerceproduct document for a barcode that has none yet, from
+     the same live ERP sources the barcode lookup / Add form use: item master,
+     product group -> product type, label photo and per-barcode prices. */
+  const buildProductDoc = async (label, itemId) => {
+    const item = await itemById(itemId);
+    if (!item) return null;
+    const codes = [label.barcodeNo, label.barcodeGenerated, label.oldBarcode]
+      .map((value) => String(value || '').trim()).filter(Boolean);
+    const barcode = String(
+      label.barcodeNo || label.barcodeGenerated || label.oldBarcode || ''
+    ).trim();
+
+    let groupName = '';
+    const groupId = String(item.subGroupId || label.groupId || '').trim();
+    if (isValidObjectId(groupId)) {
+      const group = await database.collection('productgroup')
+        .findOne({ _id: new Types.ObjectId(groupId) }, { projection: { name: 1 } });
+      groupName = String(group?.name || '');
+    }
+    if (!groupName && label.groupId && !isValidObjectId(String(label.groupId))) {
+      groupName = String(label.groupId).trim();
+    }
+    groupName = groupName || String(label.customFields?.groupName || '').trim();
+
+    const typeRows = await database.collection('producttypes')
+      .find({ businessId: { $in: [business, new Types.ObjectId(business)] }, isActive: { $ne: false } })
+      .project({ value: 1, label: 1 })
+      .toArray();
+    const candidates = [groupName, String(item.itemType || '')]
+      .map((value) => String(value || '').trim().toLowerCase()).filter(Boolean);
+    const matchedType = typeRows.find((type) =>
+      candidates.includes(String(type.value || '').trim().toLowerCase())
+      || candidates.includes(String(type.label || '').trim().toLowerCase()));
+    const productType = matchedType?.value || item.itemType || groupName || '';
+
+    const imageRecord = codes.length
+      ? await ProductImage.findOne({ barcodeGenerated: { $in: codes } })
+        .sort({ createdAt: -1 }).select('imageUrl filePath').lean()
+      : null;
+    const imageByItem = !imageRecord && item.itemCode
+      ? await ProductImage.findOne({ itemCode: item.itemCode })
+        .sort({ createdAt: -1 }).select('imageUrl filePath').lean()
+      : null;
+    const image = productImageSource(
+      label.imageUrl || label.filePath
+        || imageRecord?.imageUrl || imageRecord?.filePath
+        || imageByItem?.imageUrl || imageByItem?.filePath
+        || '',
+      ...codes,
+    );
+
+    const classOptions = await listClassificationOptions(business);
+    const classById = new Map(classOptions.map((option) => [String(option._id), option]));
+    const classByName = new Map(classOptions.map((option) => [
+      `${option.type}:${String(option.name || '').trim().toLowerCase()}`, option,
+    ]));
+    const by = {};
+    for (const field of ['byWeave', 'byFabric', 'byCraft', 'byOccasion', 'byColour']) {
+      const source = label[field] ?? label.customFields?.[field];
+      const values = Array.isArray(source)
+        ? source
+        : String(source || '').split(',').map((value) => value.trim()).filter(Boolean);
+      const ids = [...new Set(values.map((value) => {
+        const text = value && typeof value === 'object'
+          ? String(value._id || value.name || '').trim()
+          : String(value || '').trim();
+        if (!text) return '';
+        const option = isValidObjectId(text)
+          ? classById.get(text)
+          : classByName.get(`${field}:${text.toLowerCase()}`);
+        return option && option.type === field ? String(option._id) : '';
+      }).filter(Boolean))];
+      by[field] = ids.map((id) => new Types.ObjectId(id));
+    }
+
+    const now = new Date();
+    return {
+      businessId: new Types.ObjectId(business),
+      itemId: new Types.ObjectId(itemId),
+      barcode,
+      barcodes: codes,
+      ecommItemCode: String(item.itemCode || label.itemCode || ''),
+      displayName: String(item.name || label.itemName || label.printDescription || label.supplierDescription || ''),
+      productType,
+      image,
+      printDescriptionOverride: String(label.printDescription || item.description || label.supplierDescription || ''),
+      ecommOffPercent: Number(item.offerPriceNetPrice) || 0,
+      barcodePriceOverride: Number(label.retailPrice || item.rsp || label.offerPrice) || 0,
+      barcodeQtyOverride: Number(label.qtyNum ?? label.qty ?? 0) || 0,
+      ...by,
+      status: 'active',
+      isActive: true,
+      isPublished: false,
+      publishedBarcodes: [],
+      createdAt: now,
+      updatedAt: now,
+      __v: 0,
+    };
+  };
+
+  /* One entry per product: several selected barcodes of the same item must be
+     applied together, or the second read would undo the first. A barcode with
+     no saved product yet is keyed by its item so the doc can be created. */
+  const targets = new Map();
+  const addTarget = ({ product = null, itemId = '', barcode = '', label = null }) => {
+    const key = product ? `p:${product._id}` : `i:${itemId}`;
+    if (!product && !isValidObjectId(itemId)) return false;
+    if (!targets.has(key)) targets.set(key, { product, itemId, barcodes: new Set(), label });
+    const entry = targets.get(key);
+    if (label && !entry.label) entry.label = label;
+    const value = String(barcode || '').trim();
+    if (value) entry.barcodes.add(value);
+    return true;
+  };
+
+  let skipped = 0;
+  for (const target of itemTargets) {
+    const barcode = String(target?.barcode || '').trim();
+    const itemId = String(target?.itemId || '').trim();
+    const label = await findBarcodeLabel(barcode, itemId);
+    const resolvedItemId = await resolveItemIdForLabel(label, itemId);
+    /* the caller named an item: the barcode must really belong to it */
+    if (itemId && isValidObjectId(itemId) && resolvedItemId !== itemId) {
+      skipped += 1;
+      continue;
+    }
+    const item = resolvedItemId ? await itemById(resolvedItemId) : null;
+    const product = resolvedItemId
+      ? await findProductForItem(resolvedItemId, item?.itemCode || label?.itemCode)
+      : null;
+    /* publishedBarcodes must carry the label's canonical number - the one the
+       listing computes - not an alias the caller happened to send */
+    const canonical = label
+      ? String(label.barcodeNo || label.barcodeGenerated || label.oldBarcode || barcode).trim()
+      : barcode;
+    const ok = label
+      ? addTarget({ product, itemId: resolvedItemId, barcode: canonical, label })
+      : addTarget({ product, itemId: resolvedItemId, barcode: canonical });
+    if (!ok) skipped += 1;
+  }
+  for (const barcode of barcodeTargets) {
+    const label = await findBarcodeLabel(barcode, '');
+    const resolvedItemId = await resolveItemIdForLabel(label, '');
+    const item = resolvedItemId ? await itemById(resolvedItemId) : null;
+    const product = resolvedItemId
+      ? await findProductForItem(resolvedItemId, item?.itemCode || label?.itemCode)
+      : null;
+    const canonical = label
+      ? String(label.barcodeNo || label.barcodeGenerated || label.oldBarcode || barcode).trim()
+      : barcode;
+    const ok = addTarget({ product, itemId: resolvedItemId, barcode: canonical, label });
+    if (!ok) skipped += 1;
+  }
+  for (const id of productIds) {
+    const product = await col.findOne({ ...businessFilter, _id: new Types.ObjectId(id) });
+    /* legacy productId form flips the aggregate flag only - no barcode is
+       toggled, so no per-barcode visibility changes either */
+    if (!addTarget({ product, itemId: String(product?.itemId || ''), barcode: '' })) skipped += 1;
+  }
+
+  const now = new Date();
+  let updated = 0;
+  let inserted = 0;
+  const failures = [];
+  for (const { product, itemId, barcodes, label } of targets.values()) {
+    try {
+      if (product) {
+        /* no barcode to toggle: the legacy productId form flips the aggregate */
+        let working = barcodes.size ? product : { ...product, isPublished: publish };
+        for (const barcode of barcodes) {
+          const next = withBarcodeVisibility(working, barcode, publish);
+          working = {
+            ...working,
+            publishedBarcodes: next.list,
+            isPublished: next.isPublished,
+          };
+        }
+
+        const set = { isPublished: working.isPublished, updatedAt: now };
+        if (barcodes.size) {
+          set.publishedBarcodes = working.publishedBarcodes || [];
+        } else if (!publish) {
+          /* legacy row toggled by productId: it has no barcode target, so clearing
+             the list is the only visibility state it has */
+          set.publishedBarcodes = [];
+        }
+        if (working.isPublished) {
+          set.isActive = true;
+          set.status = 'active';
+        }
+        const result = await col.updateOne({ _id: product._id }, { $set: set });
+        if (result.matchedCount) updated += 1;
+        continue;
+      }
+
+      /* No saved product for this item: only an activation creates one. A
+         deactivation has nothing to remove, so it is skipped instead of
+         writing a hidden stub. */
+      if (publish !== true) {
+        skipped += 1;
+        continue;
+      }
+      const doc = await buildProductDoc(label, itemId);
+      if (!doc) {
+        skipped += 1;
+        continue;
+      }
+      for (const barcode of barcodes) {
+        const next = withBarcodeVisibility(doc, barcode, true);
+        doc.publishedBarcodes = next.list || [];
+        doc.isPublished = next.isPublished;
+      }
+      if (!doc.isPublished) {
+        /* every selected barcode failed validation: nothing to publish */
+        skipped += 1;
+        continue;
+      }
+      doc.isActive = true;
+      doc.status = 'active';
+      try {
+        await col.insertOne(doc);
+        inserted += 1;
+      } catch (e) {
+        if (e && e.code === 11000) {
+          /* another request created the row first: apply only the visibility
+             fields to it, never the insert payload */
+          const existing = await col.findOne({
+            ...businessFilter,
+            itemId: idMatch(itemId),
+          });
+          if (!existing) throw e;
+          let working = existing;
+          for (const barcode of barcodes) {
+            const next = withBarcodeVisibility(working, barcode, true);
+            working = { ...working, publishedBarcodes: next.list, isPublished: next.isPublished };
+          }
+          await col.updateOne({ _id: existing._id }, {
+            $set: {
+              isPublished: working.isPublished,
+              publishedBarcodes: working.publishedBarcodes || [],
+              isActive: true,
+              status: 'active',
+              updatedAt: now,
+            },
+          });
+          updated += 1;
+        } else {
+          throw e;
+        }
+      }
+    } catch (e) {
+      failures.push({
+        barcode: [...(barcodes || [])][0] || '',
+        itemId: String(itemId || ''),
+        error: String(e?.message || e),
+      });
+    }
+  }
+
+  return json({
+    ok: failures.length === 0,
+    updated,
+    inserted,
+    skipped,
+    failed: failures.length,
+    failures,
+    isPublished: publish,
+  });
 }
 
 /* ---------------------------------------------------------------- add ---
@@ -5413,7 +5747,11 @@ export async function PATCH(req) {
 const NUMBER_FIELDS = new Set(['barcodePriceOverride', 'barcodeQtyOverride', 'ecommOffPercent', 'salesCount']);
 const BOOL_FIELDS = new Set(['isActive', 'isFeatured', 'isPublished', 'isBestBuy']);
 const ID_LIST_FIELDS = new Set(['byColour', 'byCraft', 'byFabric', 'byOccasion', 'byWeave']);
-const SYSTEM = new Set(['_id', '__v', 'businessId', 'itemId', 'createdAt', 'updatedAt']);
+const SYSTEM = new Set([
+  '_id', '__v', 'businessId', 'itemId', 'createdAt', 'updatedAt',
+  /* visibility and barcode ownership are handled explicitly below */
+  'barcode', 'barcodes', 'publishedBarcodes', 'isPublished',
+]);
 
 export async function POST(req) {
   const session = await requireSession();
@@ -5424,10 +5762,112 @@ export async function POST(req) {
   const business = body.business;
   if (!business || !isValidObjectId(business)) return json({ error: 'Select a Business in the top bar first.' }, 400);
   if (!data.itemId || !isValidObjectId(data.itemId)) return json({ errors: { itemId: 'Select the item this product is for.' }, error: 'Select the item this product is for.' }, 422);
-  if (!String(data.displayName || '').trim()) return json({ errors: { displayName: 'Display Name is required.' }, error: 'Display Name is required.' }, 422);
 
   await dbConnect();
   const col = mongoose.connection.db.collection(COLLECTION);
+  const productFilter = {
+    businessId: idMatch(business),
+    itemId: idMatch(data.itemId),
+  };
+  /* The barcode the form is actually looking at. Never trust `data.barcode`
+     alone: a lookup can have moved the form to another barcode while the old
+     value was still in state. */
+  const requestedBarcode = String(body.barcode || data.barcode || '').trim();
+  const additionalBarcode = String(body.addBarcodeToExisting || '').trim();
+  const requestedPublish = parseEcommerceVisibility(data.isPublished);
+  if (data.isPublished !== undefined && requestedPublish === undefined) {
+    return json({ errors: { isPublished: 'isPublished must be true or false.' }, error: 'isPublished must be true or false.' }, 422);
+  }
+
+  /* A sibling barcode is only a valid target when the label is linked to this
+     same item. The check is scoped to the selected business. */
+  const labelBelongsToItem = async (barcode, itemId, itemCode) => {
+    const linkedLabel = await mongoose.connection.db.collection('barcodeLabel').findOne({
+      $and: [
+        {
+          $or: [
+            { businessId: idMatch(business) },
+            { currentBusinessId: idMatch(business) },
+          ],
+        },
+        {
+          $or: [
+            { barcodeNo: { $regex: `^${escapeRegex(barcode)}$`, $options: 'i' } },
+            { barcodeGenerated: { $regex: `^${escapeRegex(barcode)}$`, $options: 'i' } },
+            { oldBarcode: { $regex: `^${escapeRegex(barcode)}$`, $options: 'i' } },
+          ],
+        },
+        {
+          $or: [
+            { itemId: { $in: [new Types.ObjectId(itemId), itemId] } },
+            ...(itemCode ? [{ itemCode: { $regex: `^${escapeRegex(itemCode)}$`, $options: 'i' } }] : []),
+          ],
+        },
+      ],
+    }, { projection: { _id: 1 } });
+    return Boolean(linkedLabel);
+  };
+
+  /* A sibling barcode has its own "Show in E-commerce" answer. Saving it
+     changes that answer only - the row's fields, its primary barcode and every
+     other barcode's visibility stay exactly as they were. */
+  const saveVisibilityOnly = async (existing, barcode) => {
+    if (requestedPublish === undefined) {
+      return json({
+        ok: true,
+        id: String(existing._id),
+        updated: false,
+        visibilityOnly: true,
+        isPublished: productVisibleForBarcode(existing, barcode),
+      });
+    }
+    const next = withBarcodeVisibility(existing, barcode, requestedPublish);
+    const set = {
+      publishedBarcodes: next.list,
+      isPublished: next.isPublished,
+      updatedAt: new Date(),
+    };
+    if (next.isPublished) {
+      set.isActive = true;
+      set.status = 'active';
+    }
+    const result = await col.updateOne({ _id: existing._id }, { $set: set });
+    if (!result.matchedCount) {
+      return json({ error: 'The existing product could not be found while saving. Please retry.' }, 409);
+    }
+    return json({
+      ok: true,
+      id: String(existing._id),
+      updated: true,
+      visibilityOnly: true,
+      isPublished: next.isPublished,
+    });
+  };
+
+  if (additionalBarcode) {
+    const existing = await col.findOne(productFilter);
+    if (!existing) return json({ error: 'The existing product could not be found. Please retry the barcode lookup.' }, 409);
+    const itemCode = String(existing.ecommItemCode || '').trim();
+    if (!(await labelBelongsToItem(additionalBarcode, data.itemId, itemCode))) {
+      return json({ error: 'This barcode is not linked to the existing product item.' }, 422);
+    }
+    return saveVisibilityOnly(existing, additionalBarcode);
+  }
+
+  const existing = await col.findOne(productFilter);
+
+  /* Infer a sibling save even when the client did not send
+     addBarcodeToExisting: the item already has a product filed under a
+     different barcode, so this save may only touch this barcode's flag. */
+  if (existing && requestedBarcode && !productOwnsBarcode(existing, requestedBarcode)) {
+    const itemCode = String(existing.ecommItemCode || data.ecommItemCode || '').trim();
+    if (!(await labelBelongsToItem(requestedBarcode, data.itemId, itemCode))) {
+      return json({ error: 'This barcode is not linked to the existing product item.' }, 422);
+    }
+    return saveVisibilityOnly(existing, requestedBarcode);
+  }
+
+  if (!String(data.displayName || '').trim()) return json({ errors: { displayName: 'Display Name is required.' }, error: 'Display Name is required.' }, 422);
 
   const doc = {
     businessId: new Types.ObjectId(business),
@@ -5450,22 +5890,36 @@ export async function POST(req) {
 
   const now = new Date();
   doc.updatedAt = now;
-  const productFilter = {
-    businessId: idMatch(business),
-    itemId: idMatch(data.itemId),
-  };
-  const existing = await col.findOne(productFilter, { projection: { _id: 1 } });
-  if (existing) {
-    if (doc.isPublished === true) {
-      doc.isActive = true;
-      doc.status = 'active';
+
+  const updateExisting = async (existingDoc) => {
+    const set = { ...doc };
+    if (requestedBarcode) set.barcode = requestedBarcode;
+    if (requestedPublish !== undefined) {
+      if (requestedBarcode) {
+        const next = withBarcodeVisibility(existingDoc, requestedBarcode, requestedPublish === true);
+        set.publishedBarcodes = next.list;
+        set.isPublished = next.isPublished;
+      } else {
+        set.isPublished = requestedPublish;
+      }
     }
-    const result = await col.updateOne(productFilter, { $set: doc });
+    if (set.isPublished === true) {
+      set.isActive = true;
+      set.status = 'active';
+    }
+    const result = await col.updateOne({ _id: existingDoc._id }, { $set: set });
     if (!result.matchedCount) {
       return json({ error: 'The existing product could not be found while saving. Please retry.' }, 409);
     }
-    return json({ ok: true, id: String(existing._id), updated: true });
-  }
+    return json({
+      ok: true,
+      id: String(existingDoc._id),
+      updated: true,
+      isPublished: set.isPublished ?? existingDoc.isPublished,
+    });
+  };
+
+  if (existing) return updateExisting(existing);
 
   /* Apply collection defaults only to new products. Partial updates must not
      reset visibility, status, or classifications omitted from the request. */
@@ -5473,7 +5927,13 @@ export async function POST(req) {
   if (!doc.additionalImages) doc.additionalImages = [];
   if (!doc.status) doc.status = 'active';
   if (doc.isActive === undefined) doc.isActive = true;
-  if (doc.isPublished === undefined) doc.isPublished = false;
+  if (requestedBarcode) {
+    doc.barcode = requestedBarcode;
+    doc.publishedBarcodes = requestedPublish === true ? [requestedBarcode] : [];
+    doc.isPublished = requestedPublish === true;
+  } else {
+    doc.isPublished = requestedPublish === true;
+  }
   if (doc.isPublished) {
     doc.isActive = true;
     doc.status = 'active';
@@ -5485,13 +5945,26 @@ export async function POST(req) {
     return json({ ok: true, id: String(res.insertedId) });
   } catch (e) {
     if (e && e.code === 11000) {
-      const existingAfterRace = await col.findOne(productFilter, { projection: { _id: 1 } });
+      /* Another request inserted the row first. Re-read it and apply the same
+         per-barcode rule instead of overwriting its visibility list. */
+      const existingAfterRace = await col.findOne(productFilter);
       if (!existingAfterRace) throw e;
+      /* The other request may have filed the row under a sibling barcode. This
+         save may then only answer for its own barcode, exactly like the normal
+         sibling path, and must not move the row's fields. */
+      if (requestedBarcode && !productOwnsBarcode(existingAfterRace, requestedBarcode)) {
+        const itemCode = String(existingAfterRace.ecommItemCode || data.ecommItemCode || '').trim();
+        if (!(await labelBelongsToItem(requestedBarcode, data.itemId, itemCode))) {
+          return json({ error: 'This barcode is not linked to the existing product item.' }, 422);
+        }
+        return saveVisibilityOnly(existingAfterRace, requestedBarcode);
+      }
       delete doc.createdAt;
       delete doc.__v;
-      const result = await col.updateOne(productFilter, { $set: doc });
-      if (!result.matchedCount) throw e;
-      return json({ ok: true, id: String(existingAfterRace._id), updated: true });
+      delete doc.barcode;
+      delete doc.publishedBarcodes;
+      delete doc.isPublished;
+      return updateExisting(existingAfterRace);
     }
     throw e;
   }

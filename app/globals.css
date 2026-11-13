@@ -2903,35 +2903,35 @@ html {
   letter-spacing: 0.06em;
 }
 
-/* 34px controls: compact enough for a report that carries twenty filters.
+/* 30px controls: compact enough for a report that carries twenty filters.
    MultiSelect is allowed to grow when chips wrap, so min-height - not height
    - is what it gets. */
 .stock-filter-card .f-input,
 .stock-filter-card .ms-control {
-  border-radius: 7px;
-  font-size: 12.5px;
+  border-radius: 6px;
+  font-size: 12px;
   font-weight: 600;
   color: #223047;
 }
 
 .stock-filter-card .f-input {
-  height: 34px;
-  padding-inline: 10px;
+  height: 30px;
+  padding-inline: 8px;
 }
 
 .stock-filter-card .ms-control {
-  min-height: 34px;
-  padding: 3px 8px;
+  min-height: 30px;
+  padding: 2px 6px;
 }
 
 .stock-filter-card .ms-input {
-  height: 26px;
-  font-size: 12.5px;
+  height: 22px;
+  font-size: 12px;
   font-weight: 600;
 }
 
 .stock-filter-card .ms-value {
-  font-size: 12.5px;
+  font-size: 12px;
 }
 
 .stock-filter-card .f-input:focus,
@@ -2961,52 +2961,76 @@ html {
 
 /* -------------------------------------------------------------- groups --- */
 .stock-filter-group {
-  margin-top: 8px;
+  margin-top: 6px;
   /* visible, not hidden: the pickers' menus open over the section edge */
   overflow: visible;
   border: 1px solid #e4eaf2;
   border-left: 3px solid #cbd5e1;
-  border-radius: 8px;
+  border-radius: 6px;
   background: #fff;
 }
 
 .stock-filter-group-head {
   display: flex;
   align-items: center;
-  gap: 7px;
-  min-height: 28px;
-  padding: 4px 10px;
+  gap: 6px;
+  min-height: 26px;
+  padding: 3px 8px;
   border-bottom: 1px solid rgba(226, 232, 240, 0.9);
-  border-radius: 5px 7px 0 0;
+  border-radius: 5px 5px 0 0;
 }
 
 .stock-filter-group-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 21px;
-  height: 21px;
-  flex: 0 0 21px;
-  border-radius: 6px;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  border-radius: 4px;
 }
 
 .stock-filter-group-title {
   color: #34425a;
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.stock-filter-head-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 7px;
+  border: 1px solid #dbe3ee;
+  border-radius: 4px;
+  background: #fff;
+  color: #55647d;
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.stock-filter-head-clear:hover {
+  border-color: #cbd5e1;
+  background: #f1f5f9;
+  color: #1e293b;
 }
 
 .stock-filter-fold {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
-  flex: 0 0 24px;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: 4px;
   color: #6b7a94;
+  cursor: pointer;
   transition: background-color 0.15s, border-color 0.15s, color 0.15s;
 }
 
@@ -3023,21 +3047,31 @@ html {
 
 .stock-filter-fields {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 8px 10px;
-  padding: 8px 10px;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 5px 8px;
+  padding: 6px 8px 8px;
+}
+
+@media (min-width: 900px) {
+  .stock-filter-cols-5 {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+  .stock-filter-cols-4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .stock-filter-cols-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 .stock-filter-field { min-width: 0; }
 .stock-filter-field-wide { grid-column: span 1; }
+.stock-filter-cols-3 .stock-filter-field-range { grid-column: span 1; }
 .stock-filter-field-range { grid-column: span 2; }
 
-/* The Clear sits in its own footer row, pushed to the far right. It stays
-   there when the field grid wraps to one column. */
+/* The Clear sits in the header row now; keeping class for backwards compatibility */
 .stock-filter-group-foot {
-  display: flex;
-  justify-content: flex-end;
-  padding: 0 10px 6px;
+  display: none;
 }
 
 .stock-filter-card .stock-filter-clear {

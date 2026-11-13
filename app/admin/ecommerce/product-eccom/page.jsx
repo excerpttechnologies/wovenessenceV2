@@ -275,6 +275,8 @@ const HIDDEN_COLUMNS = new Set([
   'image', 'images', 'additionalImages', 'byColour',
   'slug',
   'isPublished', 'isFeatured',
+  /* per-barcode internals; the checkbox already answers visibility */
+  'barcodes', 'publishedBarcodes',
   /* only Is Published decides what the website shows */
   'status', 'isActive',
 ]);
@@ -379,19 +381,26 @@ export default function ProductEccomPage() {
   const { business } = useScope();
   const [fields, setFields] = useState(null);
   const [viewing, setViewing] = useState(null);
-  const [selectedProducts, setSelectedProducts] = useState(() => new Set());
+  /* Map<_id, { barcode, itemId }>: the listing row is a barcode, not the
+     ecommerceproduct _id, so the barcode is what the PATCH must receive. */
+  const [selectedProducts, setSelectedProducts] = useState(() => new Map());
   const [bulkSaving, setBulkSaving] = useState(false);
   const [bulkError, setBulkError] = useState('');
   const [listVersion, setListVersion] = useState(0);
 
   useEffect(() => {
-    setSelectedProducts(new Set());
+    setSelectedProducts(new Map());
     setBulkError('');
   }, [business]);
 
   const enableSelectedProducts = async () => {
-    const productIds = [...selectedProducts].map(String).filter(Boolean);
-    if (!business || !productIds.length || bulkSaving) return;
+    const items = [...selectedProducts.values()]
+      .map((entry) => ({
+        barcode: String(entry?.barcode || '').trim(),
+        itemId: String(entry?.itemId || '').trim(),
+      }))
+      .filter((entry) => entry.barcode);
+    if (!business || !items.length || bulkSaving) return;
     setBulkSaving(true);
     setBulkError('');
 
@@ -399,11 +408,23 @@ export default function ProductEccomPage() {
       const response = await fetch('/api/product-eccom', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ business, productIds, isPublished: true }),
+        body: JSON.stringify({ business, items, isPublished: true }),
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || 'Could not enable selected products.');
-      setSelectedProducts(new Set());
+      setSelectedProducts(new Map());
+      const notes = [];
+      if (result.inserted) notes.push(`${result.inserted} added to e-commerce`);
+      if (result.updated) notes.push(`${result.updated} updated`);
+      if (result.failed) {
+        notes.push(`${result.failed} failed`);
+        setBulkError(notes.join(' · ') + '.');
+      } else if (result.skipped) {
+        notes.push(`${result.skipped} skipped (no matching item/barcode)`);
+        setBulkError(notes.join(' · ') + '.');
+      } else if (notes.length) {
+        setBulkError(notes.join(' · ') + '.');
+      }
       setListVersion((version) => version + 1);
     } catch (error) {
       setBulkError(error.message || 'Could not enable selected products.');
@@ -505,18 +526,21 @@ export default function ProductEccomPage() {
           title: 'Basic Filters',
           icon: 'barcode',
           color: '#2563a9',
+          cols: 5,
           fields: ['barcodeNo', 'groupName', 'itemId', 'hsn', 'gst'],
         },
         {
           title: 'Supplier & Inventory',
           icon: 'truck',
           color: '#16a34a',
+          cols: 4,
           fields: ['agentId', 'city', 'supplierId', 'uom'],
         },
         {
           title: 'Price Filters',
           icon: 'calculator',
           color: '#f59e0b',
+          cols: 3,
           fields: [
             { label: 'RSP', range: ['rspMin', 'rspMax'] },
             { label: 'RSP Offer Price', range: ['rspOfferPriceMin', 'rspOfferPriceMax'] },
@@ -531,6 +555,7 @@ export default function ProductEccomPage() {
           title: 'Barcode Pattern',
           icon: 'barcode',
           color: '#7c3aed',
+          cols: 4,
           fields: ['patternSupplierNo', 'patternGrcNo', 'patternSlNo', 'patternQty'],
         },
       ],
@@ -547,13 +572,13 @@ export default function ProductEccomPage() {
             disabled={bulkSaving || !business}
             onClick={enableSelectedProducts}
           >
-            {bulkSaving ? 'Saving...' : 'Enable'}
+            {bulkSaving ? 'Saving...' : 'Show in E-commerce'}
           </button>
           <button
             type="button"
             className="btn btn-ghost"
             disabled={bulkSaving}
-            onClick={() => setSelectedProducts(new Set())}
+            onClick={() => setSelectedProducts(new Map())}
           >
             Clear selection
           </button>
@@ -589,9 +614,12 @@ export default function ProductEccomPage() {
               aria-label={`Select product ${row.barcode || row.displayName || row._id}`}
               onChange={() => {
                 setSelectedProducts((current) => {
-                  const next = new Set(current);
+                  const next = new Map(current);
                   if (next.has(row._id)) next.delete(row._id);
-                  else next.add(row._id);
+                  else next.set(row._id, {
+                    barcode: String(row.barcode || '').trim(),
+                    itemId: String(row.itemId || '').trim(),
+                  });
                   return next;
                 });
               }}

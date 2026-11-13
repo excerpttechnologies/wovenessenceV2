@@ -22,7 +22,13 @@ The migration never deletes or updates Item records. Existing e-commerce catalog
 
 `GET /api/v1/storefront/products?business=<businessId>&page=1&perPage=24`
 
-Optional `search` filters by display name, slug, or product type. Results include only records where `status` is `active` and `isPublished` is `true`.
+Optional `search` filters by display name, slug, or product type. Results include only records where `status` is `active`, `isPublished` is `true`, `isActive` is not `false`, and the linked ERP item still exists.
+
+The complete group + filter contract lives in `ECOMMERCE_README.md`:
+
+- `GET /api/v1/storefront/product-groups` returns the active groups, slugs and filter configuration (`includeValues=1` adds live options and counts).
+- `GET /api/v1/storefront/products` accepts `group`/`productType`, repeatable `filter=<key>:<id>,<id>`, `filters=<key>:<id>|<id>;...`, plain `byWeave`/`byFabric`/... params, `search`, `sort` (`featured`, `newest`, `oldest`), `page`, `perPage` and `facets=0`.
+- Unknown or disabled groups return `404`; invalid or unavailable filters and values return `422`.
 
 Authenticate with a server-side bearer key:
 

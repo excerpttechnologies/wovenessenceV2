@@ -1,0 +1,673 @@
+<USER_REQUEST>
+# MASTER DEVELOPMENT PROMPT
+## Fix Complete ERP → E-commerce Product Type, Group & Filter Synchronization
+
+### Project Locations
+
+**ERP Application:**
+`C:\Users\Admin\Desktop\deploy\wovenessenceV2`
+
+**E-commerce Application:**
+`C:\Users\Admin\Desktop\deploy\ecommercewovenessanceV2`
+
+**ERP Product Type Configuration:**
+`http://localhost:3000/admin/ecommerce/product-type`
+
+**E-commerce Website:**
+`https://wovenessence.in/`
+
+---
+
+## 1. MAIN OBJECTIVE
+
+I have two separate applications:
+
+1. Woven Essence ERP
+2. Woven Essence E-commerce Website
+
+Both applications must work together.
+
+Currently, the ERP has a Product Type configuration page where I can create product groups and configure filters for each group.
+
+However, the filters configured in ERP are not properly reflecting on the E-commerce website.
+
+I need you to investigate both complete codebases, identify the actual reason for the synchronization failure, and implement a permanent end-to-end solution.
+
+**Important architecture requirement:**
+
+ERP must be the single source of truth for:
+
+- Product Types
+- Product Groups
+- Product Type Names
+- Product Type Slugs
+- Filter Configuration
+- Filter Visibility
+- Filter Ordering
+- Group Status
+- Filter Options and their relationships
+
+E-commerce must consume these configurations from ERP dynamically.
+
+Do not create a second independent filter configuration system in E-commerce.
+
+---
+
+## 2. FIRST: ANALYSE BOTH COMPLETE CODEBASES
+
+Before changing any code, inspect both repositories.
+
+### ERP investigation
+
+Inspect:
+
+- `app/admin/ecommerce/product-type/page.jsx`
+- `app/api/v1/admin/product-types/route.js`
+- `app/api/v1/admin/product-classification-options/route.js`
+- `app/api/v1/admin/product-classification-options/[id]/route.js`
+- `lib/screenPermission.js`
+
+Also search the entire ERP project for:
+
+- Product Type models
+- Product Group models
+- Product Classification models
+- Filter configuration models
+- Product Type API endpoints
+- Product save and update APIs
+- Ecommerce product listing APIs
+- Slug generation logic
+- Company and location scoping
+- Store LIVE/DISABLED logic
+
+Do not assume the above files are the only relevant files.
+
+### E-commerce investigation
+
+Inspect the complete E-commerce project:
+
+`C:\Users\Admin\Desktop\deploy\ecommercewovenessanceV2`
+
+Find:
+
+- Header and navigation components
+- Desktop navigation
+- Mobile navigation
+- Product listing pages
+- Collection pages
+- Product filtering components
+- Filter sidebar
+- Filter dropdowns
+- Product search APIs
+- Product listing APIs
+- Category and collection APIs
+- ERP database connection
+- MongoDB models and schemas
+- API caching and revalidation
+- Product group and filter configuration fetching
+
+Identify exactly how the current top navigation and filters are generated.
+
+### Important
+
+Prepare an internal architecture map before implementation.
+
+Identify:
+
+1. Where ERP stores product type configurations.
+2. Where ERP stores classification/filter configurations.
+3. How those configurations are linked.
+4. Which database and collections contain the data.
+5. How E-commerce currently retrieves the configurations.
+6. Why the ERP changes are not appearing on the website.
+
+Do not start implementing a workaround before understanding the actual data flow.
+
+---
+
+## 3. ERP PRODUCT TYPE MUST CONTROL E-COMMERCE NAVIGATION
+
+ERP currently has the Product Type page:
+
+`/admin/ecommerce/product-type`
+
+It contains the following columns:
+
+- Product Type
+- Group
+- Slug
+- Store
+- Filters
+
+The configuration must be connected directly to E-commerce.
+
+When I create or edit a product type in ERP, the E-commerce website must automatically reflect the changes.
+
+### Expected functionality
+
+When I add a new product type in ERP:
+
+- Create the product type in ERP.
+- Save its group and slug.
+- Configure its filters.
+- Enable its Store status.
+- Make the group available to E-commerce.
+- Display it in the appropriate website navigation position.
+
+When I edit an existing product type:
+
+- Update the existing configuration.
+- Do not create duplicate groups.
+- Preserve its existing products.
+- Preserve existing product relationships.
+- Reflect the changes on E-commerce.
+
+When I disable a product type:
+
+- Do not delete its products.
+- Do not delete its historical configuration.
+- Stop displaying it as an active navigation group.
+- Follow existing product visibility rules.
+
+---
+
+## 4. E-COMMERCE TOP NAVIGATION – 11 PRODUCT GROUPS
+
+The E-commerce website currently displays the following main product groups in the top navigation:
+
+1. Sarees
+2. Fabrics
+3. Plain Fabrics
+4. Dupatta
+5. Inskirt
+6. Border
+7. Pavada
+8. Dhotis
+9. Ready Made
+10. Ready Bits
+11. Unstitched Suits
+
+New Arrivals and Best Buy are separate merchandising/navigation entries and should retain their existing functionality.
+
+### Required implementation
+
+The 11 product groups must be retrieved dynamically from ERP.
+
+Do not hardcode these group names in the E-commerce header.
+
+The navigation must use the actual active ERP product type/group configuration.
+
+Requirements:
+
+- Display active groups only.
+- Respect ERP navigation ordering or configured display ordering.
+- Use the correct group name.
+- Use the correct slug.
+- Generate the correct navigation URL.
+- Prevent duplicate groups.
+- Do not display disabled groups.
+- Do not display test or internal groups unless explicitly enabled for the storefront.
+- Preserve existing header design and responsiveness.
+- Preserve existing New Arrivals and Best Buy functionality.
+
+If a new group is added in ERP and enabled for the storefront, it should appear automatically without modifying E-commerce source code.
+
+If a group is renamed or its slug changes, ensure navigation and product listing routes remain consistent.
+
+Do not break existing SEO-friendly URLs unnecessarily.
+
+---
+
+## 5. FILTER CONFIGURATION MUST COME FROM ERP
+
+This is the most important requirement.
+
+Currently, ERP Product Type configuration supports different filters for different product groups.
+
+For example:
+
+**SAREES**
+
+- WEAVE
+- CRAFT
+
+**FABRICS**
+
+- BY FABRIC
+- BY COLOUR
+
+**PLAIN FABRICS**
+
+- BY WEAVE
+- BY FABRIC
+- BY COLOUR
+
+**DUPATTA**
+
+- BY FABRIC
+- BY COLOUR
+
+**INSKIRT**
+
+- BY FABRIC
+- BY CRAFT
+- BY OCCASION
+- BY COLOUR
+
+Other groups can have their own ERP-configured filters.
+
+These are examples from the existing ERP configuration. Do not hardcode them.
+
+### Expected dynamic behaviour
+
+Suppose I open:
+
+ERP → Product Type → Edit → SAREES
+
+I add a new filter:
+
+`BY OCCASION`
+
+I save the configuration.
+
+Expected result:
+
+1. ERP saves the filter configuration.
+2. The configuration is available through the appropriate ERP API.
+3. E-commerce retrieves the updated configuration.
+4. The Sarees listing page displays the new BY OCCASION filter.
+5. The other product groups remain unchanged.
+6. The new filter works with actual product data.
+
+If I remove a filter from Sarees in ERP, it should disappear from the Sarees filter interface on E-commerce.
+
+If I add a filter to Fabrics, it must appear under Fabrics only.
+
+**Never show all configured filters on every product group.**
+
+Each product group must receive only its own configured filters.
+
+---
+
+## 6. FILTER OPTIONS AND ACTUAL PRODUCT DATA
+
+Do not stop at displaying filter names.
+
+The complete filtering functionality must work.
+
+For every configured filter:
+
+- Fetch the correct filter options.
+- Fetch values from actual product data.
+- Display available values.
+- Allow customers to select one or multiple values according to existing behaviour.
+- Filter products using the correct field and value.
+- Update product results correctly.
+- Support clearing individual filters.
+- Support clearing all filters.
+- Support combining multiple filters.
+- Preserve sorting and pagination.
+- Preserve existing search functionality.
+
+### Example
+
+Customer opens Sarees.
+
+Available filters:
+
+- Weave
+- Craft
+
+Customer selects:
+
+Weave = Kanchipuram
+
+Expected:
+
+Only Saree products matching the selected Weave value should appear.
+
+If the customer additionally selects:
+
+Craft = Traditional
+
+Expected:
+
+Only products matching both selected conditions should appear.
+
+Do not filter against unrelated fields.
+
+### Critical data mapping
+
+Inspect the actual ERP product schema and existing product records.
+
+Determine the exact field names, IDs, values, and relationships used for:
+
+- Weave
+- Fabric
+- Craft
+- Occasion
+- Colour
+
+Do not assume that the display name is the database field name.
+
+Do not introduce duplicate fields or a parallel classification system.
+
+Use the existing ERP product classification relationships wherever possible.
+
+---
+
+## 7. ERP API AND E-COMMERCE INTEGRATION
+
+Inspect the existing integration before designing new APIs.
+
+Prefer reusing the existing ERP APIs and database integration.
+
+If the current APIs are incomplete, extend them safely.
+
+The integration should provide the E-commerce application with:
+
+- Active storefront product groups
+- Product type IDs
+- Group IDs
+- Product type names
+- Slugs
+- Display ordering
+- Store visibility
+- Filter IDs
+- Filter names
+- Filter slugs
+- Filter ordering
+- Filter options or the correct references to retrieve options
+
+### API requirements
+
+Ensure:
+
+- Correct authentication.
+- Secure server-to-server communication.
+- Proper validation.
+- Correct MongoDB database selection.
+- Correct collection mapping.
+- Proper error handling.
+- No exposure of ERP credentials.
+- No unrestricted public access to administrative APIs.
+
+If ERP and E-commerce use separate MongoDB databases, identify the existing architecture and use the correct connection.
+
+Do not silently read from a different database or create another collection with duplicated configuration data.
+
+### Synchronization
+
+Implement a reliable synchronization strategy.
+
+When ERP product type or filter configuration changes:
+
+- E-commerce must retrieve the latest configuration.
+- Stale cached navigation must be invalidated.
+- Stale filter configurations must be invalidated.
+- Newly added filters must become available.
+- Removed filters must stop appearing.
+- Updated slugs and ordering must be reflected.
+
+Use the existing cache and revalidation architecture wherever possible.
+
+Do not use permanent static caching for dynamic ERP configurations.
+
+Avoid unnecessary API calls on every component render.
+
+---
+
+## 8. PRODUCT TYPE AND PRODUCT ASSIGNMENT
+
+Inspect how products are currently assigned to product types in ERP.
+
+The storefront must use the correct relationship.
+
+For example:
+
+- Sarees must appear under Sarees.
+- Fabrics must appear under Fabrics.
+- Plain Fabrics must appear under Plain Fabrics.
+- Dupatta must appear under Dupatta.
+
+The same rule applies to all 11 groups.
+
+When a product is added or updated in ERP:
+
+1. Read its actual product type/group relationship.
+2. Read its classification values.
+3. Make it available to E-commerce according to existing publishing rules.
+4. Display it under the correct group.
+5. Make it filterable using the corresponding ERP filter configuration.
+
+Do not use product names or barcode numbers as substitutes for product type relationships.
+
+Do not break existing product visibility, stock, pricing, image, or publishing functionality.
+
+---
+
+## 9. FRONTEND UI REQUIREMENTS
+
+Preserve the existing Woven Essence website design.
+
+Do not redesign the complete website.
+
+### Desktop
+
+- Maintain the current header design.
+- Maintain the existing horizontal navigation.
+- Display the 11 dynamic product groups.
+- Preserve New Arrivals and Best Buy.
+- Maintain existing spacing, typography, hover effects and responsive behaviour.
+
+### Mobile
+
+- Ensure all active groups are accessible.
+- Ensure navigation works properly.
+- Ensure filters are usable on mobile.
+- Preserve existing mobile drawer or navigation behaviour.
+
+### Product listing page
+
+- Display only the filters assigned to the current group.
+- Use readable filter labels.
+- Keep the existing filter UI design.
+- Show available filter options.
+- Show selected filter states.
+- Allow customers to clear selections.
+- Display correct product counts if already supported.
+
+Do not replace existing working UI components unnecessarily.
+
+---
+
+## 10. IMPORTANT EDGE CASES
+
+Handle all these scenarios:
+
+1. ERP adds a new product type.
+2. ERP edits an existing product type.
+3. ERP renames a product type.
+4. ERP changes a slug.
+5. ERP enables a disabled product type.
+6. ERP disables an active product type.
+7. ERP adds a filter to an existing group.
+8. ERP removes a filter from a group.
+9. ERP changes filter ordering.
+10. ERP changes filter visibility.
+11. ERP adds new classification options.
+12. ERP edits existing classification options.
+13. A product has no classification value.
+14. A product has multiple classification values.
+15. A product is moved from one group to another.
+16. Duplicate product type configurations exist.
+17. E-commerce cache contains outdated configuration.
+18. ERP API temporarily becomes unavailable.
+19. A filter has no matching products.
+20. A product has an inactive or deleted classification reference.
+
+Handle missing configurations gracefully.
+
+Never delete products or historical data simply because a product type or filter was disabled.
+
+---
+
+## 11. TESTING – MANDATORY
+
+After implementation, test both applications.
+
+### Test A – Navigation
+
+- Verify all 11 intended product groups.
+- Verify group names.
+- Verify slugs.
+- Verify ordering.
+- Verify disabled groups are hidden.
+- Verify New Arrivals and Best Buy still work.
+
+### Test B – Filter synchronization
+
+In ERP:
+
+1. Open Product Type.
+2. Edit Sarees.
+3. Add a new filter.
+4. Save.
+
+In E-commerce:
+
+1. Open Sarees.
+2. Verify the newly added filter appears.
+3. Verify other groups are unaffected.
+4. Verify the filter actually filters products.
+
+### Test C – Filter removal
+
+1. Remove a filter from Sarees in ERP.
+2. Save.
+3. Refresh E-commerce.
+4. Verify it no longer appears under Sarees.
+
+### Test D – Group isolation
+
+Verify that:
+
+- Sarees only shows its configured filters.
+- Fabrics only shows its configured filters.
+- Plain Fabrics only shows its configured filters.
+- Dupatta only shows its configured filters.
+- Every remaining group shows its own ERP configuration.
+
+### Test E – Product data
+
+Verify filtering against actual products in MongoDB.
+
+Test multiple filter combinations.
+
+Verify product counts and pagination.
+
+### Test F – Regression
+
+Ensure the following remain functional:
+
+- Product detail pages.
+- Product listing pages.
+- Search.
+- Sorting.
+- Pagination.
+- Product images.
+- Product pricing.
+- Stock visibility.
+- Existing navigation links.
+- Mobile navigation.
+- Existing collections and merchandising links.
+
+Do not use mock products, fake filters, hardcoded navigation arrays or temporary test data to claim successful integration.
+
+---
+
+## 12. STRICT DEVELOPMENT RULES
+
+1. Analyse both repositories before modifying anything.
+2. Reuse existing APIs, models, schemas and components.
+3. ERP remains the single source of truth.
+4. Do not create duplicate product type collections.
+5. Do not create separate hardcoded filter arrays in E-commerce.
+6. Do not hardcode the 11 groups in the frontend.
+7. Do not hardcode filter names or filter options.
+8. Do not replace actual database data with mock data.
+9. Do not remove existing functionality.
+10. Do not unnecessarily redesign existing pages.
+11. Preserve existing authentication and permission systems.
+12. Maintain compatibility with existing product records.
+13. Use proper loading, empty and error states.
+14. Validate all database operations.
+15. Follow the existing coding standards of both repositories.
+
+Before making schema changes, inspect existing records and ensure backward compatibility.
+
+Do not perform destructive database migrations.
+
+---
+
+## 13. FINAL DELIVERY REPORT
+
+After implementation, provide a detailed report containing:
+
+### A. Root Cause
+Explain exactly why ERP filters were not synchronizing with E-commerce.
+
+### B. ERP Changes
+List all modified ERP files and explain their changes.
+
+### C. E-commerce Changes
+List all modified E-commerce files and explain their changes.
+
+### D. API Integration
+Explain which existing APIs were reused and which APIs were modified or created.
+
+### E. Database Mapping
+Explain which MongoDB database, collections and fields are used by both applications.
+
+### F. Navigation
+Confirm that all 11 product groups are dynamically retrieved from ERP.
+
+### G. Filter Synchronization
+Explain how ERP filter changes reach E-commerce.
+
+### H. Testing Results
+Provide actual test results for navigation, filter creation, filter removal, group isolation and product filtering.
+
+### I. Remaining Issues
+Clearly mention anything that could not be completed.
+
+### J. Final Status
+Confirm whether the entire ERP → E-commerce Product Type and Filter integration is working.
+
+**FINAL EXPECTATION:**
+
+I want to manage everything from:
+
+`ERP → E-commerce → Product Type`
+
+When I add a group, edit a group, add a filter, remove a filter or change its configuration in ERP, the E-commerce website must reflect those changes automatically.
+
+The E-commerce website must dynamically display the 11 product groups and their respective ERP-configured filters.
+
+I do not want to manually configure the same groups and filters again in E-commerce.
+
+Implement this as a complete, production-ready integrati  on across both projects, not as a temporary frontend fix.  already logic is there already can u fix this 
+</USER_REQUEST>
+<ADDITIONAL_METADATA>
+The current local time is: 2026-11-13T10:16:52+05:30.
+
+The user's current state is as follows:
+Active Document: c:\Users\Admin\Desktop\deploy\wovenessenceV2\.env (LANGUAGE_UNSPECIFIED)
+Cursor is on line: 13
+Other open documents:
+- c:\Users\Admin\Desktop\deploy\wovenessenceV2\components\GrcBarcodeLabel.jsx (LANGUAGE_UNSPECIFIED)
+- c:\Users\Admin\Desktop\deploy\wovenessenceV2\app\admin\ecommerce\product-type\page.jsx (LANGUAGE_UNSPECIFIED)
+- c:\Users\Admin\Desktop\deploy\wovenessenceV2\app\admin\ecommerce\product-eccom\page.jsx (LANGUAGE_UNSPECIFIED)
+- c:\Users\Admin\Desktop\deploy\wovenessenceV2\app\api\ecom-product\route.js (LANGUAGE_UNSPECIFIED)
+- c:\Users\Admin\Desktop\deploy\wovenessenceV2\app\globals.css (LANGUAGE_UNSPECIFIED)
+</ADDITIONAL_METADATA>

@@ -4,6 +4,13 @@ const EcommerceProductSchema = new mongoose.Schema(
   {
     businessId: { type: mongoose.Schema.Types.ObjectId, ref: 'business', required: true, index: true },
     itemId: { type: mongoose.Schema.Types.ObjectId, ref: 'item', required: true, index: true },
+    /* the barcode whose per-barcode fields this row carries */
+    barcode: { type: String, default: '', index: true },
+    /* additional barcodes linked to the same item (never field owners) */
+    barcodes: { type: [String], default: [] },
+    /* the barcodes the operator ticked "Show in E-commerce" for. Undefined on
+       legacy rows, where only the primary barcode follows `isPublished`. */
+    publishedBarcodes: { type: [String], default: undefined },
     ecommItemCode: { type: String, default: '', index: true },
     productType: { type: String, default: '' },
     byWeave: { type: [mongoose.Schema.Types.ObjectId], ref: 'productClassificationOption', default: [] },

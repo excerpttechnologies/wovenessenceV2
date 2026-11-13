@@ -722,7 +722,7 @@ export const REPORT = {
       title: 'Supplier & Inventory',
       icon: 'truck',
       color: '#16a34a',
-      cols: 5,
+      cols: 4,
       fields: ['agentId', 'city', 'supplierId', 'uom'],
     },
     {

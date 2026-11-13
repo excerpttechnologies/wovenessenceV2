@@ -157,20 +157,24 @@ export default function ProductTypePage() {
 
   function startEdit(row) {
     setEditing(row);
-    setEditName(row.label || '');
-    const filters = Array.isArray(row.filters)
-      ? row.filters.filter((filter) =>
-        Object.prototype.hasOwnProperty.call(FILTER_TYPES, filter))
-      : [];
-    setEditFilters(filters);
-    /* per-filter configuration - stored filterConfig entries (an array on
-       the producttypes document) win, defaults fill the gaps */
+    setEditName(row.label || '');    /* per-filter configuration - stored filterConfig entries (an array on
+       the producttypes document) win, defaults fill the gaps. A key that is
+       only described by filterConfig is still assigned to the group. */
     const storedList = Array.isArray(row.filterConfig) ? row.filterConfig : [];
     const stored = {};
     storedList.forEach((entry) => {
       const key = String(entry?.key || entry?.field || '');
       if (key) stored[key] = entry;
     });
+    const listed = Array.isArray(row.filters) ? row.filters : [];
+    const filters = [...new Set([...listed, ...Object.keys(stored)])]
+      .filter((filter) => Object.prototype.hasOwnProperty.call(FILTER_TYPES, filter))
+      .sort((a, b) => {
+        const orderA = Number(stored[a]?.displayOrder);
+        const orderB = Number(stored[b]?.displayOrder);
+        return (Number.isFinite(orderA) ? orderA : 0) - (Number.isFinite(orderB) ? orderB : 0);
+      });
+    setEditFilters(filters);
     const meta = {};
     filters.forEach((key, index) => {
       meta[key] = { ...defaultFilterMeta(key, index), ...(stored[key] || {}) };
@@ -266,11 +270,11 @@ export default function ProductTypePage() {
           displayOrder: editEcom?.displayOrder ?? 0,
           isActive: editEcom?.isActive !== false,
           ecommerceVisible: editEcom?.ecommerceVisible !== false,
-          filterConfig: editFilters.map((key, index) => ({
-            key,
-            ...(editFilterMeta[key] || defaultFilterMeta(key, index)),
-            displayOrder: index,
-          })),
+          filterConfig: editFilters.map((key, index) => {
+            const meta = editFilterMeta[key] || defaultFilterMeta(key, index);
+            const order = Number(meta.displayOrder);
+            return { key, ...meta, displayOrder: Number.isFinite(order) ? order : index };
+          }),
         }),
       });
       const d = await r.json().catch(() => ({}));

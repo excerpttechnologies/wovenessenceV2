@@ -59,7 +59,9 @@ export async function GET(req) {
   });
 
   const etag = `W/"pg-${catalog.version}-${includeValues ? 'values' : 'plain'}-${groups.length}"`;
-  if (req.headers.get('if-none-match') === etag) {
+  /* Live options/counts also change when products change, which the config
+     version does not track - only the configuration-only response may 304. */
+  if (!includeValues && req.headers.get('if-none-match') === etag) {
     return new Response(null, {
       status: 304,
       headers: { ETag: etag, 'Cache-Control': CONFIG_CACHE_CONTROL },

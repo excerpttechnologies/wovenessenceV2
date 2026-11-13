@@ -430,6 +430,14 @@ export default function StockFilterCard({
                 <span className="flex-1" />
                 <button
                   type="button"
+                  className="stock-filter-head-clear"
+                  title={'Clear ' + g.title}
+                  onClick={(e) => { e.stopPropagation(); onClear?.(keys); }}
+                >
+                  <Icon name="refresh" size={11} /> Clear
+                </button>
+                <button
+                  type="button"
                   aria-label={(shut ? 'Expand ' : 'Collapse ') + g.title}
                   className="stock-filter-fold"
                   onClick={() => setFolded((o) => ({ ...o, [g.title]: !shut }))}
@@ -439,67 +447,54 @@ export default function StockFilterCard({
               </div>
 
               {!shut && (
-                <>
-                  <div className="stock-filter-fields">
-                    {(g.fields || []).map((entry) => {
-                      if (typeof entry === 'string' || !entry.range) {
-                        const f = byKey.get(typeof entry === 'string' ? entry : entry.k);
-                        if (!f || f.type === 'location') return null;
-                        return (
-                          <div
-                            key={f.k}
-                            className={'stock-filter-field'
-                              + (WIDE_FIELDS.has(f.k) ? ' stock-filter-field-wide' : '')}
-                          >
-                            <label className={GROUP_LABEL}>
-                              {f.label}{(f.req || f.oneOf) && <span className="f-req">*</span>}
-                            </label>
-                            <Field
-                              f={f}
-                              value={draft[f.k]}
-                              onChange={(v) => onChange?.(f.k, v)}
-                              draft={draft}
-                              business={business}
-                            />
-                          </div>
-                        );
-                      }
-                      const [lo, hi] = entry.range;
+                <div className={`stock-filter-fields${g.cols ? ` stock-filter-cols-${g.cols}` : ''}`}>
+                  {(g.fields || []).map((entry) => {
+                    if (typeof entry === 'string' || !entry.range) {
+                      const f = byKey.get(typeof entry === 'string' ? entry : entry.k);
+                      if (!f || f.type === 'location') return null;
                       return (
-                        <div key={lo} className="stock-filter-field stock-filter-field-range">
-                          <label className={GROUP_LABEL}>{entry.label}</label>
-                          <div className="flex gap-2">
-                            <input
-                              type="text"
-                              className="f-input min-w-0 flex-1"
-                              placeholder="Start"
-                              value={draft[lo] || ''}
-                              onChange={(e) => onChange?.(lo, e.target.value)}
-                            />
-                            <input
-                              type="text"
-                              className="f-input min-w-0 flex-1"
-                              placeholder="End"
-                              value={draft[hi] || ''}
-                              onChange={(e) => onChange?.(hi, e.target.value)}
-                            />
-                          </div>
+                        <div
+                          key={f.k}
+                          className={'stock-filter-field'
+                            + (WIDE_FIELDS.has(f.k) ? ' stock-filter-field-wide' : '')}
+                        >
+                          <label className={GROUP_LABEL}>
+                            {f.label}{(f.req || f.oneOf) && <span className="f-req">*</span>}
+                          </label>
+                          <Field
+                            f={f}
+                            value={draft[f.k]}
+                            onChange={(v) => onChange?.(f.k, v)}
+                            draft={draft}
+                            business={business}
+                          />
                         </div>
                       );
-                    })}
-                  </div>
-
-                  <div className="stock-filter-group-foot">
-                    <button
-                      type="button"
-                      className="btn stock-filter-clear"
-                      title={'Clear ' + g.title}
-                      onClick={() => onClear?.(keys)}
-                    >
-                      <Icon name="refresh" size={13} /> Clear
-                    </button>
-                  </div>
-                </>
+                    }
+                    const [lo, hi] = entry.range;
+                    return (
+                      <div key={lo} className="stock-filter-field stock-filter-field-range">
+                        <label className={GROUP_LABEL}>{entry.label}</label>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            className="f-input min-w-0 flex-1"
+                            placeholder="Start"
+                            value={draft[lo] || ''}
+                            onChange={(e) => onChange?.(lo, e.target.value)}
+                          />
+                          <input
+                            type="text"
+                            className="f-input min-w-0 flex-1"
+                            placeholder="End"
+                            value={draft[hi] || ''}
+                            onChange={(e) => onChange?.(hi, e.target.value)}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               )}
             </div>
           );

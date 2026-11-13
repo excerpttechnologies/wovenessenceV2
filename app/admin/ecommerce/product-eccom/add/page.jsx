@@ -58,6 +58,8 @@ const SKIP = new Set([
   'isActive',
   'status',
   'businessId', 'createdAt', 'updatedAt', 'seoDescription', 'barcode',
+  /* per-barcode visibility is owned by the server; never render or echo it */
+  'barcodes', 'publishedBarcodes',
   'barcodeStatusOverride', 'seoTitle',
   'slug', 'isFeatured',
   'colourDescription', 'craftDescription', 'fabricDescription',
@@ -117,6 +119,7 @@ export default function ProductEccomAddPage() {
   const [resolvedBarcode, setResolvedBarcode] = useState('');
   const [barcodeLoading, setBarcodeLoading] = useState(false);
   const [barcodeError, setBarcodeError] = useState('');
+  const [productMatch, setProductMatch] = useState(null);
   /* identifying fields other than the barcode box (item code, e-commerce code,
      product name, supplier code) - section "automatic field population" */
   const [identifyBy, setIdentifyBy] = useState('itemCode');
@@ -215,22 +218,26 @@ export default function ProductEccomAddPage() {
     setIdentifyOpen(false);
     setLookupNotice('');
     if (match.barcode) {
+      manualRef.current = new Set();
+      setData({ ...DEFAULT_DATA });
       setBarcodePickerOpen(false);
       setBarcodeInput(match.barcode);
       return;
     }
     /* an item that has no barcode cannot be listed yet: fill what is known and
        say so instead of leaving a silently half-filled form */
+    manualRef.current = new Set();
     setBarcodeError('');
     setItemDetails(null);
+    setProductMatch(null);
     setResolvedBarcode('');
     setLookupNotice('This item has no barcode yet, so only the item and its codes could be filled.');
-    setData((d) => ({
-      ...d,
+    setData({
+      ...DEFAULT_DATA,
       itemId: match.itemId,
-      displayName: d.displayName || match.name || '',
-      ecommItemCode: d.ecommItemCode || match.itemCode || '',
-    }));
+      displayName: match.name || '',
+      ecommItemCode: match.itemCode || '',
+    });
   }, []);
 
   useEffect(() => {
@@ -288,6 +295,7 @@ export default function ProductEccomAddPage() {
     const timer = setTimeout(async () => {
       setBarcodeLoading(true);
       setBarcodeError('');
+      setProductMatch(null);
       try {
         const query = new URLSearchParams({ barcodeLookup: barcode, business });
         const response = await fetch(`/api/product-eccom?${query}`, {
@@ -297,36 +305,42 @@ export default function ProductEccomAddPage() {
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || 'Could not look up this barcode.');
 
+        setProductMatch(result.productMatch || null);
         setItemDetails(result.item);
         setResolvedBarcode(result.barcodeNo || result.barcode || '');
         setBarcodePickerOpen(false);
-        /* start from the defaults, not the previous product: values such as an old
-           `barcodes` list must not carry over onto the barcode just looked up */
-        /* Values the user typed themselves survive the lookup. Editing the
-           barcode re-runs this effect, and silently replacing a hand-entered
-           name, price or quantity would lose work the operator cannot see. The
-           count is reported so they know what was kept as typed. */
+        /* Start from the defaults, not the previous product. The barcode box
+           identifies one garment; no field of the last garment - least of all
+           its `isPublished` answer - may survive into this one. */
         const current = dataRef.current || {};
         const next = {
           ...DEFAULT_DATA,
           ...Object.fromEntries(Object.entries(result.data || {}).filter(([key]) =>
-            !['_id', '__v', 'businessId', 'createdAt', 'updatedAt', 'isActive'].includes(key))),
+            ![
+              '_id', '__v', 'businessId', 'createdAt', 'updatedAt', 'isActive',
+              'barcode', 'barcodes', 'publishedBarcodes',
+            ].includes(key))),
+          /* the server answers for THIS barcode only */
           isPublished: parseEcommerceVisibility(result.data?.isPublished) ?? false,
           itemId: result.item.id,
         };
+        /* Only edits made for the barcode currently in the box survive. A new
+           barcode clears manualRef in onBarcodeChange, so nothing crosses over. */
         const kept = [...manualRef.current].filter((key) =>
           key !== 'itemId'
+          && key !== 'isPublished'
+          && key !== 'barcode'
+          && key !== 'barcodes'
+          && key !== 'publishedBarcodes'
           && current[key] !== undefined
           && current[key] !== null
           && current[key] !== ''
           && !(Array.isArray(current[key]) && !current[key].length));
         kept.forEach((key) => { next[key] = current[key]; });
         manualRef.current = new Set();
-        /* ONE PRODUCT ROW PER ITEM, ONE BARCODE PER PIECE. When this item's
-           saved product belongs to a sibling barcode, the values below are
-           THIS barcode's own (image, type, classifications) - so say plainly
-           which number the row is filed under, instead of letting a save
-           silently move it. */
+        /* When this item's product is filed under a sibling barcode, saving
+           only changes whether THIS barcode is shown; the existing product and
+           its other barcodes are untouched. */
         const savedFor = result.productMatch && result.productMatch.ownsBarcode === false
           ? String(result.productMatch.savedBarcode || '').trim()
           : '';
@@ -336,9 +350,8 @@ export default function ProductEccomAddPage() {
             : '',
           savedFor && savedFor !== (result.barcodeNo || '')
             ? 'This item\u2019s e-commerce product is saved for barcode ' + savedFor
-              + ', so its saved image and classifications do not apply here '
-              + '\u2014 the details below are ' + (result.barcodeNo || barcode) + '\u2019s own. '
-              + 'Saving files the product under ' + (result.barcodeNo || barcode) + '.'
+              + '. Saving only sets whether ' + (result.barcodeNo || barcode)
+              + ' is shown in E-commerce; the existing product settings and its other barcodes are unchanged.'
             : '',
         ].filter(Boolean).join(' '));
         setData(next);
@@ -351,6 +364,7 @@ export default function ProductEccomAddPage() {
         setErrors((current) => ({ ...current, itemId: '' }));
       } catch (lookupError) {
         if (lookupError.name !== 'AbortError') {
+          setProductMatch(null);
           setItemDetails(null);
           setBarcodeError(lookupError.message || 'Could not look up this barcode.');
         }
@@ -471,75 +485,86 @@ export default function ProductEccomAddPage() {
   /* "Show in E-commerce" ticks a flag the storefront requires; publishing an
      inactive row would still hide it, so the other two flags follow along. */
   const togglePublished = (checked) => {
-    manualRef.current.add('isPublished');
     setData((d) => ({ ...d, isPublished: checked, ...(checked ? { isActive: true, status: 'active' } : {}) }));
   };
 
-  /* picking the item fills Display Name and Ecomm Item Code when still empty */
+  /* picking the item fills Display Name and Ecomm Item Code; it is a different
+     product, so no field of the previous barcode survives */
   const pickItem = (v) => {
     const it = items.find((o) => o.value === v);
+    manualRef.current = new Set();
     setBarcodeInput('');
     setItemDetails(null);
+    setProductMatch(null);
+    setResolvedBarcode('');
     setBarcodeError('');
-    setData((d) => ({
-      ...d,
+    setLookupNotice('');
+    setData({
+      ...DEFAULT_DATA,
       itemId: v,
-      displayName: d.displayName || it?.name || it?.label || '',
-      ecommItemCode: d.ecommItemCode || it?.code || '',
-    }));
+      displayName: it?.name || it?.label || '',
+      ecommItemCode: it?.code || '',
+    });
     setErrors((e) => ({ ...e, itemId: '' }));
   };
 
-  /* Typing/clearing in the Barcode box used to reset the WHOLE form on every
-     keystroke (setData({...4 defaults})), which wiped itemId/displayName
-     (both required) if you so much as corrected a character after a lookup
-     had already filled them in — Save would then fail or save a near-empty
-     row. We now only reset the form when a fresh barcode is being started
-     (box was empty, user just typed the first character), which is the one
-     moment a full reset is actually wanted. Clearing the box back to empty
-     also resets, since that's "I'm starting over", but editing mid-barcode
-     no longer touches the rest of the form. */
+  /* The barcode box identifies ONE garment. Every change - typing, correcting,
+     clearing or picking from the list - starts that garment's form from the
+     defaults, so an `isPublished` answer or any other field of the previous
+     barcode can never be saved onto the new one. */
   const onBarcodeChange = (event) => {
     const value = event.target.value;
-    const wasEmpty = barcodeInput.trim() === '';
-    const isEmptyNow = value.trim() === '';
+    manualRef.current = new Set();
     setBarcodeInput(value);
     /* typing in the box that is still focused after a pick shows the list again (29-10-2026) */
     setBarcodePickerOpen(true);
     setItemDetails(null);
+    setProductMatch(null);
     setResolvedBarcode('');
     setBarcodeError('');
-    if ((wasEmpty && !isEmptyNow) || isEmptyNow) {
-      setData(DEFAULT_DATA);
-    }
+    setLookupNotice('');
+    setData({ ...DEFAULT_DATA });
   };
 
   const selectBarcode = (option) => {
+    manualRef.current = new Set();
     setBarcodeInput(option.value);
     setItemDetails(null);
+    setProductMatch(null);
     setResolvedBarcode('');
     setBarcodeError('');
+    setLookupNotice('');
     setBarcodeOptions([]);
     setBarcodePickerOpen(false);
-    setData(DEFAULT_DATA);
+    setData({ ...DEFAULT_DATA });
   };
 
   async function save() {
     setSaving(true);
     setError('');
     try {
+      /* Save the barcode currently in the box, not a value left in `data` by
+         an earlier lookup. */
+      const saveBarcode = (resolvedBarcode || barcodeInput.trim()).trim();
+      const visibilityOnly = productMatch?.ownsBarcode === false && Boolean(saveBarcode);
+      const published = parseEcommerceVisibility(data.isPublished) ?? false;
       const r = await fetch('/api/product-eccom', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           business,
-          data: {
-            ...data,
-            isPublished: parseEcommerceVisibility(data.isPublished) ?? false,
-            /* the storefront needs all three flags, so publishing sets them */
-            ...(parseEcommerceVisibility(data.isPublished) === true ? { isActive: true, status: 'active' } : {}),
-            ...((resolvedBarcode || barcodeInput.trim()) ? { barcode: resolvedBarcode || barcodeInput.trim() } : {}),
-          },
+          ...(saveBarcode ? { barcode: saveBarcode } : {}),
+          ...(visibilityOnly ? { addBarcodeToExisting: saveBarcode } : {}),
+          data: visibilityOnly
+            /* a sibling save may only flip this barcode's flag */
+            ? { itemId: data.itemId, isPublished: published }
+            : {
+              ...data,
+              isPublished: published,
+              /* the storefront needs all three flags, so publishing sets them */
+              ...(published === true ? { isActive: true, status: 'active' } : {}),
+              ...(saveBarcode ? { barcode: saveBarcode } : {}),
+            },
         }),
       });
       const d = await r.json().catch(() => ({}));
@@ -881,8 +906,14 @@ export default function ProductEccomAddPage() {
             </div>
             <div className="mt-4 flex justify-end gap-2">
               <button type="button" className="btn" onClick={() => router.push('/admin/ecommerce/product-eccom')}>Cancel</button>
-              <button type="button" className="btn btn-primary" disabled={saving} onClick={save}>
-                {saving ? <span className="spin" /> : <Icon name="save" size={14} />} Save
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={saving || barcodeLoading || !data.itemId || (Boolean(barcodeInput.trim()) && !resolvedBarcode)}
+                onClick={save}
+              >
+                {saving ? <span className="spin" /> : <Icon name="save" size={14} />}
+                {productMatch?.ownsBarcode === false ? ' Save visibility' : ' Save'}
               </button>
             </div>
             </>
