@@ -482,7 +482,17 @@ export default function ProductEccomPage() {
          these keys by name - see resolveProductFilters in /api/product-eccom. */
       headerDates: ['startDate', 'endDate'],
       filters: [
-        { k: 'barcodeNo', label: 'Barcode Number', type: 'text', placeholder: 'Barcode number' },
+        /* The Master Stock Report's Barcode Number search, reused as-is: type
+           or scan a number, pick from the suggestions, press Enter and repeat.
+           Several barcodes can be chosen at once and the list answers ANY of
+           them (the route matches on barcodeNo / barcodeGenerated / oldBarcode). */
+        {
+          k: 'barcodeNo',
+          label: 'Barcode Number',
+          type: 'tags',
+          placeholder: 'Type barcode, press Enter',
+          suggest: '/api/reports/barcode-suggest',
+        },
         { k: 'groupName', label: 'Group Name', type: 'ref', ref: 'product/group', all: 'Select Group', showAllOptions: true },
         { k: 'itemId', label: 'Item Code', type: 'ref', ref: 'item-code', multi: true, all: 'Type to search', showAllOptions: true },
         { k: 'hsn', label: 'HSN', type: 'text', placeholder: 'HSN code' },
