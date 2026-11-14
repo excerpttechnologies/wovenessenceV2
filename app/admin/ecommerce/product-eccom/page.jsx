@@ -228,7 +228,7 @@
 
 
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import ListView from '@/components/ListviewEccom';
 import Modal from '@/components/Modal';
@@ -378,20 +378,87 @@ function ProductView({ row }) {
 
 export default function ProductEccomPage() {
   const router = useRouter();
-  const { business } = useScope();
+  const { business, location } = useScope();
   const [fields, setFields] = useState(null);
   const [viewing, setViewing] = useState(null);
   /* Map<_id, { barcode, itemId }>: the listing row is a barcode, not the
      ecommerceproduct _id, so the barcode is what the PATCH must receive. */
   const [selectedProducts, setSelectedProducts] = useState(() => new Map());
+  const [listResult, setListResult] = useState(null);
+  const [selectingAll, setSelectingAll] = useState(false);
   const [bulkSaving, setBulkSaving] = useState(false);
   const [bulkError, setBulkError] = useState('');
   const [listVersion, setListVersion] = useState(0);
+  const selectionRequestRef = useRef(0);
+  const selectionContextRef = useRef(null);
 
   useEffect(() => {
+    selectionRequestRef.current += 1;
     setSelectedProducts(new Map());
+    setListResult(null);
+    setSelectingAll(false);
     setBulkError('');
-  }, [business]);
+  }, [business, location]);
+
+  const handleSelectionContextChange = useCallback((contextKey) => {
+    if (selectionContextRef.current === contextKey) return;
+    selectionContextRef.current = contextKey;
+    selectionRequestRef.current += 1;
+    setSelectedProducts(new Map());
+    setListResult(null);
+    setSelectingAll(false);
+    setBulkError('');
+  }, []);
+
+  const handleListResult = useCallback((result) => {
+    setListResult({
+      query: result.query,
+      total: Math.max(0, Number(result.total) || 0),
+    });
+  }, []);
+
+  const selectAllFilteredProducts = useCallback(async () => {
+    if (!listResult?.query || !listResult.total || selectingAll || !business) return;
+    const requestId = ++selectionRequestRef.current;
+    const params = new URLSearchParams(listResult.query);
+    ['page', 'perPage', 'sortBy', 'sortDir'].forEach((key) => params.delete(key));
+    params.set('selectionOnly', '1');
+    setSelectingAll(true);
+    setBulkError('');
+
+    try {
+      const response = await fetch('/api/product-eccom?' + params.toString(), { cache: 'no-store' });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Could not select filtered products.');
+      if (requestId !== selectionRequestRef.current) return;
+
+      const rows = Array.isArray(result.rows) ? result.rows : [];
+      const next = new Map(rows.map((row) => [
+        String(row._id || ''),
+        {
+          barcode: String(row.barcode || '').trim(),
+          itemId: String(row.itemId || '').trim(),
+        },
+      ]).filter(([id]) => id));
+      setSelectedProducts(next);
+      setListResult((current) => current
+        ? { ...current, total: Math.max(0, Number(result.total) || 0) }
+        : current);
+    } catch (error) {
+      if (requestId === selectionRequestRef.current) {
+        setBulkError(error.message || 'Could not select filtered products.');
+      }
+    } finally {
+      if (requestId === selectionRequestRef.current) setSelectingAll(false);
+    }
+  }, [business, listResult, selectingAll]);
+
+  const clearProductSelection = useCallback(() => {
+    selectionRequestRef.current += 1;
+    setSelectedProducts(new Map());
+    setSelectingAll(false);
+    setBulkError('');
+  }, []);
 
   const enableSelectedProducts = async () => {
     const items = [...selectedProducts.values()]
@@ -469,8 +536,13 @@ export default function ProductEccomPage() {
       basePath: '/admin/ecommerce/',
       slugPath: 'product-eccom',
       endpoint: '/api/product-eccom',
-      scope: ['business'],
+      /* business AND location: the top bar's Company and Location are this
+         page's data context, so the list waits for both to resolve before it
+         queries rather than loading the whole company first. */
+      scope: ['business', 'location'],
       fixedQuery: PRODUCT_LIST_FIXED_QUERY,
+      onListResult: handleListResult,
+      onSelectionContextChange: handleSelectionContextChange,
       fullExport: {
         endpoint: '/api/product-eccom',
         title: 'Ecommerce Product Export',
@@ -499,8 +571,12 @@ export default function ProductEccomPage() {
         { k: 'gst', label: 'GST %', type: 'text', placeholder: 'GST %' },
 
         /* Location is drawn in the filter card's scope row, from the same
-           useScope().locations list the top bar uses. Empty = All Locations. */
-        { k: 'locationFilter', label: 'Location', type: 'location', all: 'All Locations' },
+           useScope().locations list the top bar uses. Empty = All Locations.
+           The scope row and the Basic Filters box are ONE control: same key,
+           same list. `def` opens it on the location the top bar is on, so the
+           first load is already the Company + Location context and not the
+           whole company. */
+        { k: 'locationFilter', label: 'Location', type: 'location', all: 'All Locations', def: location || '' },
 
         { k: 'city', label: 'City', type: 'city', placeholder: 'Type city', suggest: '/api/cities' },
         {
@@ -537,7 +613,7 @@ export default function ProductEccomPage() {
           icon: 'barcode',
           color: '#2563a9',
           cols: 5,
-          fields: ['barcodeNo', 'groupName', 'itemId', 'hsn', 'gst'],
+          fields: ['barcodeNo', 'groupName', 'itemId', 'hsn', 'gst', 'locationFilter'],
         },
         {
           title: 'Supplier & Inventory',
@@ -571,15 +647,32 @@ export default function ProductEccomPage() {
       ],
       /* ADD opens a form with every field of the collection (./add) */
       addHref: '/admin/ecommerce/product-eccom/add',
-      beforeTable: selectedProducts.size > 0 && (
+      beforeTable: listResult && (
         <div className="mb-3 flex flex-wrap items-center gap-2 rounded border border-line bg-white p-3">
           <span className="mr-2 text-[13px] font-medium text-ink">
-            {selectedProducts.size} product{selectedProducts.size === 1 ? '' : 's'} selected
+            {listResult.total} PRODUCTS FOUND
+          </span>
+          <span className="mr-2 text-[13px] font-medium text-ink">
+            {selectedProducts.size} PRODUCTS SELECTED
           </span>
           <button
             type="button"
+            className="btn"
+            disabled={selectingAll || bulkSaving || !listResult.total || !business}
+            onClick={selectedProducts.size === listResult.total && listResult.total > 0
+              ? clearProductSelection
+              : selectAllFilteredProducts}
+          >
+            {selectingAll
+              ? 'Selecting...'
+              : selectedProducts.size === listResult.total && listResult.total > 0
+                ? 'Unselect All'
+                : 'Select All'}
+          </button>
+          <button
+            type="button"
             className="btn btn-primary"
-            disabled={bulkSaving || !business}
+            disabled={bulkSaving || selectingAll || selectedProducts.size === 0 || !business}
             onClick={enableSelectedProducts}
           >
             {bulkSaving ? 'Saving...' : 'Show in E-commerce'}
@@ -587,8 +680,8 @@ export default function ProductEccomPage() {
           <button
             type="button"
             className="btn btn-ghost"
-            disabled={bulkSaving}
-            onClick={() => setSelectedProducts(new Map())}
+            disabled={bulkSaving || selectingAll || selectedProducts.size === 0}
+            onClick={clearProductSelection}
           >
             Clear selection
           </button>
@@ -621,6 +714,7 @@ export default function ProductEccomPage() {
             <input
               type="checkbox"
               checked={selectedProducts.has(row._id)}
+              disabled={selectingAll}
               aria-label={`Select product ${row.barcode || row.displayName || row._id}`}
               onChange={() => {
                 setSelectedProducts((current) => {
@@ -646,13 +740,30 @@ export default function ProductEccomPage() {
         },
       ],
     };
-  }, [bulkError, bulkSaving, business, fields, selectedProducts]);
+  }, [
+    bulkError,
+    bulkSaving,
+    business,
+    clearProductSelection,
+    fields,
+    handleListResult,
+    handleSelectionContextChange,
+    listResult,
+    location,
+    selectAllFilteredProducts,
+    selectingAll,
+    selectedProducts,
+  ]);
 
   if (!business) return <div className="card p-6 text-[13px] text-inkmuted">Select a Business in the top bar first.</div>;
   if (fields === null) return <div className="card p-6 text-[13px] text-inkmuted">Loading...</div>;
   return (
     <>
-      <ListView key={cfg.columns.map((c) => c.k).join('|')} cfg={cfg} reloadKey={listVersion} />
+      <ListView
+        key={`${business || ''}:${location || ''}|${cfg.columns.map((c) => c.k).join('|')}`}
+        cfg={cfg}
+        reloadKey={listVersion}
+      />
       <Modal
         open={Boolean(viewing)}
         title="Product details"

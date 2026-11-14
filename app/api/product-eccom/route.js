@@ -3876,7 +3876,16 @@ async function resolveProductFilters(sp, businessId) {
   return { ands, exprs, active };
 }
 
-async function listAllErpBarcodes({ businessId, search, page, perPage, sortBy, sortDir, productFilter = null }) {
+async function listAllErpBarcodes({
+  businessId,
+  search,
+  page,
+  perPage,
+  sortBy,
+  sortDir,
+  productFilter = null,
+  selectionOnly = false,
+}) {
   const database = mongoose.connection.db;
   const itemCollection = database.collection('item');
   const barcodeCollection = database.collection('barcodeLabel');
@@ -4148,6 +4157,16 @@ async function listAllErpBarcodes({ businessId, search, page, perPage, sortBy, s
     });
   });
   const total = filtered.length;
+  if (selectionOnly) {
+    return {
+      rows: filtered.map((row) => ({
+        _id: row._id,
+        barcode: row.barcode,
+        itemId: String(row.itemId || ''),
+      })),
+      total,
+    };
+  }
   const rows = filtered.slice((page - 1) * perPage, page * perPage);
 
   /* Staff-uploaded photos live in `productImage` (written by the mobile app),
@@ -5053,6 +5072,7 @@ export async function GET(req) {
       sortBy: sp.get('sortBy'),
       sortDir: sp.get('sortDir'),
       productFilter,
+      selectionOnly: sp.get('selectionOnly') === '1',
     });
     return json(rows);
   }

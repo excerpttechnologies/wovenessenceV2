@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import Icon from '@/components/Icon';
 import MultiSelect from '@/components/MultiSelect';
 import ClassificationPicker from '@/components/ClassificationPicker';
+import ProductGalleryManager from '@/components/ProductGalleryManager';
 import { useScope } from '@/components/ScopeContext';
 import {
   CLASSIFICATION_GROUPS,
@@ -65,6 +66,8 @@ const SKIP = new Set([
   'colourDescription', 'craftDescription', 'fabricDescription',
   'occasionDescription', 'weaveDescription',
   'ecommOffPercent', 'barcodePriceOverride', 'barcodeQtyOverride',
+  /* managed by ProductGalleryManager below, not the generic lines field */
+  'additionalImages',
 ]);
 
 /* A product reaches the website only when it is published, active and its
@@ -860,6 +863,18 @@ export default function ProductEccomAddPage() {
                 </div>
               ))}
             </div>
+            {/* Real product photos for this one product. Uploads are stored by
+                the ERP gallery endpoint and saved into additionalImages + the
+                `image` primary field, which the Save below persists. */}
+            {(resolvedBarcode || barcodeInput).trim().toUpperCase() !== '4A1085' && (
+              <ProductGalleryManager
+                sku={(resolvedBarcode || barcodeInput).trim()}
+                primary={String(data.image || '')}
+                images={Array.isArray(data.additionalImages) ? data.additionalImages : []}
+                onPrimaryChange={(url) => set('image', url)}
+                onImagesChange={(urls) => set('additionalImages', urls)}
+              />
+            )}
             {classificationFields.length > 0 && (
               <section className="mt-4 rounded border border-line bg-slate-50 p-3" aria-live="polite">
                 <h2 className="text-[12px] font-bold uppercase tracking-wide text-ink">

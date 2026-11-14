@@ -2,6 +2,7 @@ import { isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
 import { Supplier } from '@/lib/contacts';
+import CompanyLocation from '@/models/CompanyLocation';
 import { BarcodeLabel } from '@/lib/barcodeLabel';
 import {
   json, r2, scopeOf, pageOf, paged, salesDocuments, costByItemCode,
@@ -29,6 +30,37 @@ import {
    so the report fills in the moment the capture gap is closed.
    --------------------------------------------------------------------------- */
 
+const text = (value) => String(value ?? '').trim();
+const barcodeKey = (value) => text(value).toLowerCase();
+
+function qtyOf(line) {
+  return lineQty(line) || num(line.quantity ?? line.Quantity);
+}
+
+function amountOf(line, qty) {
+  const netKeys = ['netAmount', 'Net Amount', 'beforeTax', 'Before Tax'];
+  const hasNetAmount = netKeys.some((key) => (
+    line?.[key] !== undefined && line[key] !== null && line[key] !== ''
+  ));
+  if (hasNetAmount) return lineNet(line);
+  return num(line.rate ?? line.rsp ?? line.price ?? line.Rate) * qty;
+}
+
+function taxOf(line) {
+  return lineTax(line)
+    || num(line.taxAmount ?? line['Tax Amount'] ?? line.gstAmount ?? line['GST Amount']);
+}
+
+function barcodeOf(line) {
+  return text(line.barcodeNo ?? line.barcode ?? line.barcodeGenerated ?? line['Barcode No']);
+}
+
+function rateOf(barcode) {
+  return num(barcode?.finalNet) || num(barcode?.purRate);
+}
+
+
+
 export async function GET(req) {
   const session = await requireSession();
   if (!session) return json({ error: 'Unauthorized' }, 401);
@@ -37,116 +69,164 @@ export async function GET(req) {
   await dbConnect();
 
   const scope = scopeOf(sp);
-  const { page, perPage } = pageOf(sp);
-
+  if (!scope.businessId) {
+    return json({ error: 'Select a business to run this report.' }, 422);
+  }
   if (!sp.get('fromDate') || !sp.get('toDate')) {
     return json({ error: 'Date From and Date To are required.' }, 422);
   }
 
-  const reportType = sp.get('reportType') === 'item' ? 'item' : 'summary';
-  const wantSupplier = sp.get('supplierId');
+  const { page: requestedPage, perPage } = pageOf(sp);
+  if (sp.get('reportType') && sp.get('reportType') !== 'summary') {
+    return json({ error: 'Only Sales Summary is supported.' }, 422);
+  }
+  const supplierFilter = sp.get('supplierId') || '';
+  if (supplierFilter && !isValidObjectId(supplierFilter)) {
+    return json({ error: 'Supplier is invalid.' }, 422);
+  }
 
   const { sales } = await salesDocuments(sp, scope);
-  const lines = sales.flatMap((d) => linesOf(d));
+  const entries = sales.flatMap((document) =>
+    linesOf(document).map((line) => ({ document, line }))
+  );
+  const codes = [...new Set(entries.map(({ line }) => lineItemCode(line)).filter(Boolean))];
+  const barcodes = [...new Set(entries.map(({ line }) => barcodeOf(line)).filter(Boolean))];
+  const barcodeOr = [];
+  if (codes.length) barcodeOr.push({ itemCode: { $in: codes } });
+  if (barcodes.length) {
+    barcodeOr.push(
+      { barcodeNo: { $in: barcodes } },
+      { barcodeGenerated: { $in: barcodes } },
+      { oldBarcode: { $in: barcodes } }
+    );
+  }
 
-  const codes = [...new Set(lines.map(lineItemCode).filter(Boolean))];
-
-  /* cost, and the vendor each item was received from - both off the barcode
-     rows, resolved once for every code on the report */
-  const [costs, barcodeRows] = await Promise.all([
+  const barcodeFilter = {
+    ...(scope.businessId ? { businessId: String(scope.businessId) } : {}),
+    $or: barcodeOr.length ? barcodeOr : [{ _id: null }],
+  };
+  const [barcodeRows, costs] = await Promise.all([
+    BarcodeLabel.find(barcodeFilter)
+      .select('itemCode barcodeNo barcodeGenerated oldBarcode supplierId finalNet purRate')
+      .lean(),
     costByItemCode(codes, scope.businessId),
-    codes.length
-      ? BarcodeLabel.find({
-        itemCode: { $in: codes },
-        ...(scope.businessId ? { businessId: String(scope.businessId) } : {}),
-      }).select('itemCode supplierId').lean()
+  ]);
+
+  const barcodeByNumber = new Map();
+  const barcodeByCode = new Map();
+  barcodeRows.forEach((barcode) => {
+    [barcode.barcodeNo, barcode.barcodeGenerated, barcode.oldBarcode]
+      .map(barcodeKey)
+      .filter(Boolean)
+      .forEach((key) => { if (!barcodeByNumber.has(key)) barcodeByNumber.set(key, barcode); });
+    const code = text(barcode.itemCode);
+    if (code && !barcodeByCode.has(code)) barcodeByCode.set(code, barcode);
+  });
+
+  const grouped = new Map();
+  entries.forEach(({ document, line }) => {
+    const code = lineItemCode(line);
+    const sourceBarcode = barcodeByNumber.get(barcodeKey(barcodeOf(line)));
+    const itemBarcode = sourceBarcode || barcodeByCode.get(code);
+    const supplierId = text(line.supplierId || line.SupplierId || itemBarcode?.supplierId);
+    if (supplierFilter && supplierId !== supplierFilter) return;
+
+    const locationId = text(document.locationId);
+    const key = `${locationId}|${supplierId}`;
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        key,
+        locationId,
+        supplierId,
+        saleQty: 0,
+        saleAmount: 0,
+        saleTax: 0,
+        totalCost: 0,
+      });
+    }
+
+    const row = grouped.get(key);
+    const qty = qtyOf(line);
+    row.saleQty += qty;
+    row.saleAmount += amountOf(line, qty);
+    row.saleTax += taxOf(line);
+    row.totalCost += (rateOf(sourceBarcode) || costs.get(code) || rateOf(itemBarcode) || 0) * qty;
+  });
+
+  const locationIds = [...new Set([...grouped.values()].map((row) => row.locationId))]
+    .filter(isValidObjectId);
+  const supplierIds = [...new Set([...grouped.values()].map((row) => row.supplierId))]
+    .filter(isValidObjectId);
+
+  const [locations, suppliers] = await Promise.all([
+    locationIds.length
+      ? CompanyLocation.find({ _id: { $in: locationIds } }).select('name businessPrintName').lean()
+      : [],
+    supplierIds.length
+      ? Supplier.find({ _id: { $in: supplierIds } })
+        .select('businessName firstName lastName gstNo billingMobile').lean()
       : [],
   ]);
 
-  const supplierByCode = new Map();
-  barcodeRows.forEach((b) => {
-    const code = String(b.itemCode || '');
-    if (code && b.supplierId && !supplierByCode.has(code)) {
-      supplierByCode.set(code, String(b.supplierId));
-    }
-  });
+  const locationById = new Map(locations.map((location) => [String(location._id), location]));
+  const supplierById = new Map(suppliers.map((supplier) => [String(supplier._id), supplier]));
+  const search = (sp.get('q') || '').trim().toLowerCase();
 
-  const supplierIds = [...new Set(supplierByCode.values())].filter((id) => isValidObjectId(id));
-  const suppliers = supplierIds.length
-    ? await Supplier.find({ _id: { $in: supplierIds } })
-      .select('businessName firstName lastName gstNo billingMobile').lean()
-    : [];
-  const supplierById = new Map(suppliers.map((s) => [String(s._id), s]));
-
-  /* ------------------------------------------------------------ group up */
-  const acc = new Map();
-
-  lines.forEach((l) => {
-    const code = lineItemCode(l);
-    const supplierId = supplierByCode.get(code) || '';
-
-    /* the Supplier filter narrows to one vendor's items */
-    if (wantSupplier && isValidObjectId(wantSupplier) && supplierId !== String(wantSupplier)) return;
-
-    const key = reportType === 'item' ? code : supplierId;
-    if (!acc.has(key)) {
-      acc.set(key, { key, code, name: '', supplierId, qty: 0, amount: 0, tax: 0, cost: 0 });
-    }
-
-    const row = acc.get(key);
-    const qty = lineQty(l);
-    if (!row.name) row.name = lineItemName(l);
-    row.qty += qty;
-    row.amount += lineNet(l);
-    row.tax += lineTax(l);
-    row.cost += (costs.get(code) || 0) * qty;
-  });
-
-  const rows = [...acc.values()].map((r) => {
-    const s = supplierById.get(r.supplierId);
-    const supplierName = s
-      ? (s.businessName || [s.firstName, s.lastName].filter(Boolean).join(' ') || '')
+  const rows = [...grouped.values()].map((row) => {
+    const location = locationById.get(row.locationId);
+    const supplier = supplierById.get(row.supplierId);
+    const saleAmount = r2(row.saleAmount);
+    const totalCost = r2(row.totalCost);
+    const totalProfit = r2(saleAmount - totalCost);
+    const supplierName = supplier
+      ? supplier.businessName || [supplier.firstName, supplier.lastName].filter(Boolean).join(' ')
       : '';
-    const amount = r2(r.amount);
-    const cost = r2(r.cost);
-    const profit = r2(amount - cost);
 
     return {
-      _id: r.key || '(unknown)',
-      /* an item-wise row names the item; a summary row names the vendor */
-      supplierName: reportType === 'item' ? (r.name || r.code) : supplierName,
-      saleQty: r2(r.qty),
-      saleAmount: amount,
-      saleTax: r2(r.tax),
-      totalCost: cost,
-      totalProfit: profit,
-      profitPct: amount ? r2((profit / amount) * 100) : 0,
-      supplierGstNo: s?.gstNo || '',
-      supplierMobile: s?.billingMobile || '',
+      _id: row.key || '(unknown)',
+      locationId: row.locationId,
+      locationName: location?.name || location?.businessPrintName || '',
+      supplierId: row.supplierId,
+      supplierName,
+      supplierGstNo: supplier?.gstNo || '',
+      supplierMobile: supplier?.billingMobile || '',
+      saleQty: r2(row.saleQty),
+      saleAmount,
+      saleTax: r2(row.saleTax),
+      totalCost,
+      totalProfit,
+      profitPct: saleAmount ? r2((totalProfit / saleAmount) * 100) : 0,
     };
   })
-    /* A line with no quantity, no value and no cost contributes nothing, and
-       an unattributed line groups under an empty supplier - together they
-       produce one blank row of zeroes that reads as a broken report rather
-       than an empty one. Until the Sell screens capture quantities and rates
-       every line looks like that, so drop them and let the table say "No data
-       found". */
-    .filter((r) => r.saleQty || r.saleAmount || r.totalCost)
-    .sort((a, b) => b.saleAmount - a.saleAmount);
-
-  const sum = (k) => r2(rows.reduce((a, r) => a + r[k], 0));
-  const p = paged(rows, page, perPage);
+    .filter((row) => row.saleQty || row.saleAmount || row.saleTax || row.totalCost)
+    .filter((row) => !search || [
+      row.locationName, row.supplierName, row.supplierGstNo, row.supplierMobile,
+    ].some((value) => value.toLowerCase().includes(search)))
+    .sort((a, b) => b.saleAmount - a.saleAmount
+      || a.locationName.localeCompare(b.locationName)
+      || a.supplierName.localeCompare(b.supplierName));
 
   const totals = {
-    saleQty: sum('saleQty'),
-    saleAmount: sum('saleAmount'),
-    saleTax: sum('saleTax'),
-    totalCost: sum('totalCost'),
-    totalProfit: sum('totalProfit'),
+    saleQty: r2(rows.reduce((sum, row) => sum + row.saleQty, 0)),
+    saleAmount: r2(rows.reduce((sum, row) => sum + row.saleAmount, 0)),
+    saleTax: r2(rows.reduce((sum, row) => sum + row.saleTax, 0)),
+    totalCost: r2(rows.reduce((sum, row) => sum + row.totalCost, 0)),
+    totalProfit: r2(rows.reduce((sum, row) => sum + row.totalProfit, 0)),
+  };
+
+  const exportAll = sp.get('export') === '1';
+  const pages = Math.max(1, Math.ceil(rows.length / perPage));
+  const page = exportAll ? 1 : Math.min(requestedPage, pages);
+  const pageRows = exportAll ? rows : paged(rows, page, perPage).rows;
+  const pageTotals = {
+    saleQty: r2(pageRows.reduce((sum, row) => sum + row.saleQty, 0)),
+    saleAmount: r2(pageRows.reduce((sum, row) => sum + row.saleAmount, 0)),
+    saleTax: r2(pageRows.reduce((sum, row) => sum + row.saleTax, 0)),
+    totalCost: r2(pageRows.reduce((sum, row) => sum + row.totalCost, 0)),
+    totalProfit: r2(pageRows.reduce((sum, row) => sum + row.totalProfit, 0)),
   };
 
   return json({
-    /* the five stat tiles above the table */
     tiles: {
       totalSaleQty: totals.saleQty,
       totalSaleAmount: totals.saleAmount,
@@ -154,10 +234,13 @@ export async function GET(req) {
       totalCost: totals.totalCost,
       totalProfit: totals.totalProfit,
     },
-    sections: [{ rows: p.rows, count: p.total, totals }],
-    total: p.total,
-    pages: p.pages,
+    rows: pageRows,
+    total: rows.length,
+    pages,
     page,
     perPage,
+    totals,
+    pageTotals,
+    sections: [{ rows: pageRows, count: rows.length, totals: pageTotals }],
   });
 }

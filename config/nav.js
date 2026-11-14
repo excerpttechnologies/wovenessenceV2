@@ -634,6 +634,14 @@ export const NAV = [
         href: '/admin/reports/sales-analysis' },
       { label: 'Sales Report', icon: LuFileText,
         href: '/admin/reports/sales-report' },
+
+        { label: 'GST Report', icon: LuPercent,
+        href: '/admin/reports/gst-report' },
+      { label: 'HSN Summary', icon: LuScanBarcode,
+        href: '/admin/reports/hsn-summary' },
+      { label: 'GST Summary Report', icon: LuPercent,
+        href: '/admin/reports/gst-summary' },
+
       { label: 'Sales Person', icon: LuUserRound,
         href: '/admin/reports/sales-person' },
       { label: 'POS Summary', icon: LuMonitor,
@@ -644,6 +652,8 @@ export const NAV = [
         href: '/admin/reports/pos-credit-note' },
       { label: 'Item Stock', icon: LuWarehouse,
         href: '/admin/reports/item-stock' },
+        { label: 'Stock Summary Report', icon: LuWarehouse,
+        href: '/admin/reports/stock-summary' },
       /* Daily stock transactions from the movement ledger - received,
          transferred, returned, sold - by day, type, location, barcode
          and document. */
@@ -661,6 +671,8 @@ export const NAV = [
             href: '/admin/reports/customer-report' },
           { label: 'Customer Outstanding Report', icon: LuContactRound,
             href: '/admin/reports/customer-outstanding' },
+             { label: 'Transaction Summary Report', icon: LuBookMarked,
+        href: '/admin/reports/transaction-summary-report' },
         ],
       },
       /* Supplier stock reports - Summary -> Bill-wise -> Batch-wise, and the
@@ -684,22 +696,25 @@ export const NAV = [
      Barcode is the existing Barcode Generation screen, and Imports is the
      existing Excel / Data Import screen, so no route is duplicated behind a
      second implementation. */
-  // {
-  //   label: 'Tools',
-  //   icon: LuWrench,
-  //   children: [
-  //     { label: 'Barcode Split', icon: LuSplit,
-  //       href: '/admin/tools/barcode-split' },
-  //     { label: 'Barcode Merge', icon: LuLayers3,
-  //       href: '/admin/tools/barcode-merge' },
-  //     { label: 'Create New Barcode', icon: LuBarcode,
-  //       href: '/admin/inventory/barcode-generation' },
-  //     { label: 'UOM Conversion', icon: LuRuler,
-  //       href: '/admin/tools/uom-conversion' },
-  //     { label: 'Imports', icon: LuFileCog,
-  //       href: '/admin/report/data-import' },
-  //   ],
-  // },
+  {
+    label: 'Tools',
+    icon: LuWrench,
+    children: [
+      { label: 'Barcode Split', icon: LuSplit,
+        href: '/admin/tools/barcode-split' },
+      { label: 'Barcode Merge', icon: LuLayers3,
+        href: '/admin/tools/barcode-merge' },
+      { label: 'Create New Barcode', icon: LuBarcode,
+        href: '/admin/inventory/barcode-generation' },
+
+      { label: 'UOM Conversion', icon: LuRuler,
+        href: '/admin/tools/uom-conversion' },
+      { label: 'Imports', icon: LuFileCog,
+        href: '/admin/report/data-import' },
+    ],
+  },
+
+
 
   {
     label: 'Staff Management',

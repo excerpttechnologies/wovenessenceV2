@@ -4124,6 +4124,7 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
         summary: d.summary || null,
         perPage: Number(d.perPage) || null,
       });
+      cfg.onListResult?.({ query: qs.toString(), total: Number(d.total) || 0 });
     } catch (e) {
       if (seq === reqRef.current) setError("Network error - could not reach the server.");
     } finally {
@@ -4132,6 +4133,7 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
   }, [
     cfg.endpoint,
     cfg.title,
+    cfg.onListResult,
     slugPath,
     page,
     search,
@@ -4151,6 +4153,17 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
   useEffect(() => {
     load();
   }, [load]);
+  const selectionContextKey = JSON.stringify({
+    business,
+    location,
+    finYear,
+    search,
+    filters,
+    fixedQuery: cfg.fixedQuery || {},
+  });
+  useEffect(() => {
+    cfg.onSelectionContextChange?.(selectionContextKey);
+  }, [cfg.onSelectionContextChange, selectionContextKey]);
   /* skipped on mount - the effect above already loads once */
   useEffect(() => {
     if (reloadKey) load();

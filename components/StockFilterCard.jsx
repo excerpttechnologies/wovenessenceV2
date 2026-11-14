@@ -270,6 +270,11 @@ export default function StockFilterCard({
   onSearch,
   loading = false,
   business = '',
+  /* A screen that needs to do more on a company switch than change the
+     global branch (blank its own draft, re-run, ...) passes its handler here;
+     without one the card switches the branch itself and blanks the Location,
+     which cannot survive a move to another company. */
+  onCompanyChange = null,
   title = 'Filter',
   messages = null,
   hint = '',
@@ -283,6 +288,7 @@ export default function StockFilterCard({
     business: scopeBusiness,
     businessReady,
     locationReady,
+    setBusiness,
   } = useScope();
   const [folded, setFolded] = useState({});
   const byKey = useMemo(() => new Map(filters.map((f) => [f.k, f])), [filters]);
@@ -329,8 +335,18 @@ export default function StockFilterCard({
     return out;
   }, [businesses]);
 
-  /* Company is shown read-only here and controlled by the top bar, so the
-     top bar remains the single place that changes branch/location scope. */
+  /* Company is the top bar's own branch, edited here through the same global
+     setter: picking another company reloads the Location list and every
+     option list for it, exactly as the top bar does - there is no second
+     company source. A location picked under the old company does not exist in
+     the new one, so it is blanked as part of the switch unless the screen
+     handles the change itself. */
+  const switchCompany = (value) => {
+    if (!value || value === scopeBusiness) return;
+    if (onCompanyChange) { onCompanyChange(value); return; }
+    if (locationField) onChange?.(locationField.k, '');
+    setBusiness(value);
+  };
 
   return (
     <div className={'card stock-filter-card ' + className}>
@@ -361,14 +377,15 @@ export default function StockFilterCard({
             {locationField && (
               <div className="stock-filter-scope-company">
                 <label className={GROUP_LABEL}>Company</label>
-                <div
-                  className="f-input stock-filter-scope-readonly"
-                  title={companyOptions.find((o) => o.value === scopeBusiness)?.label || ''}
-                >
-                  {!businessReady
-                    ? 'Loading...'
-                    : companyOptions.find((o) => o.value === scopeBusiness)?.label || 'Select company in top bar'}
-                </div>
+                <MultiSelect
+                  mode="single"
+                  options={companyOptions}
+                  loading={!businessReady}
+                  disabled={!businessReady || !companyOptions.length}
+                  value={scopeBusiness || ''}
+                  placeholder="Select company"
+                  onChange={switchCompany}
+                />
               </div>
             )}
 
@@ -451,7 +468,27 @@ export default function StockFilterCard({
                   {(g.fields || []).map((entry) => {
                     if (typeof entry === 'string' || !entry.range) {
                       const f = byKey.get(typeof entry === 'string' ? entry : entry.k);
-                      if (!f || f.type === 'location') return null;
+                      if (!f) return null;
+                      /* A location field listed inside a section draws the
+                         SAME dropdown as the scope row - same draft key, same
+                         useScope().locations choices - so the two controls
+                         can never hold different values. */
+                      if (f.type === 'location') {
+                        return (
+                          <div key={f.k} className="stock-filter-field">
+                            <label className={GROUP_LABEL}>{f.label}</label>
+                            <MultiSelect
+                              mode="single"
+                              options={locationOptions}
+                              loading={!locationReady}
+                              disabled={!business}
+                              value={draft[f.k] || ''}
+                              placeholder={f.all || 'All Locations'}
+                              onChange={(v) => onChange?.(f.k, v)}
+                            />
+                          </div>
+                        );
+                      }
                       return (
                         <div
                           key={f.k}

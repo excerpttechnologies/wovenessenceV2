@@ -1,9 +1,9 @@
 'use client';
-import ReportView from '@/components/ReportView';
+import SalesReportView from './SalesReportView';
 import { REPORT } from './fields';
 
 /* Reports -> Sales Report */
 
 export default function SalesReportPage() {
-  return <ReportView spec={REPORT} />;
+ return <SalesReportView />;
 }

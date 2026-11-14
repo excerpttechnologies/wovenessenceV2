@@ -54,6 +54,7 @@ export const REPORT = {
       { k: 'profitPct', t: 'Profit %', f: 'amount' },
       { k: 'supplierGstNo', t: 'Supplier GST No' },
       { k: 'supplierMobile', t: 'Supplier Mobile' },
+       { k: 'locationName', t: 'Business Location' },
     ],
   }],
 };
