@@ -230,7 +230,8 @@ export async function GET(req) {
   const pricedRows = rows.map((r) => {
     const money = grcMoney(r, rowsByGrc.get(String(r._id)));
     const scopeKey = `${r.businessId}:${r.locationId}:${r.finYear}`;
-    const isLatest = latestByScope.get(scopeKey)?._id === r._id;
+    const latest = latestByScope.get(scopeKey);
+    const isLatest = latest ? String(latest._id) === String(r._id) : false;
     
     return {
       ...r,

@@ -73,8 +73,8 @@ export default function TransactionPurchaseGrcListPage() {
       { label: 'GRC Print', icon: 'printer', to: (r) => '/admin/transaction/purchase/grc/print/' + r._id },
       /* DELETE button - only for latest GRC */
       { label: 'Delete', icon: 'trash', action: 'delete', need: 'delete', show: (r) => r.isLatest === true },
-      /* CANCEL button - only for non-latest GRCs */
-      { label: 'Cancel', icon: 'x-circle', need: 'delete', onClick: handleCancel, show: (r) => r.isLatest === false },
+      /* CANCEL button - only for non-latest GRCs (using 'x' icon for cancel) */
+      { label: 'Cancel', icon: 'x', need: 'delete', onClick: handleCancel, show: (r) => r.isLatest !== true },
     ],
     
     filters: [
