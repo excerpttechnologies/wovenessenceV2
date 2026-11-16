@@ -2728,6 +2728,9 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
     ]
   )
     .filter((m) => {
+      /* Conditional rendering: m.show can be a function that receives the row */
+      if (m.show && typeof m.show === 'function' && !m.show(row)) return false;
+      /* Permission filtering */
       if (m.action === 'delete') return mayDelete;
       if (m.need === 'update') return mayUpdate;
       if (m.need === 'create') return mayCreate;

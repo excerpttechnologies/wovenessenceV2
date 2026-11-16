@@ -1,57 +1,9 @@
 'use client';
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import ListView from '@/components/ListView';
 import { useToast } from '@/components/ToastContext';
 
 /* Goods Receipt Challans - list. Columns declared here, not fetched from a registry. */
-
-const BASE_CONFIG = {
-  title: "Goods Receiptc Challans",
-  basePath: '/admin/',
-  slugPath: "transaction/purchase/grc",
-  endpoint: '/api/purchase-grc',
-  pager: 'numbered',
-  sortable: true,
-  scope: ["business","location","finYear"],
-  actionPosition: "right",
-  actionVariant: "buttons",
-  nowrapHead: true,
-  
-  /* Base action menu - will be extended with DELETE or CANCEL per row */
-  actionMenu: [
-    { label: 'Edit', icon: 'pencil', to: (r) => '/admin/transaction/purchase/grc/' + r._id, need: 'update' },
-    { label: 'Barcode Print', icon: 'barcode', to: (r) => '/admin/transaction/purchase/barcode-print/' + r._id },
-    { label: 'GRC Print', icon: 'printer', to: (r) => '/admin/transaction/purchase/grc/print/' + r._id },
-  ],
-  
-  filters: [
-    { k: "supplierId", label: "Supplier", type: "ref", ref: "supplier", placeholder: "Select Supplier" },
-    { k: "startDate", label: "Start Date", type: "date" },
-    { k: "endDate", label: "End Date", type: "date" },
-  ],
-  
-  columns: [
-    {
-      k: "supplierId",
-      t: "Vendor Name",
-      value: (r) => r.supplierName,
-      f: "text",
-      badge: (r) => r.purchaseInvoiceId ? { label: "verified", tone: "verified" } : null,
-    },
-    { k: "grcNumber", t: "GRC NO" },
-    { k: "grcDate", t: "GRC Date", f: "date" },
-    { k: "logisticId", t: "Logistic No", f: "ref" },
-    { k: "purchaseGroupId", t: "Purchase Group", f: "ref" },
-    { k: "occasion", t: "Occasion" },
-    { k: "agentId", t: "Agent", f: "ref" },
-    { k: "vendorDocNo", t: "Vendor Doc No" },
-    { k: "freightMode", t: "Purchase Term" },
-    { k: "taxable", t: "Taxable", f: "amount", value: (r) => r.taxable || 0 },
-    { k: "totalQuantity", t: "Total Quantity", f: "amount" },
-    { k: "gstAmount", t: "GST", f: "amount", value: (r) => r.gstAmount || 0 },
-    { k: "netAmount", t: "Net Amount", f: "amount", value: (r) => r.netAmount || 0 },
-  ],
-};
 
 export default function TransactionPurchaseGrcListPage() {
   const { showToast } = useToast();
@@ -94,7 +46,7 @@ export default function TransactionPurchaseGrcListPage() {
       }
 
       showToast(data.message || 'GRC cancelled successfully', 'success');
-      setReloadKey(prev => prev + 1); // Reload the list
+      setReloadKey(prev => prev + 1);
     } catch (err) {
       showToast('Failed to cancel GRC: ' + err.message, 'error');
     } finally {
@@ -102,31 +54,57 @@ export default function TransactionPurchaseGrcListPage() {
     }
   }
 
-  /* Extend actionMenu with row-specific actions */
-  const cfg = useMemo(() => ({
-    ...BASE_CONFIG,
-    actionMenu: (row) => {
-      const baseActions = [...BASE_CONFIG.actionMenu];
-      
-      /* Latest GRC gets DELETE button, all others get CANCEL button */
-      if (row.isLatest) {
-        return [
-          ...baseActions,
-          { label: 'Delete', icon: 'trash', action: 'delete', need: 'delete' },
-        ];
-      } else {
-        return [
-          ...baseActions,
-          { 
-            label: 'Cancel', 
-            icon: 'x-circle', 
-            need: 'delete',
-            onClick: () => handleCancel(row)
-          },
-        ];
-      }
-    },
-  }), [cancelling]);
+  const CONFIG = {
+    title: "Goods Receiptc Challans",
+    basePath: '/admin/',
+    slugPath: "transaction/purchase/grc",
+    endpoint: '/api/purchase-grc',
+    pager: 'numbered',
+    sortable: true,
+    scope: ["business","location","finYear"],
+    actionPosition: "right",
+    actionVariant: "buttons",
+    nowrapHead: true,
+    
+    /* Action menu with conditional DELETE/CANCEL buttons using show property */
+    actionMenu: [
+      { label: 'Edit', icon: 'pencil', to: (r) => '/admin/transaction/purchase/grc/' + r._id, need: 'update' },
+      { label: 'Barcode Print', icon: 'barcode', to: (r) => '/admin/transaction/purchase/barcode-print/' + r._id },
+      { label: 'GRC Print', icon: 'printer', to: (r) => '/admin/transaction/purchase/grc/print/' + r._id },
+      /* DELETE button - only for latest GRC */
+      { label: 'Delete', icon: 'trash', action: 'delete', need: 'delete', show: (r) => r.isLatest === true },
+      /* CANCEL button - only for non-latest GRCs */
+      { label: 'Cancel', icon: 'x-circle', need: 'delete', onClick: handleCancel, show: (r) => r.isLatest === false },
+    ],
+    
+    filters: [
+      { k: "supplierId", label: "Supplier", type: "ref", ref: "supplier", placeholder: "Select Supplier" },
+      { k: "startDate", label: "Start Date", type: "date" },
+      { k: "endDate", label: "End Date", type: "date" },
+    ],
+    
+    columns: [
+      {
+        k: "supplierId",
+        t: "Vendor Name",
+        value: (r) => r.supplierName,
+        f: "text",
+        badge: (r) => r.purchaseInvoiceId ? { label: "verified", tone: "verified" } : null,
+      },
+      { k: "grcNumber", t: "GRC NO" },
+      { k: "grcDate", t: "GRC Date", f: "date" },
+      { k: "logisticId", t: "Logistic No", f: "ref" },
+      { k: "purchaseGroupId", t: "Purchase Group", f: "ref" },
+      { k: "occasion", t: "Occasion" },
+      { k: "agentId", t: "Agent", f: "ref" },
+      { k: "vendorDocNo", t: "Vendor Doc No" },
+      { k: "freightMode", t: "Purchase Term" },
+      { k: "taxable", t: "Taxable", f: "amount", value: (r) => r.taxable || 0 },
+      { k: "totalQuantity", t: "Total Quantity", f: "amount" },
+      { k: "gstAmount", t: "GST", f: "amount", value: (r) => r.gstAmount || 0 },
+      { k: "netAmount", t: "Net Amount", f: "amount", value: (r) => r.netAmount || 0 },
+    ],
+  };
 
-  return <ListView cfg={cfg} reloadKey={reloadKey} />;
+  return <ListView cfg={CONFIG} reloadKey={reloadKey} />;
 }
