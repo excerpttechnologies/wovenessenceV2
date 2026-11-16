@@ -132,20 +132,18 @@ export function Label({ row, w, h }) {
         </div>
       )}
 
-      {/* Number.isFinite, not a truthiness check: a price that arrived from an
-          Excel import as text prints "NaN" through toFixed, and a sticker
-          reading "Rs NaN" goes on the shop floor. No price at all is the
-          honest output when there is no price. */}
-      {Number.isFinite(Number(rate)) && rate !== '' && rate !== null && (
-        <div className="flex w-full items-baseline justify-center gap-[1mm]">
-          <span className="text-[8pt] font-extrabold">
-            &#8377;{Number(rate).toFixed(2)}
-          </span>
-          {roomy && Number.isFinite(Number(cost)) && Number(cost) > 0 && (
-            <span className="text-[5.5pt] text-[#5a6c88]">CP {Number(cost).toFixed(2)}</span>
-          )}
-        </div>
-      )}
+      {/* RATE line - shown on every label for consistency, using the same
+          format as GRC labels ("RATE : ₹.../-"). When no valid price exists,
+          shows 0 rather than leaving the line blank, so every sticker has the
+          same layout and the missing price is visible rather than hidden. */}
+      <div className="flex w-full items-baseline justify-center gap-[1mm]">
+        <span className="text-[8pt] font-extrabold">
+          RATE : &#8377;{Number.isFinite(Number(rate)) && rate !== '' && rate !== null ? Number(rate).toFixed(2) : '0.00'}/-
+        </span>
+        {roomy && Number.isFinite(Number(cost)) && Number(cost) > 0 && (
+          <span className="text-[5.5pt] text-[#5a6c88]">CP {Number(cost).toFixed(2)}</span>
+        )}
+      </div>
     </div>
   );
 }
@@ -169,7 +167,7 @@ function trimQty(v) {
    same row, so the same barcode number. */
 export default function BarcodeLabelSheet({ rows, format, gap = '1mm' }) {
   const { w, h } = parseSize(format?.labelSize);
-  const perRow = Math.max(1, Number(format?.stickerInRow) || 1);
+  const perRow = Math.max(2, Number(format?.stickerInRow) || 2);
 
   const labels = rows.flatMap((r, ri) => {
     const n = Math.max(0, Math.floor(Number(r.copies) || 0));

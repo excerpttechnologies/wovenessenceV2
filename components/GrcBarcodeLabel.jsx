@@ -808,9 +808,11 @@ export function Label({ label, geometry }) {
           )),
           lineHeight: band('identifier'),
           fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
-          /* Keep the identifiers regular-weight; the monospace face renders
-             synthetic bold especially heavily at label-print sizes. */
-          fontWeight: 400,
+          /* Semibold, by request: the barcode number and the generation
+             identifier must read clearly on a thermal label. The row is
+             larger now (LABEL_SECTIONS.identifier), so the weight no longer
+             crowds it. */
+          fontWeight: 600,
           letterSpacing: '0.01em',
           textTransform: 'none',
         }}

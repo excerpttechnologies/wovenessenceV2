@@ -75,13 +75,25 @@ const DeliverySchema = new mongoose.Schema(
 
     transactionNo: { type: String, default: '', index: true },
    document: { type: String, default: '' },
+   invoiceCopy: { type: String, default: '' },
     transactionDate: { type: Date, default: null },
     transporterId: { type: mongoose.Schema.Types.ObjectId, ref: 'transporter', default: null, index: true },
     lrNumber: { type: String, default: '' },
     bookingDate: { type: Date, default: null },
 
     supplierId: { type: mongoose.Schema.Types.ObjectId, ref: 'supplier', default: null },
+    supplierCode: { type: String, default: '' },
+    vendorGstNo: { type: String, default: '' },
     invPmNumber: { type: String, default: '' },
+    
+    /* Vendor Invoice Information - from GRC */
+    grcId: { type: mongoose.Schema.Types.ObjectId, ref: 'grc', default: null },
+    grcNumber: { type: String, default: '' },
+    vendorInvoiceNo: { type: String, default: '' },
+    vendorInvoiceDate: { type: Date, default: null },
+    vendorInvoiceCopy: { type: String, default: '' },
+    vendorWaybill: { type: String, default: '' },
+    
     parcelQty: { type: Number, default: null },
     value: { type: Number, default: null },
 

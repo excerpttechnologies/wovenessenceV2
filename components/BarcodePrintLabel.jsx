@@ -300,7 +300,13 @@ export default function BarcodePrintLabel() {
         const preferred = ticked.find((t) => t.isDefault)?.name || ticked[0]?.name;
         const exists = catalog.some((c) => c.name === preferred);
 
-        setSettingName(exists ? preferred : (catalog[0]?.name || ''));
+        /* Always prefer a 2-up format. If the saved preference is a 1-up
+           format, pick the first 2-up format instead. */
+        const preferredFormat = catalog.find((c) => c.name === preferred);
+        const needsTwoUp = !preferredFormat || Number(preferredFormat.stickerInRow) < 2;
+        const twoUpFallback = catalog.find((c) => Number(c.stickerInRow) >= 2)?.name || catalog[0]?.name || '';
+
+        setSettingName(needsTwoUp ? twoUpFallback : (exists ? preferred : twoUpFallback));
         if (!catalog.length) {
           setStatus('No label formats found - run npm run seed to load the label catalog.');
         }

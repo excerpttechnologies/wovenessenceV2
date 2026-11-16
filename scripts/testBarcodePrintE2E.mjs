@@ -316,7 +316,9 @@ try {
     { _id: grcSupplierC, businessId: business, locationId: location, finYear, grcNumber: '97002', supplierId: supC, items: [], voucherRows: [], createdAt: now, updatedAt: now },
   ]);
 
-  const baseRow = { itemName: 'E2E ITEM', hsn: '520811', gst: '5', uom: 'PC', qty: '1', purchaseRate: '95', finalPrice: '95', retailPrice: '150', discountType: 'Percentage', discount: '0', mode: 'unique', uniqueBarcode: 'Yes', supplierDescription: 'E2E SUPPLIER TEXT', printDescription: 'E2E PRINT DESC' };
+  /* p_m_f: mandatory on every barcode the save route creates - without it the
+     run is refused before anything is generated. */
+  const baseRow = { itemName: 'E2E ITEM', p_m_f: 'P-M-F', hsn: '520811', gst: '5', uom: 'PC', qty: '1', purchaseRate: '95', finalPrice: '95', retailPrice: '150', discountType: 'Percentage', discount: '0', mode: 'unique', uniqueBarcode: 'Yes', supplierDescription: 'E2E SUPPLIER TEXT', printDescription: 'E2E PRINT DESC' };
   const row = (id, o) => ({ ...baseRow, id: `e2e-${hex}-${id}`, itemCode: 'E2E-PC', ...o });
   const scopeBody = { business: String(business), location: String(location), finYear };
   const counterSeq = async () => (await db.collection('counter').findOne({ key: { $regex: '^barcode:' + prefix + ':.*' + String(business) } }))?.seq ?? null;
@@ -460,7 +462,10 @@ try {
   ok('Markup RSP % = 100, Markup WSP % = 15', (await fieldValue('Markup RSP % *')) === '100' && (await fieldValue('Markup WSP % *')) === '15', `${await fieldValue('Markup RSP % *')} / ${await fieldValue('Markup WSP % *')}`);
   ok('Discount Type = Percentage, Discount = 10', (await fieldValue('Discount Type')) === 'Percentage' && (await fieldValue('Discount *')) === '10');
   const panel = await evaluate(`document.querySelector('[data-testid="supplier-price-setup"]')?.textContent || ''`);
-  ok('setup panel names the supplier and lists the Round Off values', /E2E SUPPLIER A/.test(panel) && /RSP Round Off:\s*1/.test(panel) && /WSP Round Off:\s*1/.test(panel) && /E-comm Round Off:\s*1/.test(panel), panel);
+  /* SHOW_SUPPLIER_PRICE_SETUP is off by the business's request: the setup's
+     values still fill Discount / markups (asserted above), but its read-only
+     panel is intentionally not on the page. */
+  ok('supplier Price Calculation Setup panel is hidden by design', panel === '', panel);
 
   /* Tab: from Discount straight to Markup RSP % (Final price is not a stop) */
   await evaluate(`${FIELD('Discount *')}.focus()`);
@@ -472,7 +477,9 @@ try {
   await clickButton('ITEM WITH BARCODE');
   await waitFor(`document.querySelectorAll('input[aria-label="System generated barcode"]').length > 0`, 10000);
   const shown = await evaluate(`[...document.querySelectorAll('input[aria-label="System generated barcode"]')].map((i) => i.value)`);
-  ok('ITEM WITH BARCODE shows each saved value in the label spelling', shown.length === 7 && units.every((u) => shown.includes(canon(u.barcodeGenerated))), shown.join(', '));
+  /* the column shows each unit's OWN number (barcodeNo), not the composed
+     reference - the same split the printed label makes */
+  ok('ITEM WITH BARCODE shows each saved barcodeNo, as stored', shown.length === 7 && units.every((u) => shown.includes(u.barcodeNo)), shown.join(', '));
   await evaluate(`document.querySelector('input[placeholder="Enter / Scan Old Barcode"]').focus()`);
   const stops = [];
   for (let i = 0; i < 70; i += 1) {
@@ -490,71 +497,179 @@ try {
   /* pick the item: its "No" flag must not blank the supplier's markup */
   await evaluate(`(() => { const i = ${FIELD('Item Code *')}; i.scrollIntoView({ block: 'center' }); i.focus(); })()`);
   await cdp.send('Input.insertText', { text: itemCode });
-  const optionShown = await waitFor(`[...document.querySelectorAll('div')].some((d) => d.textContent.trim() === ${JSON.stringify(itemCode)} && d.className.includes('font-medium'))`, 15000);
-  ok('item found in the Item Code search', Boolean(optionShown));
-  await press('Enter');
-  await waitFor(`[...document.querySelectorAll('span')].some((s) => s.textContent.trim() === ${JSON.stringify(itemCode)})`, 10000);
+  const itemOptionAt = await waitFor(`(() => {
+    const d = [...document.querySelectorAll('div')].find((x) => x.textContent.trim() === ${JSON.stringify(itemCode)} && x.className.includes('font-medium'));
+    if (!d) return null;
+    d.scrollIntoView({ block: 'center' });
+    const r = d.getBoundingClientRect();
+    return [r.left + r.width / 2, r.top + r.height / 2];
+  })()`, 15000);
+  ok('item found in the Item Code search', Boolean(itemOptionAt));
+  if (!itemOptionAt) throw new Error('item option never appeared');
+  /* CLICK THE OPTION. Enter depends on which row the combobox has highlighted,
+     and a debounced refresh landing between the wait and the keypress made
+     this step flaky - the save was then refused for a missing Item Code. */
+  await clickAt(itemOptionAt[0], itemOptionAt[1]);
+  ok('the item is picked into the form', Boolean(await waitFor(`[...document.querySelectorAll('span')].some((s) => s.textContent.trim() === ${JSON.stringify(itemCode)})`, 10000)));
   await sleep(1500);   // the item detail request
   ok('after picking the item, Markup E-COMM % is still 12.50', (await fieldValue('Markup E-COMM % *')) === '12.50', await fieldValue('Markup E-COMM % *'));
 
   await setField('Purchase Rate *', '100');
   await setField('Quantity *', '2');
+  /* P-M-F is mandatory on every barcode this screen creates. The suite was
+     written before that rule, so the form was refused before generating
+     anything - the fixture now fills it like an operator would. */
+  await setField('P-M-F *', 'P-M-F');
   await sleep(400);
   const prices = {
-    final: await fieldValue('Final price *'), rsp: await fieldValue('RSP Price *'),
+    final: await fieldValue('Final Price *'), rsp: await fieldValue('RSP Price *'),
     wsp: await fieldValue('WSP Price *'), ecomm: await fieldValue('E-COMM Price *'),
   };
   ok('prices use the supplier setup: final 90.00, RSP 180.00, WSP 103.50, E-COMM 101.25',
     prices.final === '90.00' && prices.rsp === '180.00' && prices.wsp === '103.50' && prices.ecomm === '101.25', JSON.stringify(prices));
 
   const unitsBeforeUi = await unitsOf();
+  /* record what the browser is asked to print: Submit & Print Label must open
+     the dialog BY ITSELF, and hand it every label this entry generated */
+  await evaluate(`(() => {
+    window.__printCalls = 0;
+    window.__printedLabels = null;
+    window.print = () => {
+      window.__printCalls += 1;
+      const r = document.getElementById('barcode-print-root');
+      window.__printedLabels = r ? r.querySelectorAll('svg[data-barcode]').length : 0;
+    };
+  })()`);
   await clickButton('Submit & Print Label');
   const pickerOpen = await waitFor(`[...document.querySelectorAll('h3')].some((h) => h.textContent.trim() === 'Print Label Picker') && document.querySelectorAll('[data-label] svg[data-barcode] g').length > 0`, 60000);
-  ok('Submit & Print Label saved and opened the picker', Boolean(pickerOpen), await evaluate(`document.body.innerText.match(/Save failed[^\\n]*|[^\\n]*Nothing was saved[^\\n]*/)?.[0] || ''`));
+  ok('Submit & Print Label saved and opened the picker', Boolean(pickerOpen), await evaluate(`document.body.innerText.match(/Please select an Item Code\\.|Please fill the required fields[^\\n]*|P-M-F is required[^\\n]*|Save failed[^\\n]*|[^\\n]*Nothing was saved[^\\n]*/)?.[0] || ''`));
+  ok('Submit & Print Label opened the browser print dialog by itself', Boolean(await waitFor(`window.__printCalls > 0`, 30000)));
+  ok('it sent ALL the generated labels to the dialog, not one', (await evaluate('window.__printedLabels')) === 2,
+    String(await evaluate('window.__printedLabels')) + ' (expected 2)');
   const unitsAfterUi = await unitsOf();
   const fresh = unitsAfterUi.filter((u) => !unitsBeforeUi.some((b) => String(b._id) === String(u._id)));
   ok('exactly 2 new barcodes saved, nothing else changed', fresh.length === 2 && unitsBeforeUi.every((b) => {
     const a = unitsAfterUi.find((u) => String(u._id) === String(b._id));
     return a && +a.updatedAt === +b.updatedAt;
   }), `${fresh.length} new`);
+  /* BILL SL NO. IS THE SUPPLIER'S LINE, NOT A COUNTER: the form opens on the
+     GRC's next line (highest existing + 1), and both pieces of this entry are
+     serials 1 and 2 of THAT line. */
+  const nextBill = String(Math.max(0, ...unitsBeforeUi.map((u) => Number(u.billSlNo) || 0)) + 1);
   const freshValues = fresh.map((u) => u.barcodeGenerated).sort();
-  ok(`hidden Bill Sl No. (1) + next serials: ${val(1, 6)}, ${val(1, 7)}`, JSON.stringify(freshValues) === JSON.stringify([val(1, 6), val(1, 7)]), freshValues.join(', '));
+  const expectedFresh = [val(nextBill, 1), val(nextBill, 2)].sort();
+  ok(`next Bill Sl No. (${nextBill}) + serials 1, 2: ${expectedFresh.join(', ')}`,
+    JSON.stringify(freshValues) === JSON.stringify(expectedFresh), freshValues.join(', '));
   ok('new rows are complete (own number, serialNo, item, RSP from the supplier markup)', fresh.every((u) => u.barcodeNo && !isComposedBarcodeValue(u.barcodeNo)
-    && ['6', '7'].includes(u.serialNo) && u.itemCode === itemCode && Number(u.retailPrice) === 180), JSON.stringify(fresh.map((u) => [u.barcodeNo, u.serialNo, u.itemCode, u.retailPrice])));
+    && ['1', '2'].includes(u.serialNo) && u.billSlNo === nextBill && u.itemCode === itemCode && Number(u.retailPrice) === 180), JSON.stringify(fresh.map((u) => [u.barcodeNo, u.billSlNo, u.serialNo, u.itemCode, u.retailPrice])));
+  /* the picker column shows each unit's OWN number - the composed reference is
+     hidden by design (user, 2026-09-17) */
   const pickerLines = await evaluate(`[...document.querySelectorAll('.font-mono.text-xs.text-gray-600')].map((d) => d.firstChild?.textContent || '')`);
-  ok('the picker lists only the 2 new barcodes, in the label spelling', pickerLines.length === 2 && fresh.every((u) => pickerLines.includes(canon(u.barcodeGenerated))), pickerLines.join(', '));
+  ok('the picker lists only the 2 new barcodes, by their own number', pickerLines.length === 2 && fresh.every((u) => pickerLines.includes(u.barcodeNo)), pickerLines.join(', '));
   const rowsByNumber = (list) => new Map(list.flatMap((u) => [[u.barcodeNo, u], [canon(u.barcodeGenerated), u]]));
   checkLabels('picker preview', await evaluate(READ_LABELS('document')), rowsByNumber(unitsAfterUi), { expectCount: 2 });
   await clickButton('×');
   await sleep(300);
 
+  /* ---- the SAME form stays for the next batch, and plain SUBMIT generates
+          exactly like Submit & Print (the reported defect) ---- */
+  const preserved = {
+    hsn: await evaluate(`[...document.querySelectorAll('label')].filter((l) => l.textContent.trim() === 'HSN *').map((l) => l.parentElement.querySelector('input')?.value ?? '')`),
+    rsp: await fieldValue('RSP Price *'),
+    wsp: await fieldValue('WSP Price *'),
+    ecomm: await fieldValue('E-COMM Price *'),
+    markup: await fieldValue('Markup RSP % *'),
+    discountType: await fieldValue('Discount Type'),
+    discount: await fieldValue('Discount *'),
+    qty: await fieldValue('Quantity *'),
+    rate: await fieldValue('Purchase Rate *'),
+    path: await evaluate('location.pathname'),
+  };
+  ok('after Submit & Print the form keeps item, HSN, discount and prices',
+    preserved.hsn.length === 2 && preserved.hsn[0] === preserved.hsn[1]
+    && preserved.rsp === '180.00' && preserved.wsp === '103.50' && preserved.ecomm === '101.25'
+    && preserved.markup === '100' && preserved.discountType === 'Percentage' && preserved.discount === '10',
+    JSON.stringify(preserved));
+  ok('Quantity and Purchase Rate are the only fields that reset', preserved.qty === '' && preserved.rate === '', JSON.stringify([preserved.qty, preserved.rate]));
+  ok('no automatic exit after printing', preserved.path.endsWith('/barcode-generation'));
+
+  /* next batch, typed straight into the preserved form */
+  await setField('Quantity *', '1');
+  await setField('Purchase Rate *', '100');
+  await evaluate('window.__printCalls = 0');
+  const unitsBeforeSubmit = await unitsOf();
+  /* DOM click, not a coordinate click: the fixed footer bar sits over the
+     bottom of the form and swallows a synthetic mouse click. */
+  const submitClicked = await evaluate(`(() => {
+    const bar = document.querySelector('[class*="fixed"][class*="bottom-4"]');
+    const b = [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === 'Submit' && !(bar && bar.contains(x)) && !x.disabled);
+    if (!b) return false;
+    b.click();
+    return true;
+  })()`);
+  ok('the Add Item form offers a plain Submit', Boolean(submitClicked));
+  const tSubmit = Date.now();
+  let unitsAfterSubmit = unitsBeforeSubmit;
+  while (Date.now() - tSubmit < 40000) {
+    unitsAfterSubmit = await unitsOf();
+    if (unitsAfterSubmit.length > unitsBeforeSubmit.length) break;
+    await sleep(250);
+  }
+  ok('SUBMIT itself generated the barcode (the next batch)', unitsAfterSubmit.length === unitsBeforeSubmit.length + 1,
+    `${unitsBeforeSubmit.length} -> ${unitsAfterSubmit.length} ` + (await evaluate(`document.body.innerText.match(/Please select an Item Code\\.|Please fill the required fields[^\\n]*|Save failed[^\\n]*|[^\\n]*Nothing was saved[^\\n]*/)?.[0] || ''`)));
+  /* the banner lands with the client's response, a beat after the row is in
+     the database - which is what the poll above watches */
+  /* the strip is styled `uppercase`, and innerText reports the RENDERED case */
+  const shownBanner = Boolean(await waitFor(`document.body.innerText.toLowerCase().includes('barcode generated successfully')`, 15000));
+  const noticeInfo = await evaluate(`(() => {
+    const btns = [...document.querySelectorAll('[aria-label="Dismiss save message"]')];
+    const reds = [...document.querySelectorAll('div')].filter((d) => /bg-red-50/.test(String(d.className))).map((d) => d.innerText.trim()).filter(Boolean);
+    return {
+      noticeButtons: btns.length,
+      noticeText: btns.map((b) => b.parentElement.innerText.trim()),
+      noticeVisible: btns.map((b) => Boolean(b.offsetParent)),
+      reds: reds.slice(0, 2),
+    };
+  })()`);
+  ok('SUBMIT shows "Barcode generated successfully."', shownBanner, JSON.stringify(noticeInfo));
+  let allUnits = await unitsOf();   // the label map below must know the new record
+  ok('SUBMIT did not open a print dialog', (await evaluate('window.__printCalls')) === 0, String(await evaluate('window.__printCalls')));
+
   /* reload: everything comes back from the database */
   await navigate(`${BASE}/admin/transaction/purchase/grc/${grcId}/barcode-generation`);
   await waitFor(`!!${FIELD('Markup E-COMM % *')}`, 60000);
   await clickButton('ITEM WITH BARCODE');
-  await waitFor(`document.querySelectorAll('input[aria-label="System generated barcode"]').length >= 9`, 15000);
+  await waitFor(`document.querySelectorAll('input[aria-label="System generated barcode"]').length >= 10`, 15000);
   const shownAfter = await evaluate(`[...document.querySelectorAll('input[aria-label="System generated barcode"]')].map((i) => i.value)`);
-  ok('after reload, all 9 values are listed as stored', shownAfter.length === 9 && unitsAfterUi.every((u) => shownAfter.includes(canon(u.barcodeGenerated))), shownAfter.join(', '));
+  ok('after reload, all 10 barcode numbers are listed as stored', shownAfter.length === 10 && unitsAfterUi.every((u) => shownAfter.includes(u.barcodeNo)), shownAfter.join(', '));
   await clickButton('Print Labels');
   await waitFor(`document.querySelectorAll('[data-label] svg[data-barcode] g').length > 0`, 20000);
-  checkLabels('picker (Print Labels, after reload)', await evaluate(READ_LABELS('document')), rowsByNumber(unitsAfterUi));
+  checkLabels('picker (Print Labels, after reload)', await evaluate(READ_LABELS('document')), rowsByNumber(allUnits));
   await clickButton('×');
 
   /* ===================== 10. Barcode Print page ======================= */
   console.log('\n--- 10. Barcode Print page ---');
-  const allUnits = await unitsOf();
+  allUnits = await unitsOf();
   const printUrl = `${BASE}/admin/transaction/purchase/barcode-print/${grcId}`;
   await navigate(printUrl);
-  /* 6 unique + 2 MTR x 2 = 10 labels before the batch count is set */
-  ok('10 labels drawn before the batch count', Boolean(await waitFor(`document.querySelectorAll('[data-label] svg[data-barcode] g').length === 10`, 60000)),
+  /* 7 unique + 2 MTR x 2 = 11 labels before the batch count is set */
+  ok('11 labels drawn before the batch count', Boolean(await waitFor(`document.querySelectorAll('[data-label] svg[data-barcode] g').length === 11`, 60000)),
     String(await evaluate(`document.querySelectorAll('[data-label]').length`)));
   await clickButton('Set quantity');
   await waitFor(`!!document.getElementById('batch-label-count')`, 5000);
   await evaluate(`document.getElementById('batch-label-count').focus()`);
   await cdp.send('Input.insertText', { text: '3' });
   await press('Enter');
-  ok('13 labels once the batch asks for 3', Boolean(await waitFor(`document.querySelectorAll('[data-label] svg[data-barcode] g').length === 13`, 10000)));
-  checkLabels('barcode print page', await evaluate(READ_LABELS('document')), rowsByNumber(allUnits), { expectCount: 13 });
+  ok('14 labels once the batch asks for 3', Boolean(await waitFor(`document.querySelectorAll('[data-label] svg[data-barcode] g').length === 14`, 10000)));
+  checkLabels('barcode print page', await evaluate(READ_LABELS('document')), rowsByNumber(allUnits), { expectCount: 14 });
+  /* 13 labels must FLOW across pages - not one page per sticker (the reported
+     "12 pages for 11 labels" defect). */
+  await evaluate(`document.body.classList.add('printing-labels')`);
+  await cdp.send('Emulation.setEmulatedMedia', { media: 'print' });
+  const pbAfter = await evaluate(`document.querySelector('.barcode-label') ? getComputedStyle(document.querySelector('.barcode-label')).pageBreakAfter : null`);
+  await cdp.send('Emulation.setEmulatedMedia', { media: '' });
+  await evaluate(`document.body.classList.remove('printing-labels')`);
+  ok('labels flow on the paper - no forced page break per label', pbAfter === 'auto', String(pbAfter));
   const batchLine = await evaluate(`[...document.querySelectorAll('li span.font-mono')].map((s) => s.textContent)`);
   const b1 = byClient(allUnits, 'B1');
   ok('the batch list names the barcode in the label spelling', batchLine.includes(canon(b1.barcodeGenerated)), batchLine.join(', '));
@@ -573,8 +688,8 @@ try {
   })()`);
   await clickButton('Print Labels');
   const snap = await waitFor(`window.__snap`, 20000);
-  ok('Print Labels passed the readiness check and printed 13 labels', snap?.count === 13, JSON.stringify(snap) + ' ' + (await evaluate(`document.body.innerText.match(/Printing stopped[^\\n]*/)?.[0] || ''`)));
-  checkLabels('print run output', await evaluate(READ_LABELS(`document.getElementById('bp-copy')`)), rowsByNumber(allUnits), { expectCount: 13 });
+  ok('Print Labels passed the readiness check and printed 14 labels', snap?.count === 14, JSON.stringify(snap) + ' ' + (await evaluate(`document.body.innerText.match(/Printing stopped[^\\n]*/)?.[0] || ''`)));
+  checkLabels('print run output', await evaluate(READ_LABELS(`document.getElementById('bp-copy')`)), rowsByNumber(allUnits), { expectCount: 14 });
   await evaluate(`(() => {
     const live = document.getElementById('barcode-print-root');
     if (live) live.id = 'bp-live';
@@ -600,8 +715,8 @@ try {
   if (process.env.E2E_KEEP_PDF) fs.copyFileSync(pdfFile, process.env.E2E_KEEP_PDF);
 
   await navigate(printUrl);
-  ok('after reload the page draws the labels again', Boolean(await waitFor(`document.querySelectorAll('[data-label] svg[data-barcode] g').length === 10`, 60000)));
-  checkLabels('barcode print page (reloaded)', await evaluate(READ_LABELS('document')), rowsByNumber(allUnits), { expectCount: 10 });
+  ok('after reload the page draws the labels again', Boolean(await waitFor(`document.querySelectorAll('[data-label] svg[data-barcode] g').length === 11`, 60000)));
+  checkLabels('barcode print page (reloaded)', await evaluate(READ_LABELS('document')), rowsByNumber(allUnits), { expectCount: 11 });
   const afterPrint = await unitsOf();
   ok('opening, printing and reloading wrote nothing', afterPrint.length === allUnits.length && allUnits.every((b) => {
     const a = afterPrint.find((u) => String(u._id) === String(b._id));
@@ -617,13 +732,23 @@ try {
     (await fieldValue('Markup E-COMM % *')) === '12' && (await fieldValue('Markup RSP % *')) === '80'
     && (await fieldValue('Markup WSP % *')) === '' && (await fieldValue('Discount *')) === '0',
     JSON.stringify([await fieldValue('Markup E-COMM % *'), await fieldValue('Markup RSP % *'), await fieldValue('Markup WSP % *'), await fieldValue('Discount *')]));
+  /* The read-only setup panel (and so its "No price calculation setup
+     configured" / "No supplier linked" wording) is hidden by the business's
+     request - SHOW_SUPPLIER_PRICE_SETUP is off. What still has to hold is that
+     NO setup percentages are seeded onto the form, and the panel stays off the
+     page. */
   await navigate(`${BASE}/admin/transaction/purchase/grc/${grcSupplierC}/barcode-generation`);
-  const cPanel = await waitFor(`document.querySelector('[data-testid="supplier-price-setup"]')?.textContent || ''`, 60000);
-  ok('supplier C: "No price calculation setup configured", no percentages', /No price calculation setup configured for this supplier/.test(cPanel || '')
-    && (await fieldValue('Markup E-COMM % *')) === '' && (await fieldValue('Markup RSP % *')) === '', cPanel);
+  await waitFor(`!!${FIELD('Markup E-COMM % *')}`, 60000);
+  const cHidden = await evaluate(`!document.querySelector('[data-testid="supplier-price-setup"]')`);
+  ok('supplier C (no setup): no percentages filled, setup panel hidden', cHidden
+    && (await fieldValue('Markup E-COMM % *')) === '' && (await fieldValue('Markup RSP % *')) === '',
+    JSON.stringify([await fieldValue('Markup E-COMM % *'), await fieldValue('Markup RSP % *'), cHidden]));
   await navigate(`${BASE}/admin/transaction/purchase/grc/${grcNoSupplier}/barcode-generation`);
-  const nPanel = await waitFor(`document.querySelector('[data-testid="supplier-price-setup"]')?.textContent || ''`, 60000);
-  ok('no supplier: "No supplier linked to this GRC."', /No supplier linked to this GRC/.test(nPanel || ''), nPanel);
+  await waitFor(`!!${FIELD('Markup E-COMM % *')}`, 60000);
+  const nHidden = await evaluate(`!document.querySelector('[data-testid="supplier-price-setup"]')`);
+  ok('no supplier: form opens with no percentages and no setup panel', nHidden
+    && (await fieldValue('Markup E-COMM % *')) === '',
+    JSON.stringify([await fieldValue('Markup E-COMM % *'), nHidden]));
 
   /* ================ 12. real GRCs, viewed only ======================== */
   console.log('\n--- 12. real GRCs (viewed only) ---');
@@ -632,29 +757,40 @@ try {
   const realBefore = await db.collection('barcodeLabel').find({ grcId: { $in: realIds } }).toArray();
   for (const [name, id] of [['05182 (reference)', REAL.g05182], ['05178', REAL.g05178], ...(legacyGrc ? [['05177 (no composed values)', String(legacyGrc._id)]] : [])]) {
     const list = realBefore.filter((u) => u.grcId === id);
+    /* These are REAL records from the reference database. This clone does not
+       hold them (the ids are absent entirely), so the check is skipped rather
+       than reported as a defect of the screen. It still runs wherever the
+       reference records exist. */
+    const exists = await db.collection('grc').findOne({ _id: new mongoose.Types.ObjectId(id) });
+    if (!exists || list.length === 0) { note(`${name}: not in this database (or no barcodes) - skipped`); continue; }
     await navigate(`${BASE}/admin/transaction/purchase/barcode-print/${id}`);
     const drawn = await waitFor(`document.querySelectorAll('[data-label] svg[data-barcode] g').length > 0 && document.querySelectorAll('[data-label] svg[data-barcode] g').length >= document.querySelectorAll('[data-label]').length`, 90000);
     ok(`${name}: labels drawn`, Boolean(drawn));
     checkLabels(`real GRC ${name}`, await evaluate(READ_LABELS('document')), rowsByNumber(list));
   }
   const ref = realBefore.filter((u) => u.grcId === REAL.g05182);
-  const refLabels = await (async () => {
-    await navigate(`${BASE}/admin/transaction/purchase/barcode-print/${REAL.g05182}`);
-    await waitFor(`document.querySelectorAll('[data-label] svg[data-barcode] g').length >= 15`, 90000);
-    return evaluate(READ_LABELS('document'));
-  })();
-  ok('reference 05182: G1319*05182*1*1 .. *2*15 on the right, 9A numbers on the left',
-    ['G1319*05182*1*1', 'G1319*05182*1*6', 'G1319*05182*2*15'].every((v) => refLabels.some((l) => l.right === v && decodeRects(l.rects) === v && /^9A\d{4}$/.test(l.left))),
-    refLabels.map((l) => `${l.left}|${l.right}`).join(', '));
-  await navigate(`${BASE}/admin/transaction/purchase/grc/${REAL.g05182}/barcode-generation`);
-  await waitFor(`!!${FIELD('Markup E-COMM % *')}`, 90000);
-  ok('reference 05182 generation page: Markup E-COMM % = 30 (AMEERA TEX WORLD), no Bill Sl No. field',
-    (await fieldValue('Markup E-COMM % *')) === '30' && await evaluate(`![...document.querySelectorAll('label')].some((l) => /Bill Sl No/i.test(l.textContent))`),
-    await fieldValue('Markup E-COMM % *'));
-  await clickButton('ITEM WITH BARCODE');
-  await waitFor(`document.querySelectorAll('input[aria-label="System generated barcode"]').length >= ${ref.length}`, 15000);
-  const refShown = await evaluate(`[...document.querySelectorAll('input[aria-label="System generated barcode"]')].map((i) => i.value)`);
-  ok(`reference 05182 lists its ${ref.length} stored values`, ref.every((u) => refShown.includes(canon(u.barcodeGenerated))), refShown.join(', '));
+  if (!ref.length) {
+    note('reference 05182 is not in this database - reference checks skipped');
+  } else {
+    const refLabels = await (async () => {
+      await navigate(`${BASE}/admin/transaction/purchase/barcode-print/${REAL.g05182}`);
+      await waitFor(`document.querySelectorAll('[data-label] svg[data-barcode] g').length >= 15`, 90000);
+      return evaluate(READ_LABELS('document'));
+    })();
+    ok('reference 05182: G1319*05182*1*1 .. *2*15 on the right, 9A numbers on the left',
+      ['G1319*05182*1*1', 'G1319*05182*1*6', 'G1319*05182*2*15'].every((v) => refLabels.some((l) => l.right === v && decodeRects(l.rects) === v && /^9A\d{4}$/.test(l.left))),
+      refLabels.map((l) => `${l.left}|${l.right}`).join(', '));
+    await navigate(`${BASE}/admin/transaction/purchase/grc/${REAL.g05182}/barcode-generation`);
+    await waitFor(`!!${FIELD('Markup E-COMM % *')}`, 90000);
+    ok('reference 05182 generation page: Markup E-COMM % = 30 (AMEERA TEX WORLD), no Bill Sl No. field',
+      (await fieldValue('Markup E-COMM % *')) === '30' && await evaluate(`![...document.querySelectorAll('label')].some((l) => /Bill Sl No/i.test(l.textContent))`),
+      await fieldValue('Markup E-COMM % *'));
+    await clickButton('ITEM WITH BARCODE');
+    await waitFor(`document.querySelectorAll('input[aria-label="System generated barcode"]').length >= ${ref.length}`, 15000);
+    const refShown = await evaluate(`[...document.querySelectorAll('input[aria-label="System generated barcode"]')].map((i) => i.value)`);
+    /* the column lists each unit's own barcodeNo, as stored */
+    ok(`reference 05182 lists its ${ref.length} stored barcode numbers`, ref.every((u) => refShown.includes(u.barcodeNo)), refShown.join(', '));
+  }
   const realAfter = await db.collection('barcodeLabel').find({ grcId: { $in: realIds } }).toArray();
   ok('the real GRCs were not written to', realAfter.length === realBefore.length && realBefore.every((b) => {
     const a = realAfter.find((u) => String(u._id) === String(b._id));
@@ -670,7 +806,7 @@ try {
   ok('does not re-render for ever', !consoleErrors.slice(errorsBefore).some((e) => /Maximum update depth/i.test(e)), consoleErrors.slice(errorsBefore).join(' || ').slice(0, 300));
 
   const realErrors = consoleErrors.filter((e) => !/Failed to load resource.*(favicon|404)/i.test(e));
-  ok('no console errors on any page', realErrors.length === 0, realErrors.slice(0, 4).join(' || ').slice(0, 600));
+  ok('no console errors on any page', realErrors.length === 0, realErrors.slice(0, 3).join(' || ').slice(0, 2500));
   ok('no failed API calls from the pages', failedApi.length === 0, failedApi.slice(0, 5).join(', '));
 } catch (error) {
   fail++;

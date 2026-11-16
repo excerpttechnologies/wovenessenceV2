@@ -1489,13 +1489,21 @@ export const POST = handler(async (req) => {
           reason: 'Barcode row deleted from the GRC',
           user: session, session: dbSession,
         });
-        /* guarded on the unit still being in stock - one sold in between is
-           not deleted */
+        /* GUARDED ON THE STATUS voidUnits JUST WROTE.
+
+           This used to require IN_STOCK - but voidUnits() runs immediately
+           before it and sets the unit to VOID, so the filter could never
+           match: every Submit that removed a row failed with a false 409
+           ("changed by someone else") AFTER the ledger had been written off.
+           Requiring VOID keeps the concurrency guarantee - a unit sold between
+           the read and this delete is no longer VOID, so the delete matches
+           nothing and the whole transaction rolls back - while letting a
+           deliberate deletion through. */
         const gone = await BarcodeLabel.deleteMany(
           {
             _id: { $in: deleting.map((u) => u._id) },
             grcId: String(grcId),
-            status: { $in: [BARCODE_STATUS.IN_STOCK, '', null] },
+            status: BARCODE_STATUS.VOID,
           },
           dbSession ? { session: dbSession } : {}
         );

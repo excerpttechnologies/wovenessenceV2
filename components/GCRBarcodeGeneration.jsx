@@ -5339,6 +5339,16 @@ function SerialNoField({ value, onChange, editableClass, readOnlyClass, locked =
    offers - the arithmetic the rate effect below has always done, in one place
    so re-seeding the markups from a supplier recalculates the same way. */
 function withFormPrices(current) {
+  /* NO PURCHASE RATE, NOTHING TO DERIVE FROM.
+
+     A blank rate is the state Submit leaves the form in for the next entry
+     (only Quantity and Purchase Rate reset), and it is also the state while
+     an item is being picked. Deriving here used a zero net price, which
+     wiped the RSP / WSP / E-COMM the batch was configured with every time a
+     late lookup (the item detail, or the supplier re-read after a save)
+     resolved. The prices the operator can see stay until a rate is typed,
+     and are then derived from it exactly as before. */
+  if (String(current.purchaseRate ?? "").trim() === "") return { ...current };
   const purchaseRate = Number(current.purchaseRate || 0);
   const discount = Number(current.discount || 0);
   const finalValue = current.discountType === "Flat"
@@ -5617,14 +5627,19 @@ function AddItemModal({ open, onClose, onSubmit, onSubmitAndPrint, barcodeFormat
     }
   }, [open, initialBillSlNo, itemSummaryRows]);
   
-  /* ── Second HSN field (Row 3) — independent state so it can be changed
-     without touching the first HSN field (Row 1) and vice-versa. */
-  const [hsn2Options, setHsn2Options] = useState([]);
-  const [hsn2Loading, setHsn2Loading] = useState(false);
-  const [hsn2Label, setHsn2Label] = useState('');
-  const [hsn2Slabs, setHsn2Slabs] = useState([]);
-  const hsn2DetailRef = useRef(0);
-  const hsn2TimerRef = useRef(null);
+  /* ── BOTH HSN FIELDS ARE ONE VALUE ────────────────────────────────────────
+     Row 1 and Row 3 are two views of the SAME form.hsn / form.hsnId. There is
+     no second HSN: whichever box is used, handleHsnSelection writes the shared
+     state and the other box redraws from it immediately. hsn2 / hsn2Id stay on
+     the form only as the row's own mirror of that one value, kept equal here,
+     so an entry saved from either field carries the same HSN. */
+  useEffect(() => {
+    setForm((current) => (
+      current.hsn2 === current.hsn && current.hsn2Id === current.hsnId
+        ? current
+        : { ...current, hsn2: current.hsn, hsn2Id: current.hsnId }
+    ));
+  }, [form.hsn, form.hsnId]);
   const [cutRows, setCutRows] = useState([{ id: 1, value: "" }]);
   const [focusedCutIndex, setFocusedCutIndex] = useState(0);
   const [cutError, setCutError] = useState("");
@@ -5686,32 +5701,6 @@ function AddItemModal({ open, onClose, onSubmit, onSubmitAndPrint, barcodeFormat
     }, 300);
   };
 
-  /* Debounced server-side HSN search — second HSN field (Row 3).
-     Identical query to searchHsn but writes into hsn2Options/hsn2Loading so
-     the two dropdowns are completely independent. */
-  const searchHsn2 = (q) => {
-    clearTimeout(hsn2TimerRef.current);
-    setHsn2Loading(true);
-    hsn2TimerRef.current = setTimeout(() => {
-      const qs = new URLSearchParams({ perPage: '20', search: q || '' });
-      if (business) qs.set('business', business);
-      fetch('/api/hsn?' + qs)
-        .then((r) => r.json())
-        .then((d) => {
-          setHsn2Options((d.rows || []).map((row) => ({
-            value: String(row._id),
-            primaryLabel: row.code || '',
-            secondaryLabel: row.description || '',
-            code: row.code || '',
-            description: row.description || '',
-            taxSlabs: Array.isArray(row.taxSlabs) ? row.taxSlabs : [],
-          })));
-        })
-        .catch(() => setHsn2Options([]))
-        .finally(() => setHsn2Loading(false));
-    }, 300);
-  };
-
   /* OLD BARCODE LOOKUP.
 
      status: idle | loading | found | error. `resolvedRef` holds the code that
@@ -5752,10 +5741,14 @@ function AddItemModal({ open, onClose, onSubmit, onSubmitAndPrint, barcodeFormat
     /* pre-populate dropdowns with initial results so they are not blank on open */
     searchItems('');
     searchHsn('');
-    searchHsn2('');
   }, [open]);
 
   useEffect(() => {
+    /* A BLANK Purchase Rate is the state Submit leaves the form in for the
+       next entry (only Quantity and Purchase Rate reset themselves). The
+       prices the operator configured stay on screen until a rate is typed,
+       and are then re-derived from it exactly as before. */
+    if (String(form.purchaseRate ?? "").trim() === "") return;
     setForm((current) => withFormPrices(current));
   }, [form.purchaseRate, form.discount, form.discountType]);
 
@@ -5772,12 +5765,21 @@ function AddItemModal({ open, onClose, onSubmit, onSubmitAndPrint, barcodeFormat
     seededSetupRef.current = setupKey;
     /* nothing of the previous supplier's survives: a field the new one has
        no value for goes back to the form's own starting value */
-    setForm((current) => withFormPrices({
-      ...current,
-      ...supplierMarkups,
-      discountType: supplierDefaults.discountType || "Percentage",
-      discount: supplierDefaults.discount ?? "0",
-    }));
+    setForm((current) => {
+      const seeded = {
+        ...current,
+        ...supplierMarkups,
+        discountType: supplierDefaults.discountType || "Percentage",
+        discount: supplierDefaults.discount ?? "0",
+      };
+      /* A blank Purchase Rate is the state Submit leaves the form in for the
+         next entry. withFormPrices derives the three prices from the net
+         price, which is 0 until a rate is typed - so re-seeding here wiped
+         the batch's RSP/WSP/E-COMM to 0.00 the moment the page re-read the
+         GRC after a save. Keep them; they follow the rate again as soon as
+         one is typed. */
+      return String(current.purchaseRate ?? "").trim() === "" ? seeded : withFormPrices(seeded);
+    });
     // supplierDefaults/supplierMarkups are derived from the setup this key names
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setupKey]);
@@ -5846,22 +5848,21 @@ function AddItemModal({ open, onClose, onSubmit, onSubmitAndPrint, barcodeFormat
     </div>
   );
 
-  /* Second HSN field (Row 3) — bound to its own independent state so the
-     operator can set a different HSN here without affecting the first one,
-     and vice-versa.  Initialised from the item master alongside the first
-     field, but fully editable after that. */
+  /* Second HSN field (Row 3) - the SAME field as row 1, shown again. It reads
+     hsnLabel / hsnOptions and writes through handleHsnSelection, so changing
+     either box changes both at once and the row carries one HSN, not two. */
   const renderHsn2Field = () => (
     <div className="space-y-1">
       <label className="block text-[11px] font-semibold text-gray-700">HSN *</label>
       <SearchSelect
         placeholder="Search HSN…"
-        value={form.hsn2Id || form.hsn2}
-        label={hsn2Label}
-        onSearch={searchHsn2}
-        options={hsn2Options}
-        loading={hsn2Loading}
-        onSelect={(opt) => handleHsn2Selection(opt)}
-        onClear={() => handleHsn2Selection(null)}
+        value={form.hsnId || form.hsn}
+        label={hsnLabel}
+        onSearch={searchHsn}
+        options={hsnOptions}
+        loading={hsnLoading}
+        onSelect={(opt) => handleHsnSelection(opt)}
+        onClear={() => handleHsnSelection(null)}
         editableClass={editableClass}
         editableSelection
       />
@@ -5953,12 +5954,9 @@ function AddItemModal({ open, onClose, onSubmit, onSubmitAndPrint, barcodeFormat
   const clearFetchedItem = () => {
     resolvedRef.current = "";
     hsnDetailRef.current += 1;
-    hsn2DetailRef.current += 1;
     applyHsnSlabs([]);
-    applyHsn2Slabs([]);
     setItemLabel('');
     setHsnLabel('');
-    setHsn2Label('');
     setOfferNote('');
     setForm((current) => withFormPrices(withItemOffers({
       ...current,
@@ -6059,7 +6057,6 @@ function AddItemModal({ open, onClose, onSubmit, onSubmitAndPrint, barcodeFormat
          the slugified name. */
       setItemLabel(unit.itemCode || unit.itemName || '');
       if (unit.hsn) setHsnLabel(unit.hsn);
-      if (unit.hsn) setHsn2Label(unit.hsn);
 
       /* this item's bill line on THIS GRC: the scanned unit's own when it came
          off this GRC, otherwise the line its Item Summary row carries. Never
@@ -6102,7 +6099,6 @@ function AddItemModal({ open, onClose, onSubmit, onSubmitAndPrint, barcodeFormat
          boxes are shown by. */
       if (unit.hsn) {
         resolveHsnGst({ code: unit.hsn, keepGst: true });
-        resolveHsn2Gst({ code: unit.hsn });
       }
       /* the scan itself is applied - a code re-entered from here on is a new
          lookup, not a repeat of one still in flight */
@@ -6125,7 +6121,6 @@ function AddItemModal({ open, onClose, onSubmit, onSubmitAndPrint, barcodeFormat
 
   const handleItemSelection = async (opt) => {
     hsnDetailRef.current += 1;
-    hsn2DetailRef.current += 1;
     /* The operator is answering the very complaint the banner makes, so the
        banner goes now rather than surviving until a submit finally passes.
        setReserveError("") used to be reached ONLY at the end of submit(),
@@ -6137,8 +6132,6 @@ function AddItemModal({ open, onClose, onSubmit, onSubmitAndPrint, barcodeFormat
       itemDetailRef.current += 1;
       setItemLabel('');
       applyHsnSlabs([]);
-      applyHsn2Slabs([]);
-      setHsn2Label('');
       /* Clearing the item also forgets the Old Barcode it may have come
          from. lookupOldBarcode short-circuits on `code === resolvedRef.current`
          (it will not re-fetch a code it has already resolved), so leaving the
@@ -6166,7 +6159,6 @@ function AddItemModal({ open, onClose, onSubmit, onSubmitAndPrint, barcodeFormat
     const itemName = opt.name || opt.secondaryLabel || "";
     setItemLabel(itemCode);
     applyHsnSlabs([]);
-    applyHsn2Slabs([]);
     setForm((current) => ({
       ...current,
       itemId: opt.value,
@@ -6195,12 +6187,10 @@ function AddItemModal({ open, onClose, onSubmit, onSubmitAndPrint, barcodeFormat
       }
       const item = payload?.item || {};
       setHsnLabel(item.hsnCode || '');
-      setHsn2Label(item.hsnCode || '');
       /* the detail route resolves the item's HSN slabs for us - bands and
          rates both - so the rate is picked by value here exactly as it is
          when the HSN is chosen by hand */
       applyHsnSlabs(Array.isArray(item.slabs) ? item.slabs : []);
-      applyHsn2Slabs(Array.isArray(item.slabs) ? item.slabs : []);
       /* An item's OWN markup, when the item master has a real number for
          it, is more specific than the supplier's; otherwise the supplier's
          Price Calculation Setup value stays. Anything that is not a number
@@ -6220,7 +6210,6 @@ function AddItemModal({ open, onClose, onSubmit, onSubmitAndPrint, barcodeFormat
     } catch {
       if (itemDetailRef.current === detailRequest) {
         setHsnLabel('');
-        setHsn2Label('');
         setForm((current) => withFormPrices(withItemOffers(current, null)));
         setOfferNote("");
       }
@@ -6238,61 +6227,6 @@ function AddItemModal({ open, onClose, onSubmit, onSubmitAndPrint, barcodeFormat
     }
     setHsnLabel(opt.code || opt.primaryLabel || "");
     await resolveHsnGst({
-      value: opt.value,
-      code: opt.code || opt.primaryLabel || "",
-      label: opt.primaryLabel || "",
-      taxSlabs: opt.taxSlabs || [],
-    });
-  };
-
-  /* ── Second HSN field handlers (Row 3) ─────────────────────────────────────
-     Mirror of applyHsnSlabs / resolveHsnGst / handleHsnSelection but operating
-     on hsn2 form fields and hsn2* state only.  Changing the second HSN never
-     touches form.hsnId / form.hsn / hsnSlabs / autoGstRef, and vice-versa. */
-
-  const applyHsn2Slabs = (slabs) => {
-    setHsn2Slabs(slabs);
-  };
-
-  const resolveHsn2Gst = async (hsnDoc) => {
-    const detailRequest = hsn2DetailRef.current + 1;
-    hsn2DetailRef.current = detailRequest;
-
-    const code = hsnDoc?.code || hsnDoc?.label || "";
-    let hsn2Id = hsnDoc?.value || "";
-    let taxSlabs = Array.isArray(hsnDoc?.taxSlabs) ? hsnDoc.taxSlabs : [];
-
-    if (!taxSlabs.length && code) {
-      try {
-        const response = await fetch(`/api/hsn?perPage=20&search=${encodeURIComponent(code)}${business ? `&business=${encodeURIComponent(business)}` : ""}`);
-        const payload = await response.json();
-        const match = (payload.rows || []).find((row) => String(row.code || '').trim() === String(code).trim());
-        taxSlabs = Array.isArray(match?.taxSlabs) ? match.taxSlabs : [];
-        if (!hsn2Id && match?._id) hsn2Id = String(match._id);
-      } catch {
-        taxSlabs = [];
-      }
-    }
-
-    if (hsn2DetailRef.current !== detailRequest) return;
-
-    setForm((current) => ({ ...current, hsn2: code, hsn2Id: hsn2Id || current.hsn2Id }));
-
-    const slabs = await resolveSlabRates(taxSlabs);
-    if (hsn2DetailRef.current !== detailRequest) return;
-    applyHsn2Slabs(slabs);
-  };
-
-  const handleHsn2Selection = async (opt) => {
-    if (!opt) {
-      hsn2DetailRef.current += 1;
-      setHsn2Label('');
-      applyHsn2Slabs([]);
-      setForm((current) => ({ ...current, hsn2Id: "", hsn2: "" }));
-      return;
-    }
-    setHsn2Label(opt.code || opt.primaryLabel || "");
-    await resolveHsn2Gst({
       value: opt.value,
       code: opt.code || opt.primaryLabel || "",
       label: opt.primaryLabel || "",
@@ -6580,7 +6514,8 @@ function AddItemModal({ open, onClose, onSubmit, onSubmitAndPrint, barcodeFormat
         sm: form.sm,
         p_m_f: form.p_m_f,
         hsn: form.hsn,
-        hsn2: form.hsn2,
+        /* the mirrored copy of the SAME value - see the HSN effect above */
+        hsn2: form.hsn,
         gst: form.gst,
         uom: form.isMtr ? "MTR" : "PC",
         qty: String(planItem.qty || 0),
@@ -6638,7 +6573,7 @@ function AddItemModal({ open, onClose, onSubmit, onSubmitAndPrint, barcodeFormat
     });
 
     if (printAfterSubmit && onSubmitAndPrint) await onSubmitAndPrint(generatedRows);
-    else onSubmit(generatedRows);
+    else await onSubmit(generatedRows);
 
     /* The Bill Sl No. is not bumped after an Add. It is the supplier's line
        number, not a counter of ours: several items can sit on one bill line,
@@ -6676,6 +6611,17 @@ function AddItemModal({ open, onClose, onSubmit, onSubmitAndPrint, barcodeFormat
       markupRSP: current.markupRSP,
       markupWSP: current.markupWSP,
       markupDP: current.markupDP,
+      /* the three prices themselves, not just the markups that made them:
+         they are re-derived when the next Purchase Rate is typed, and until
+         then this batch keeps the prices it was configured with */
+      rspPrice: current.rspPrice,
+      wspPrice: current.wspPrice,
+      dpPrice: current.dpPrice,
+      ...(current.offerApplicable ? {
+        rspOfferPrice: current.rspOfferPrice,
+        wspOfferPrice: current.wspOfferPrice,
+        dpOfferPrice: current.dpOfferPrice,
+      } : {}),
       offerApplicable: current.offerApplicable,
       /* the item stays picked, so the offer % it gave stays with it */
       ...Object.fromEntries(OFFER_PCT_KEYS
@@ -7188,7 +7134,7 @@ function AddItemModal({ open, onClose, onSubmit, onSubmitAndPrint, barcodeFormat
    the rule, and a batch asks.
    ========================================================================== */
 
-function PrintLabelPicker({ rows, open, onClose }) {
+function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
   const scope = useScope();
   const [selected, setSelected] = useState([]);
   /* The operator's answer for each BATCH barcode, keyed by barcode number.
@@ -7462,6 +7408,23 @@ function PrintLabelPicker({ rows, open, onClose }) {
     startPrint(batchCounts);
   }
 
+  /* SUBMIT & PRINT LABEL reaches the print dialog in one press.
+
+     The run starts as soon as the sheet can be built: the label formats have
+     loaded, the ticked rows are known and there is something to draw. A batch
+     barcode still asks for its label count first (runPrint opens that dialog),
+     and printLockRef means one press can only ever start one run - so this
+     cannot open two dialogs or print the same barcodes twice. */
+  const autoStartedRef = useRef(false);
+  useEffect(() => {
+    if (!open) { autoStartedRef.current = false; return; }
+    if (!autoPrint || autoStartedRef.current) return;
+    if (!format || !chosen.length || expectedLabels <= 0) return;
+    autoStartedRef.current = true;
+    runPrint();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, autoPrint, format, chosen.length, expectedLabels]);
+
   /* The dialog only ever hands over a count validateBatchLabelCount accepted. */
   function confirmBatchCount(value) {
     if (!batchPrompt) return;
@@ -7695,6 +7658,8 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
   const [fullExportMessage, setFullExportMessage] = useState(null);
   const [showSaveConfirm, setShowSaveConfirm] = useState(false);
   const [showPrint, setShowPrint] = useState(false);
+  /* Submit & Print Label opens the picker AND the browser's print dialog */
+  const [autoPrintAfterSubmit, setAutoPrintAfterSubmit] = useState(false);
   const [printRows, setPrintRows] = useState([]);
   const [showAddItem, setShowAddItem] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -7702,6 +7667,8 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
   const [importMessage, setImportMessage] = useState("");
   /* why the last save was refused, in the server's own words */
   const [saveError, setSaveError] = useState("");
+  /* the confirmation shown once a save has actually generated barcodes */
+  const [saveNotice, setSaveNotice] = useState("");
   /* Set the moment a save starts - `saving` only lands on the next render, so
      a second click before then would send the same rows again. */
   const savingRef = useRef(false);
@@ -8145,6 +8112,7 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
     savingRef.current = true;
     setSaving(true);
     setSaveError("");
+    setSaveNotice("");
     
     /* Strip the UI-only fields before sending to the API, and leave out the
        empty rows the ITEMS sheet keeps for typing into */
@@ -8339,16 +8307,20 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
         return (next._importStatus || next._edited) ? { ...next, _importStatus: undefined, _edited: undefined } : next;
       }));
       setPendingDeletes([]);
-      
+      /* The save IS the generation - for Submit and Submit & Print Label
+         alike - so this is the confirmation for both buttons. */
+      setSaveNotice("Barcode generated successfully.");
+
       // Close progress overlay
       setSavingProgress({ show: false, stage: '', completed: 0, total: 0 });
-      
+
+      /* NO AUTOMATIC NAVIGATION. This used to push the operator to the GRC
+         list 500ms after every save, so the screen vanished while the print
+         dialog was still open and before the barcodes just made could be
+         checked or printed again. The page now stays put; only BACK TO GRC
+         leaves it. */
       if (onSaved) {
         onSaved();
-        // Redirect to GRC list after successful save
-        setTimeout(() => {
-          router.push('/admin/transaction/purchase/grc');
-        }, 500);
       } else if (saved.grcId) {
         /* The standalone screen has no page to re-read for it: remember the
            GRC the first Submit created, and take the rows back with their
@@ -8358,10 +8330,6 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
           .then((result) => result.json())
           .then((result) => { if (Array.isArray(result.rows)) setRows(result.rows.map(toGridRow)); })
           .catch(() => {});
-        // Redirect to GRC list after successful save
-        setTimeout(() => {
-          router.push('/admin/transaction/purchase/grc');
-        }, 500);
       }
       return true;
     } catch (error) {
@@ -8580,14 +8548,30 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
            running number is left to the save route. */
         itemSummaryRows={validRows}
         onClose={() => setShowAddItem(true)}
-        onSubmit={(items) => appendRows(items)}
-        onSubmitAndPrint={(items) => {
+        /* SUBMIT GENERATES BARCODES.
+
+           It used to only append the entry to the ITEMS grid - no request, no
+           numbering, no barcode records - so nothing existed until the
+           footer's Submit was pressed as well. That is exactly why Submit
+           looked like it "saved the form" while Submit & Print Label made
+           barcodes. Both buttons now go through the one save service
+           (saveRows); a repeated press matches the rows already stored
+           (clientRowId) instead of inserting them twice. */
+        onSubmit={(items) => {
           const nextRows = [...rows, ...items];
           setRows(nextRows);
+          return saveRows(nextRows, false);
+        }}
+        onSubmitAndPrint={async (items) => {
+          const nextRows = [...rows, ...items];
+          setRows(nextRows);
+          setAutoPrintAfterSubmit(true);
           /* the whole grid is saved, but only the barcodes this entry made
              go to the picker - Submit & Print used to offer, pre-ticked,
              every label of the GRC again */
-          return saveRows(nextRows, true, { printIds: items.map((item) => item.id) });
+          const ok = await saveRows(nextRows, true, { printIds: items.map((item) => item.id) });
+          if (!ok) setAutoPrintAfterSubmit(false);
+          return ok;
         }}
       />
 
@@ -8685,6 +8669,13 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
             </div>
           );
         })()}
+
+        {saveNotice && (
+          <div className="flex items-center justify-between border-b border-green-100 bg-green-50 px-4 py-2 text-sm text-green-800">
+            <span>{saveNotice}</span>
+            <button type="button" onClick={() => setSaveNotice("")} className="text-green-700" aria-label="Dismiss save message">×</button>
+          </div>
+        )}
 
         {saveError && (
           <div className="flex items-center justify-between border-b border-red-100 bg-red-50 px-4 py-2 text-sm text-red-800">
@@ -8842,7 +8833,12 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
           stored value (SUPPLIER_CODE * GRC_NUMBER * BILL_SL_NO * SEQ) and nothing
           else. A row not saved yet, or with an edit not saved yet, prints
           after Submit - see saveRows. */}
-      <PrintLabelPicker rows={printRows.length ? printRows : validRows.filter((row) => row._id && !row._edited)} open={showPrint} onClose={() => { setShowPrint(false); setPrintRows([]); }} />
+      <PrintLabelPicker
+        rows={printRows.length ? printRows : validRows.filter((row) => row._id && !row._edited)}
+        open={showPrint}
+        autoPrint={autoPrintAfterSubmit}
+        onClose={() => { setShowPrint(false); setPrintRows([]); setAutoPrintAfterSubmit(false); }}
+      />
 
       {showSaveConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -8864,8 +8860,12 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
           lets the last rows and totals scroll clear of it. Portal ensures the
           button is rendered at document body level, preventing it from moving
           with any parent scroll containers. */}
-      {typeof document !== 'undefined' && createPortal(
-        <div ref={submitBarRef} className="no-print fixed bottom-4 right-4 z-40 flex items-center gap-2">
+      {/* Rendered in place, not through a client-only portal: the portal was
+          absent from the server HTML and present on the client, which is a
+          hydration mismatch (React discarded the server tree on every load).
+          position:fixed is already viewport-relative, so the bar does not
+          move with a scrolling parent anyway. */}
+      <div ref={submitBarRef} className="no-print fixed bottom-4 right-4 z-40 flex items-center gap-2">
           {validRows.some((r) => r._importStatus === 'CHANGED') && (
             <button
               type="button"
@@ -8883,9 +8883,7 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
             </button>
           )}
           <button type="button" onClick={() => setShowSaveConfirm(true)} disabled={saving} className="rounded-md bg-green-600 px-5 py-2 text-sm font-semibold text-white shadow hover:bg-green-700 disabled:opacity-60">Submit</button>
-        </div>,
-        document.body
-      )}
+      </div>
     </div>
   );
 }

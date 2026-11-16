@@ -27,7 +27,18 @@ export const FIELDS = [
      /api/options codeField:'contactId', so the G Code is visible in the
      picker itself — no separate field needed. */
   { k: 'supplierId', label: 'Supplier Name', type: 'ref', ref: 'supplier', req: true },
-  { k: 'invPmNumber', label: 'Inv / PM Number', type: 'text', req: true },
+  { k: 'supplierCode', label: 'Supplier Code', type: 'text' },
+  { k: 'vendorGstNo', label: 'Vendor GST No', type: 'text' },
+  { k: 'invPmNumber', label: 'Inv / PM Number', type: 'text', hidden: true },
+  
+  /* VENDOR INVOICE INFORMATION (Auto-fetched from GRC) */
+  { k: 'grcId', label: 'Select GRC', type: 'ref', ref: 'grc' },
+  { k: 'grcNumber', label: 'GRC Number', type: 'text' },
+  { k: 'vendorInvoiceNo', label: 'Vendor Invoice Number', type: 'text' },
+  { k: 'vendorInvoiceDate', label: 'Vendor Invoice Date', type: 'date' },
+  { k: 'vendorInvoiceCopy', label: 'Vendor Invoice Copy', type: 'file', accept: 'image/*,.pdf' },
+  { k: 'vendorWaybill', label: 'Vendor Waybill', type: 'text' },
+  
   { k: 'parcelQty', label: 'Parcel Qty', type: 'number', req: true },
   { k: 'value', label: 'Value', type: 'number' },
 

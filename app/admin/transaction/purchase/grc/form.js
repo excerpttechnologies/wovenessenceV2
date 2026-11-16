@@ -245,7 +245,9 @@ export const FORM = {
         "populate": {
           "supplierId": "supplierId",
           "vendorGstNo": "supplierGstNo",
-          "vendorDocNo": "invPmNumber",
+          "vendorDocNo": "vendorInvoiceNo",
+          "vendorDocDate": "vendorInvoiceDate",
+          "vendorInvoiceCopy": "vendorInvoiceCopy",
           "lrTransactionNo": "transactionNo",
           "freightAmount": "freightAmount"
         }

@@ -116,7 +116,9 @@ const api = (path, opts = {}) => fetch(BASE + path, {
 let made = 0;
 const newRow = (over = {}) => ({
   id: `${Date.now()}-${made++}`,
-  oldBarcode: '', itemCode: 'E2E-ITEM', itemName: 'E2E ITEM', goodsType: '', sm: '', p_m_f: '',
+  /* P-M-F is mandatory on every barcode the save route CREATES; the fixture
+     carries it so the run reaches generation instead of being refused. */
+  oldBarcode: '', itemCode: 'E2E-ITEM', itemName: 'E2E ITEM', goodsType: '', sm: '', p_m_f: 'P-M-F',
   hsn: '520811', gst: '5', uom: 'PC', qty: '1', noOfCuts: '', totalMtr: '',
   purchaseRate: '95', encodedPurchaseRate: '', discountType: 'Percentage', discount: '0', finalPrice: '95',
   retailPrice: '150', uniqueBarcode: 'Yes', barcodeNo: '', supplierDescription: 'E2E SUPPLIER', printDescription: 'E2E PRINT',

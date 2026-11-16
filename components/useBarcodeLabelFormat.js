@@ -41,7 +41,15 @@ export default function useBarcodeLabelFormat(enabled = true) {
 
       const ticked = ((chosen.doc && chosen.doc.rows) || []).filter((r) => r.choice);
       const preferred = ticked.find((t) => t.isDefault)?.name || ticked[0]?.name;
-      setFormatName(list.some((c) => c.name === preferred) ? preferred : (list[0]?.name || ''));
+
+      /* Always prefer a 2-up format (stickerInRow >= 2). If the saved
+         preference is a 1-up format, find the first 2-up format instead,
+         so labels never print one-per-row filling the whole page width. */
+      const preferredFormat = list.find((c) => c.name === preferred);
+      const needsTwoUp = !preferredFormat || Number(preferredFormat.stickerInRow) < 2;
+      const twoUpFallback = list.find((c) => Number(c.stickerInRow) >= 2)?.name || list[0]?.name || '';
+
+      setFormatName(needsTwoUp ? twoUpFallback : preferred);
     })();
 
     return () => { cancelled = true; };

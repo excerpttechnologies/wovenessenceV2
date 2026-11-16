@@ -1737,13 +1737,23 @@ function FileField({ f, value, onChange }) {
         </label>
 
         {stored && !busy && (
-          <button
-            type="button"
-            onClick={clear}
-            className="shrink-0 rounded border border-linestrong px-2 py-1 text-[12px] text-inkmuted hover:border-danger hover:text-danger"
-          >
-            Remove
-          </button>
+          <>
+            <a
+              href={stored}
+              target="_blank"
+              rel="noreferrer"
+              className="shrink-0 rounded border border-linestrong px-2 py-1 text-[12px] text-brand-link hover:border-brand hover:text-brand"
+            >
+              View
+            </a>
+            <button
+              type="button"
+              onClick={clear}
+              className="shrink-0 rounded border border-linestrong px-2 py-1 text-[12px] text-inkmuted hover:border-danger hover:text-danger"
+            >
+              Remove
+            </button>
+          </>
         )}
       </div>
 
@@ -1755,17 +1765,6 @@ function FileField({ f, value, onChange }) {
           alt=""
           className="mt-2 h-20 w-20 rounded border border-line object-cover"
         />
-      )}
-
-      {isUploaded && !canPreview && (
-        <a
-          href={stored}
-          target="_blank"
-          rel="noreferrer"
-          className="mt-1 inline-block text-[12px] text-brand-link hover:underline"
-        >
-          Open attachment
-        </a>
       )}
 
       {err && <div className="f-err">{err}</div>}
@@ -2042,7 +2041,7 @@ export default function Field({ f, value, error, onChange, onOptionChange, selec
             />
             <button
               type="button"
-              className="btn btn-primary"
+              className="btn btn-primary w-24"
               onClick={() => setShowScanner(true)}
             >
               SCAN

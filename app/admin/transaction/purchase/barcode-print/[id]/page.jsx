@@ -133,12 +133,11 @@ export default function GrcBarcodePrintPage() {
   const [prompt, setPrompt] = useState(null);
   const [notice, setNotice] = useState('');
 
-  /* The sticker stock, and the paper it is printed on. A4 is the default
-     because that is what a desktop printer and "Microsoft Print to PDF" are
-     loaded with; the stock option makes the page one physical sheet of
-     labels, which is what a label printer feeds. */
+  /* The sticker stock, and the paper it is printed on. Label stock is the
+     default for 100×40mm label printers with 2-up side-by-side layout. A4 is
+     available for desktop printers where labels are cut manually. */
   const { formats, format, formatName, setFormatName } = useBarcodeLabelFormat(true);
-  const [paper, setPaper] = useState('a4');
+  const [paper, setPaper] = useState('stock');
 
   /* PRINTING HAPPENS EXACTLY ONCE PER USER ACTION, AND ONLY WHEN THE SHEET IS
      REALLY THERE.
@@ -209,7 +208,7 @@ export default function GrcBarcodePrintPage() {
      the page's PRINTABLE width - the sheet less the unprintable edge the
      printer's grippers take - which is what stops the leading sticker's
      barcode number being clipped on stock. */
-  const run = labelRun(format, paper);
+  const run = labelRun(format, paper, totalLabels);
   const { gap, pageRule, stockSize } = run;
 
   /* THE PRINT RUN. The body class is what arms the label print rules in
@@ -423,10 +422,10 @@ export default function GrcBarcodePrintPage() {
               onChange={(event) => setPaper(event.target.value)}
               className="rounded border border-slate-300 px-2 py-1 text-xs"
             >
-              <option value="a4">A4 sheet</option>
-              <option value="stock" disabled={!stockSize}>
-                {stockSize ? 'Label stock ' + format.pageSize : 'Label stock (no size set)'}
+              <option value="stock">
+                {stockSize ? 'Label stock ' + format.pageSize : 'Label stock'}
               </option>
+              <option value="a4">A4 sheet</option>
             </select>
           </label>
 

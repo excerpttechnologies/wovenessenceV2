@@ -1514,11 +1514,25 @@ html {
     print-color-adjust: exact;
   }
   
-  /* For TSC TE310 specifically, ensure no page breaks within a label */
+  /* LABELS FLOW A ROW AT A TIME - they are not one page each.
+
+     This used to force `page-break-after: always` on every sticker, so an
+     11-label run became 12 pages: one 50mm label stranded at the left of a
+     210mm sheet with the rest of the width blank, and a trailing empty sheet.
+     The sheet is a grid whose tracks are the label's own millimetre size, so
+     letting it break between ROWS puts every sticker on the paper at its real
+     size - two-up on A4, as many rows per page as the paper holds, and as many
+     labels per page as the configured stock allows - while still never
+     splitting one label down the middle. */
   body.printing-labels .barcode-label {
     break-inside: avoid !important;
     page-break-inside: avoid !important;
-    page-break-after: always !important;
+    break-after: auto !important;
+    page-break-after: auto !important;
+  }
+  body.printing-labels .print-doc {
+    break-after: auto !important;
+    page-break-after: auto !important;
   }
 }
 

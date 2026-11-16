@@ -50,7 +50,7 @@ export default function FloatingAssistant() {
         <div
           role="dialog"
           aria-label="AI Intelligence"
-          className="no-print fixed inset-x-3 bottom-20 z-[85] flex h-[min(80dvh,720px)] flex-col overflow-hidden rounded-2xl border border-line bg-[#fbfdfc] shadow-[0_24px_60px_rgba(15,35,25,0.25)] sm:left-auto sm:right-4 sm:w-[440px]"
+          className="no-print fixed inset-x-3 top-28 z-[85] flex h-[min(80dvh,720px)] flex-col overflow-hidden rounded-2xl border border-line bg-[#fbfdfc] shadow-[0_24px_60px_rgba(15,35,25,0.25)] sm:left-auto sm:right-4 sm:w-[440px]"
         >
           <AiAssistantClient variant="panel" onClose={() => setOpen(false)} />
         </div>
@@ -65,12 +65,12 @@ export default function FloatingAssistant() {
         className={
           /* Below the existing help dialog (z-60) so opening that panel
              covers this launcher instead of the other way round. */
-          'no-print fixed bottom-5 right-4 z-[59] flex h-12 items-center gap-2 rounded-full bg-brand px-3.5 text-white shadow-[0_10px_30px_rgba(12,90,50,0.35)] transition-transform hover:scale-[1.03] hover:bg-brand-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2 '
+          'no-print fixed top-16 right-4 z-[59] flex h-9 items-center gap-1.5 rounded-full bg-brand px-2.5 text-white shadow-[0_10px_30px_rgba(12,90,50,0.35)] transition-transform hover:scale-[1.03] hover:bg-brand-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2 '
           + (open ? 'scale-95' : '')
         }
       >
-        <SparkIcon size={20} />
-        <span className="hidden text-[12px] font-semibold sm:inline">Ask AI</span>
+        <SparkIcon size={16} />
+        <span className="hidden text-[11px] font-semibold sm:inline">Ask AI</span>
       </button>
     </>
   );

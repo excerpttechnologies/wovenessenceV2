@@ -2,29 +2,79 @@
 import { useState } from 'react';
 import ListView from '@/components/ListView';
 import { useToast } from '@/components/ToastContext';
+import GrcCancelModal from '@/components/GrcCancelModal';
+import GrcTransferBlockModal from '@/components/GrcTransferBlockModal';
 
 /* Goods Receipt Challans - list. Columns declared here, not fetched from a registry. */
 
 export default function TransactionPurchaseGrcListPage() {
   const { showToast } = useToast();
   const [reloadKey, setReloadKey] = useState(0);
-  const [cancelling, setCancelling] = useState(false);
+  
+  // Modal states
+  const [checkingDeps, setCheckingDeps] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [showBlockModal, setShowBlockModal] = useState(false);
+  const [selectedGrc, setSelectedGrc] = useState(null);
+  const [blockTransfers, setBlockTransfers] = useState([]);
+  const [processing, setProcessing] = useState(false);
+  const [modalError, setModalError] = useState('');
 
-  async function handleCancel(row) {
-    if (cancelling) return;
+  /**
+   * Step 1: Check stock transfer dependencies
+   * Shows loading indicator while checking
+   */
+  async function checkAndCancel(row) {
+    setSelectedGrc(row);
+    setCheckingDeps(true);
+    setModalError('');
     
-    const confirmMsg = `Cancel GRC ${row.grcNumber || ''}?\n\n` +
-      'This will:\n' +
-      '- Reverse the stock receipt\n' +
-      '- Reverse accounting entries\n' +
-      '- Mark the GRC as cancelled\n\n' +
-      'This action cannot be undone if the stock has been transferred.';
-    
-    if (!window.confirm(confirmMsg)) return;
+    // Show loading toast
+    showToast('Checking stock transfer history...', 'success', 2000);
 
-    setCancelling(true);
     try {
-      const res = await fetch(`/api/purchase-grc/${row._id}/cancel`, {
+      const res = await fetch(`/api/purchase-grc/${row._id}/cancel/check`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const data = await res.json();
+
+      setCheckingDeps(false);
+
+      if (!res.ok) {
+        // Check if blocked due to transfers
+        if (data.code === 'HAS_TRANSFERS') {
+          // Show block modal with transfer details
+          setBlockTransfers(data.transfers || []);
+          setShowBlockModal(true);
+        } else {
+          // Other errors
+          showToast(data.error || 'Failed to check dependencies', 'error');
+        }
+        return;
+      }
+
+      // No transfers found - safe to cancel, show confirmation modal
+      setShowCancelModal(true);
+      
+    } catch (err) {
+      setCheckingDeps(false);
+      showToast('Failed to check stock transfer history: ' + err.message, 'error');
+    }
+  }
+
+  /**
+   * Step 2: Execute cancellation after user confirms
+   */
+  async function executeCancel() {
+    if (!selectedGrc || processing) return;
+
+    setProcessing(true);
+    setModalError('');
+
+    try {
+      const res = await fetch(`/api/purchase-grc/${selectedGrc._id}/cancel`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -32,26 +82,39 @@ export default function TransactionPurchaseGrcListPage() {
       const data = await res.json();
 
       if (!res.ok) {
-        if (data.code === 'HAS_TRANSFERS') {
-          showToast(
-            data.error + '\n\n' +
-            (data.details || 'Check related stock transfers before cancelling.'),
-            'error',
-            8000
-          );
-        } else {
-          showToast(data.error || 'Failed to cancel GRC', 'error');
-        }
+        // Show error in modal
+        setModalError(data.error || 'Failed to cancel GRC');
+        setProcessing(false);
         return;
       }
 
+      // Success
+      setProcessing(false);
+      setShowCancelModal(false);
+      setSelectedGrc(null);
       showToast(data.message || 'GRC cancelled successfully', 'success');
       setReloadKey(prev => prev + 1);
+      
     } catch (err) {
-      showToast('Failed to cancel GRC: ' + err.message, 'error');
-    } finally {
-      setCancelling(false);
+      setProcessing(false);
+      setModalError('Failed to cancel GRC: ' + err.message);
     }
+  }
+
+  /**
+   * Close modals and reset state
+   */
+  function closeCancelModal() {
+    if (processing) return;
+    setShowCancelModal(false);
+    setSelectedGrc(null);
+    setModalError('');
+  }
+
+  function closeBlockModal() {
+    setShowBlockModal(false);
+    setSelectedGrc(null);
+    setBlockTransfers([]);
   }
 
   const CONFIG = {
@@ -73,8 +136,8 @@ export default function TransactionPurchaseGrcListPage() {
       { label: 'GRC Print', icon: 'printer', to: (r) => '/admin/transaction/purchase/grc/print/' + r._id },
       /* DELETE button - only for latest GRC */
       { label: 'Delete', icon: 'trash', action: 'delete', need: 'delete', show: (r) => r.isLatest === true },
-      /* CANCEL button - only for non-latest GRCs (using 'x' icon for cancel) */
-      { label: 'Cancel', icon: 'x', need: 'delete', onClick: handleCancel, show: (r) => r.isLatest !== true },
+      /* CANCEL button - only for non-latest GRCs */
+      { label: 'Cancel', icon: 'x', need: 'delete', onClick: checkAndCancel, show: (r) => r.isLatest !== true },
     ],
     
     filters: [
@@ -106,5 +169,28 @@ export default function TransactionPurchaseGrcListPage() {
     ],
   };
 
-  return <ListView cfg={CONFIG} reloadKey={reloadKey} />;
+  return (
+    <>
+      <ListView cfg={CONFIG} reloadKey={reloadKey} />
+      
+      {/* GRC Cancellation Confirmation Modal */}
+      <GrcCancelModal
+        open={showCancelModal}
+        grc={selectedGrc}
+        operation="cancel"
+        busy={processing}
+        error={modalError}
+        onConfirm={executeCancel}
+        onCancel={closeCancelModal}
+      />
+      
+      {/* Stock Transfer Block Modal */}
+      <GrcTransferBlockModal
+        open={showBlockModal}
+        grc={selectedGrc}
+        transfers={blockTransfers}
+        onClose={closeBlockModal}
+      />
+    </>
+  );
 }

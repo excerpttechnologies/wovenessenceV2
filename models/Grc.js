@@ -17,6 +17,7 @@ const GrcSchema = new mongoose.Schema(
     vendorGstNo: { type: String, default: '' },
     grcDate: { type: Date, default: null },
     vendorDocNo: { type: String, default: '' },
+    vendorDocDate: { type: Date, default: null },
     purchaseTermId: { type: mongoose.Schema.Types.ObjectId, ref: 'purchaseTerm', default: null },
     grcNumber: { type: String, default: '' },
     purchaseGroupId: { type: mongoose.Schema.Types.ObjectId, ref: 'purchaseGroup', default: null },

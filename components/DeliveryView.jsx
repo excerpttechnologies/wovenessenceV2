@@ -15,6 +15,7 @@ import { FIELDS as TRANSPORTER_FIELDS } from '@/app/admin/transport/transporter/
 import { AGENT_QUICK_FIELDS, FIELD_LABELS as SUPPLIER_FIELD_LABELS, TABS as SUPPLIER_TABS } from '@/app/admin/contact/supplier/tabs';
 import SupplierImportPanel from './SupplierImportPanel';
 import AttachmentsDialog from './AttachmentsDialog';
+import ImageCropModal from './ImageCropModal';
 
 /* The LR-page quick-add does not collect a transporter code. The API still
   requires one, so the dialog supplies an internal value when saving. */
@@ -127,6 +128,14 @@ function DeliveryDialog({ row, onClose, onSaved }) {
   /* preview of the number this delivery will most likely be given - never
      submitted, see the effect below */
   const [nextNo, setNextNo] = useState('');
+  
+  /* GRC auto-fetch and image cropping */
+  const [availableGrcs, setAvailableGrcs] = useState([]);
+  const [loadingGrcs, setLoadingGrcs] = useState(false);
+  const [showCropModal, setShowCropModal] = useState(false);
+  const [selectedImageFile, setSelectedImageFile] = useState(null);
+  const [croppedImageUrl, setCroppedImageUrl] = useState(null);
+  const [cropTargetField, setCropTargetField] = useState('document'); // 'document' or 'invoiceCopy'
 
   /* The next Transaction No, shown only as a hint.
 
@@ -154,10 +163,35 @@ function DeliveryDialog({ row, onClose, onSaved }) {
       .catch(() => {});
     return () => { live = false; };
   }, [isEdit, scope.business, scope.location, scope.finYear]);
+  
+  /* GRC auto-fetch functionality removed - fields can be entered manually */
 
   const set = (k, v) => {
     setData((d) => ({ ...d, [k]: v }));
     setErrors((e) => (e[k] ? { ...e, [k]: undefined } : e));
+  };
+  
+  const handleFileSelect = (e, fieldName = 'document') => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // Check if it's an image
+    if (file.type.startsWith('image/')) {
+      setSelectedImageFile(file);
+      setCropTargetField(fieldName);
+      setShowCropModal(true);
+    } else {
+      // Non-image files go directly
+      const reader = new FileReader();
+      reader.onload = () => set(fieldName, reader.result);
+      reader.readAsDataURL(file);
+    }
+  };
+  
+  const handleCroppedImage = (croppedDataUrl) => {
+    setCroppedImageUrl(croppedDataUrl);
+    set(cropTargetField, croppedDataUrl);
+    setShowCropModal(false);
+    setSelectedImageFile(null);
   };
 
   /* same helper the API uses, so this preview cannot disagree with storage */
@@ -356,7 +390,23 @@ function DeliveryDialog({ row, onClose, onSaved }) {
               </div>
 
               <div className="mb-3">
-                <Field f={field('document')} value={data.document} error={errors.document} onChange={set} />
+                <label className="mb-1 block text-[13px] font-semibold">
+                  LR Copy Upload
+                </label>
+                <input
+                  type="file"
+                  className="f-input"
+                  onChange={handleFileSelect}
+                  accept="image/*,application/pdf"
+                />
+                {data.document && (
+                  <div className="mt-2 text-[12px] text-inkmuted">
+                    {data.document.startsWith('data:image/') ? '📷 Image attached' : '📄 File attached'}
+                  </div>
+                )}
+                {errors.document && (
+                  <div className="mt-1 text-[12px] text-red-600">{errors.document}</div>
+                )}
               </div>
 
               <div className="grid grid-cols-1 gap-3">
@@ -422,8 +472,122 @@ function DeliveryDialog({ row, onClose, onSaved }) {
                     <Icon name="plus" size={20} />
                   </button>
                 </div>
+                
+                {/* Supplier Code - Auto-fetched */}
+                {data.supplierCode && (
+                  <div>
+                    <label className="mb-1 block text-[13px] font-semibold">
+                      Supplier Code
+                    </label>
+                    <input
+                      type="text"
+                      className="f-input bg-gray-100"
+                      value={data.supplierCode || ''}
+                      readOnly
+                    />
+                  </div>
+                )}
+                
+                {/* Vendor GST Number - Auto-fetched */}
+                {data.vendorGstNo && (
+                  <div>
+                    <label className="mb-1 block text-[13px] font-semibold">
+                      Vendor GST No
+                    </label>
+                    <input
+                      type="text"
+                      className="f-input bg-gray-100"
+                      value={data.vendorGstNo || ''}
+                      readOnly
+                    />
+                  </div>
+                )}
+                
+                {/* GRC Number - Hidden but can be set programmatically */}
+                
+                {/* Vendor Invoice Number - Always shown, can be manually entered or auto-filled */}
+                {data.supplierId && (
+                  <div>
+                    <label className="mb-1 block text-[13px] font-semibold">
+                      Vendor Invoice No
+                    </label>
+                    <input
+                      type="text"
+                      className="f-input"
+                      value={data.vendorInvoiceNo || ''}
+                      onChange={(e) => set('vendorInvoiceNo', e.target.value)}
+                      placeholder="Enter vendor invoice number"
+                    />
+                  </div>
+                )}
+                
+                {/* Vendor Invoice Date - Always shown, can be manually entered or auto-filled */}
+                {data.supplierId && (
+                  <div>
+                    <label className="mb-1 block text-[13px] font-semibold">
+                      Vendor Invoice Date
+                    </label>
+                    <input
+                      type="date"
+                      className="f-input"
+                      value={data.vendorInvoiceDate ? String(data.vendorInvoiceDate).slice(0, 10) : ''}
+                      onChange={(e) => set('vendorInvoiceDate', e.target.value)}
+                    />
+                  </div>
+                )}
+                
+                {/* Vendor Invoice Copy - Show link if from GRC, or allow upload */}
+                {data.supplierId && (
+                  <div>
+                    <label className="mb-1 block text-[13px] font-semibold">
+                      Vendor Invoice Copy
+                    </label>
+                    {data.vendorInvoiceCopy ? (
+                      <div className="space-y-2">
+                        <a
+                          href={data.vendorInvoiceCopy}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-2 text-brand-link hover:underline"
+                        >
+                          <Icon name="file" size={16} />
+                          View Invoice Document
+                        </a>
+                        <button
+                          type="button"
+                          className="text-[12px] text-inkmuted hover:text-ink"
+                          onClick={() => set('vendorInvoiceCopy', '')}
+                        >
+                          Clear to upload new
+                        </button>
+                      </div>
+                    ) : (
+                      <input
+                        type="file"
+                        className="f-input"
+                        onChange={(e) => handleFileSelect(e, 'vendorInvoiceCopy')}
+                        accept="image/*,application/pdf,.doc,.docx"
+                      />
+                    )}
+                  </div>
+                )}
+                
+                {/* Vendor Waybill - Show if exists */}
+                {data.vendorWaybill && (
+                  <div>
+                    <label className="mb-1 block text-[13px] font-semibold">
+                      Vendor Waybill
+                    </label>
+                    <input
+                      type="text"
+                      className="f-input bg-gray-100"
+                      value={data.vendorWaybill || ''}
+                      readOnly
+                    />
+                  </div>
+                )}
 
-                {['invPmNumber', 'parcelQty', 'value'].map((k) => (
+                {['parcelQty', 'value'].map((k) => (
                   <Field key={k} f={field(k)} value={data[k]} error={errors[k]} onChange={set} />
                 ))}
               </div>
@@ -469,6 +633,17 @@ function DeliveryDialog({ row, onClose, onSaved }) {
           </div>
         </div>
       </div>
+      
+      {showCropModal && selectedImageFile && (
+        <ImageCropModal
+          imageFile={selectedImageFile}
+          onCrop={handleCroppedImage}
+          onCancel={() => {
+            setShowCropModal(false);
+            setSelectedImageFile(null);
+          }}
+        />
+      )}
     </>
   );
 }
@@ -520,7 +695,6 @@ function ViewDialog({ row, labels, onClose }) {
           <Section title="Supplier / Parcel">
             <div className="grid grid-cols-1 gap-x-8 md:grid-cols-2">
               <Line label="Supplier Name" value={supplier} />
-              <Line label="Inv / PM Number" value={row.invPmNumber} />
               <Line label="Parcel Qty" value={row.parcelQty ?? ''} />
               <Line label="Value" value={money(row.value)} />
             </div>
