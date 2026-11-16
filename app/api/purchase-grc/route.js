@@ -213,8 +213,25 @@ export async function GET(req) {
     });
   }
 
+  /* ---- determine which GRC is the latest in each scope -----------------
+   
+     Used to conditionally show DELETE vs CANCEL buttons. The latest GRC
+     (most recent by createdAt) in each scope can be deleted; all others
+     can only be cancelled. Group by scope and find the latest. */
+  const latestByScope = new Map();
+  for (const r of rows) {
+    const scopeKey = `${r.businessId}:${r.locationId}:${r.finYear}`;
+    const existing = latestByScope.get(scopeKey);
+    if (!existing || new Date(r.createdAt) > new Date(existing.createdAt)) {
+      latestByScope.set(scopeKey, r);
+    }
+  }
+
   const pricedRows = rows.map((r) => {
     const money = grcMoney(r, rowsByGrc.get(String(r._id)));
+    const scopeKey = `${r.businessId}:${r.locationId}:${r.finYear}`;
+    const isLatest = latestByScope.get(scopeKey)?._id === r._id;
+    
     return {
       ...r,
       _id: String(r._id),
@@ -225,6 +242,8 @@ export async function GET(req) {
       gst: money.gst,
       /* the name the GST column reads; `gst` above carries the same amount */
       gstAmount: money.gst,
+      /* flag for conditional UI buttons */
+      isLatest,
     };
   });
 

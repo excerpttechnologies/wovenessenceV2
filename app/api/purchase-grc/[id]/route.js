@@ -10,6 +10,7 @@ import { FORM } from '@/app/admin/transaction/purchase/grc/form';
 import { nextDocNumber } from '@/lib/docnumber';
 import { itemPriceErrors } from '@/lib/purchasePrice';
 import { trySyncGrcPosting, reverseGrcPosting } from '@/lib/accounting/posting';
+import { checkGrcDependencies, isLatestGrc } from '@/lib/grcDependencies';
 
 /* header fields AND the totals rows - the totals card holds real stored
    numbers (taxable value, round off, net value, the editable discounts).
@@ -159,11 +160,46 @@ export async function DELETE(req, { params }) {
   const no = await grcDenied(session, id, [PERM.DELETE]);
   if (no) return no;
 
-  /* Cancelling a receipt takes its value out of the books by REVERSING the
+  const grc = await Grc.findById(id).lean();
+  if (!grc) return json({ error: 'GRC not found' }, 404);
+
+  /* ---- Latest-only check: only the most recent GRC can be deleted --------
+   
+     All other GRCs must be cancelled instead of deleted. This preserves the
+     audit trail and prevents gaps in the document sequence. */
+  const latest = await isLatestGrc(id, grc);
+  if (!latest) {
+    return json({
+      error: 'Cannot delete a non-latest GRC. Only the most recently created GRC in this scope can be deleted. Use the CANCEL option instead.',
+      code: 'NOT_LATEST_GRC'
+    }, 422);
+  }
+
+  /* ---- Dependency check: refuse if stock has moved downstream ------------
+   
+     A GRC can only be deleted if NONE of its stock has been transferred to
+     any other location via Stock Transfer, Inter-Company, or Inter-Store
+     transactions. This check must run for BOTH delete and cancel operations. */
+  const { hasTransfers, transfers } = await checkGrcDependencies(id, grc.grcNumber);
+  if (hasTransfers) {
+    const transferList = transfers
+      .slice(0, 5)
+      .map(t => `${t.type}: ${t.refNo}`)
+      .join(', ');
+    
+    return json({
+      error: 'Cannot delete this GRC because stock from this GRC has already been transferred. Please check the related stock transfer transactions.',
+      details: transferList + (transfers.length > 5 ? ` and ${transfers.length - 5} more` : ''),
+      transfers: transfers.slice(0, 10),
+      code: 'HAS_TRANSFERS'
+    }, 422);
+  }
+
+  /* Deleting a receipt takes its value out of the books by REVERSING the
      journal, not by deleting it - the stock and the money that moved are
      history, and history is offset, never erased. Done before the document
      goes, while it still carries the figures the journal was built from. */
-  await reverseGrcPosting(id, { reason: 'GRC cancelled' });
+  await reverseGrcPosting(id, { reason: 'GRC deleted' });
 
   await Grc.findByIdAndDelete(id);
   return json({ ok: true });
