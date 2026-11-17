@@ -584,9 +584,11 @@ select {
 
   .grc-header-fields-grid {
     display: grid;
-    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) 200px minmax(0, 0.75fr) 140px;
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) 140px;
     gap: 16px;
   }
+  .grc-header-fields-grid .grc-occasion { grid-column: 1 / 3; }
+  .grc-header-fields-grid .grc-bottom-agent { grid-column: 3 / 5; }
   .grc-header-fields-grid .grc-bottom-freight { grid-row: 3; grid-column: 1; }
   .grc-header-fields-grid .grc-bottom-stock-point { grid-row: 3; grid-column: 2; }
   .grc-header-fields-grid .grc-bottom-invoice-copy { grid-row: 3; grid-column: 3; }
@@ -1417,123 +1419,42 @@ html {
    purchase invoice and the Inventory label sheet are untouched. The block
    above is APPENDED TO, never edited, for that reason.
    ========================================================================== */
-/* On screen the sheet remains layoutable but invisible. A `display: none`
-   subtree has no layout, and parking it far offscreen can make Chrome's print
-   compositor discard the same subtree when print media is activated. */
-@media screen {
-  #barcode-print-root {
-    position: fixed;
-    left: 0;
-    top: 0;
-    visibility: hidden;
-    pointer-events: none;
-    background: #fff;
-  }
+/* A sticker is a physical object - it may not be split down the middle by
+   a page boundary. Not scoped to the print root: the Inventory label sheet
+   is the same component on paper and wants the same guarantee. */
+.barcode-label {
+  break-inside: avoid;
+  page-break-inside: avoid;
 }
 
-@media print {
-  /* Everything that is not the label sheet leaves the box tree, so it cannot
-     reserve a single line of paper. A plain class rather than :has() - if the
-     selector is not understood the whole rule is dropped, and the failure
-     mode of dropping THIS one is the blank sheet all over again. */
-  body.printing-labels > *:not(#barcode-print-root) { display: none !important; }
+/* CODE128 bars are SVG <rect fill="#000">, never a CSS background, so they
+   survive Chrome's default "Background graphics: off". This keeps them
+   solid black rather than dithered grey, which is what a scanner needs. */
+.barcode-label svg,
+.barcode-label svg * {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
 
-  #barcode-print-root {
-    display: block !important;
-    visibility: visible !important;
-    position: static !important;
-    left: auto !important;
-    top: auto !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    width: auto !important;
-    height: auto !important;
-    max-height: none !important;
-    overflow: visible !important;
-    opacity: 1 !important;
-    background: #fff !important;
-  }
-  #barcode-print-root * { visibility: visible !important; }
+/* LABELS FLOW A ROW AT A TIME - they are not one page each.
 
-  /* BarcodeLabelSheet carries .print-doc for the Inventory screen, which
-     prints it the old way. Inside this root the sheet must stay in normal
-     flow: the .print-doc rule above pins it to inset:0, which over-constrains
-     its height, stretches it to a single page and stops it fragmenting - so
-     everything past the first page would be dropped without a word. */
-  #barcode-print-root .print-doc {
-    position: static !important;
-    inset: auto !important;
-    width: auto !important;
-  }
-
-  /* Never leave the label sheet standing on the shell's page tint. */
-  body.printing-labels { background: #fff !important; }
-
-  /* A sticker is a physical object - it may not be split down the middle by
-     a page boundary. Not scoped to the print root: the Inventory label sheet
-     is the same component on paper and wants the same guarantee. */
-  .barcode-label {
-    break-inside: avoid;
-    page-break-inside: avoid;
-  }
-
-  /* For single-label printers like TSC TE310 (104mm x 40mm), ensure the
-     page size is correctly set when using label stock. The @page rule
-     injected by the component handles this, but we ensure no conflicting
-     styles override it. */
-  body.printing-labels {
-    margin: 0 !important;
-    padding: 0 !important;
-    width: 100% !important;
-    height: 100% !important;
-    overflow: visible !important;
-  }
-  body.printing-labels #barcode-print-root {
-    margin: 0 !important;
-    padding: 0 !important;
-    width: 100% !important;
-    height: 100% !important;
-    position: static !important;
-  }
-  
-  /* Ensure the barcode print root uses the full page for label stock */
-  body.printing-labels > *:not(#barcode-print-root) {
-    display: none !important;
-  }
-  
-  body.printing-labels #barcode-print-root {
-    display: block !important;
-  }
-
-  /* CODE128 bars are SVG <rect fill="#000">, never a CSS background, so they
-     survive Chrome's default "Background graphics: off". This keeps them
-     solid black rather than dithered grey, which is what a scanner needs. */
-  #barcode-print-root svg,
-  #barcode-print-root svg * {
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-  }
-  
-  /* LABELS FLOW A ROW AT A TIME - they are not one page each.
-
-     This used to force `page-break-after: always` on every sticker, so an
-     11-label run became 12 pages: one 50mm label stranded at the left of a
-     210mm sheet with the rest of the width blank, and a trailing empty sheet.
-     The sheet is a grid whose tracks are the label's own millimetre size, so
-     letting it break between ROWS puts every sticker on the paper at its real
-     size - two-up on A4, as many rows per page as the paper holds, and as many
-     labels per page as the configured stock allows - while still never
-     splitting one label down the middle. */
-  body.printing-labels .barcode-label {
-    break-inside: avoid !important;
-    page-break-inside: avoid !important;
-    break-after: auto !important;
-    page-break-after: auto !important;
-  }
-  body.printing-labels .print-doc {
-    break-after: auto !important;
-    page-break-after: auto !important;
-  }
+   This used to force `page-break-after: always` on every sticker, so an
+   11-label run became 12 pages: one 50mm label stranded at the left of a
+   210mm sheet with the rest of the width blank, and a trailing empty sheet.
+   The sheet is a grid whose tracks are the label's own millimetre size, so
+   letting it break between ROWS puts every sticker on the paper at its real
+   size - two-up on A4, as many rows per page as the paper holds, and as many
+   labels per page as the configured stock allows - while still never
+   splitting one label down the middle. */
+.barcode-label {
+  break-inside: avoid !important;
+  page-break-inside: avoid !important;
+  break-after: auto !important;
+  page-break-after: auto !important;
+}
+.print-doc {
+  break-after: auto !important;
+  page-break-after: auto !important;
 }
 
 .prn-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }

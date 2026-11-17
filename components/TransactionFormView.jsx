@@ -2338,31 +2338,33 @@ export default function TransactionFormView({ cfg, id, slug }) {
               <div className="card-body">
                 <div className={card.gridClass || 'form-grid-4'}>
                   {(card.fields || []).filter((f) => !f.visibleWhen || Object.entries(f.visibleWhen).every(([key, expected]) => data[key] === expected)).map((f) => (
-                    <div key={f.k} className={(f.layoutClass || '') + ((cfg.quickAdds?.[f.k] || (cfg.quickAdd?.field === f.k && cfg.quickAdd?.inline)) ? ' flex items-end gap-1.5' : '')}>
-                      <Field 
-                        key={f.k + '-' + quickAddNonce} 
-                        f={isLocked(f) ? { ...f, disabled: true } : f} 
-                        value={data[f.k]} 
-                        error={errors[f.k]} 
-                        onChange={set} 
-                        onOptionChange={(option) => {
-                          if (option) {
-                            setSelectedOptions((prev) => ({ ...prev, [f.k]: option }));
-                          }
-                        }}
-                        selectedOption={selectedOptions[f.k]}
-                      />
-                      {isLocked(f) && f.unlockable && (
-                        <button
-                          type="button"
-                          className="mt-1 text-[12px] font-semibold text-brand-link hover:underline"
-                          onClick={() => setUnlocked((current) => ({ ...current, [f.k]: true }))}
-                        >
-                          Locked - click to unlock
-                        </button>
-                      )}
+                    <div key={f.k} className={(f.layoutClass || '') + ((cfg.quickAdds?.[f.k] || (cfg.quickAdd?.field === f.k && cfg.quickAdd?.inline)) ? ' flex items-start gap-1.5' : '')}>
+                      <div className="flex-1">
+                        <Field 
+                          key={f.k + '-' + quickAddNonce} 
+                          f={isLocked(f) ? { ...f, disabled: true } : f} 
+                          value={data[f.k]} 
+                          error={errors[f.k]} 
+                          onChange={set} 
+                          onOptionChange={(option) => {
+                            if (option) {
+                              setSelectedOptions((prev) => ({ ...prev, [f.k]: option }));
+                            }
+                          }}
+                          selectedOption={selectedOptions[f.k]}
+                        />
+                        {isLocked(f) && f.unlockable && (
+                          <button
+                            type="button"
+                            className="mt-1 text-[12px] font-semibold text-brand-link hover:underline"
+                            onClick={() => setUnlocked((current) => ({ ...current, [f.k]: true }))}
+                          >
+                            Locked - click to unlock
+                          </button>
+                        )}
+                      </div>
                       {(cfg.quickAdds?.[f.k] || (cfg.quickAdd?.field === f.k ? cfg.quickAdd : null)) && (
-                        <button type="button" className="btn btn-primary mt-2 shrink-0" title="Add" aria-label="Add" onClick={() => {
+                        <button type="button" className="btn btn-primary shrink-0 min-w-[80px] h-9 mt-[22px]" title="Add" aria-label="Add" onClick={() => {
                           const qa = cfg.quickAdds?.[f.k] || cfg.quickAdd;
                           if (qa?.navigate) { router.push(qa.navigate); return; }
                           setQuickAddTarget(f.k); setQuickAddOpen(true);

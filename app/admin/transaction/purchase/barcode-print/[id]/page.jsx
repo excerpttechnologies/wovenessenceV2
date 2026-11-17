@@ -83,13 +83,13 @@
 
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { renderToString } from 'react-dom/server';
 import { useParams, useRouter } from 'next/navigation';
 import Icon from '@/components/Icon';
 import BatchLabelCountDialog from '@/components/BatchLabelCountDialog';
-import GrcBarcodeLabelSheet from '@/components/GrcBarcodeLabel';
+import GrcBarcodeLabelSheet, { Label, labelFor } from '@/components/GrcBarcodeLabel';
 import useBarcodeLabelFormat from '@/components/useBarcodeLabelFormat';
-import { labelRun } from '@/lib/barcodeLabelGeometry';
+import { labelRun, parseSize, parsePageSize, labelGeometry } from '@/lib/barcodeLabelGeometry';
 import {
   LABEL_MODE,
   resolveLabelMode,
@@ -158,7 +158,6 @@ export default function GrcBarcodePrintPage() {
      print, cannot queue a second print dialog. */
   const [printing, setPrinting] = useState(false);
   const printInFlightRef = useRef(false);
-  const printRootRef = useRef(null);
   /* how many labels this run was asked for, frozen at the click */
   const wantedRef = useRef(0);
 
@@ -198,59 +197,109 @@ export default function GrcBarcodePrintPage() {
     [counted]
   );
 
-  /* FORCE 2-UP LAYOUT: Ensure minimum 2 labels per row regardless of what
-     is stored in the database. If the format's stickerInRow < 2, override it.
-     Do NOT adjust labelSize — fittedLabelSize() already divides the printable
-     box width by perRow, so it returns the correct per-label width. */
+  /* FORCE 2-UP LAYOUT: Ensure minimum 2 labels per row.
+     Also reduce label width to 40 x 40 mm for narrower labels.
+     Force pageSize to 100 x 40 mm for stock printing to ensure correct pageRule. */
   const format2up = useMemo(() => {
     if (!format) return null;
     const perRow = Math.max(2, Number(format.stickerInRow) || 2);
-    if (perRow === Number(format.stickerInRow)) return format; // already correct
-    return { ...format, stickerInRow: perRow };
+    const newSize = '40 x 40 mm'; // Reduced width from 50mm to 40mm
+    const pageSize = '100 x 40 mm'; // Always use 100x40 for stock printing
+    if (perRow === Number(format.stickerInRow) && format.labelSize === newSize && format.pageSize === pageSize) return format; // already correct
+    return { ...format, stickerInRow: perRow, labelSize: newSize, pageSize };
   }, [format]);
 
   const run = labelRun(format2up, paper, totalLabels);
-  const { gap, pageRule, stockSize } = run;
+  const { gap, stockSize } = run;
 
-  /* THE PRINT RUN. The body class is what arms the label print rules in
-     globals.css: everything that is not the print surface leaves the BOX TREE
-     - not merely hidden - so the admin shell cannot paginate blank sheets,
-     and the sheet stays in normal flow so it fragments across as many pages
-     as it needs. Removed in the cleanup below, so there is no state to unwind
-     by hand. */
+  /* Parse paper and label dimensions for iframe printing */
+  const paperDims = paper === 'stock' && format2up ? parsePageSize(format2up) : null;
+  const labelDims = format2up ? parseSize(format2up.labelSize) : { w: 50, h: 40 };
+  const paperW = paperDims ? paperDims.w : (paper === 'a4' ? 210 : 100);
+  const paperH = paperDims ? paperDims.h : (paper === 'a4' ? 297 : 40);
+  const labelsPerSheet = Math.max(1, Math.floor(paperW / labelDims.w));
+
+  /* Build labels array for iframe printing */
+  const labelsForPrint = counted.flatMap((row, ri) => {
+    const n = Math.max(0, Math.floor(Number(row.copies) || 0));
+    return Array.from({ length: n }, (_, copy) => ({
+      key: `${row._id || row.id || ri}-${copy}`,
+      row,
+    }));
+  });
+
+  /* Group labels into sheets */
+  const sheets = [];
+  for (let i = 0; i < labelsForPrint.length; i += labelsPerSheet) {
+    sheets.push(labelsForPrint.slice(i, i + labelsPerSheet));
+  }
+
+  /* THE PRINT RUN. Render labels in a hidden container first, wait for barcodes to draw,
+     then copy the rendered HTML to an iframe for printing. This ensures JsBarcode effects run. */
   useEffect(() => {
     if (!printing) return undefined;
     let cancelled = false;
 
-    document.body.classList.add('printing-labels');
-    const done = () => setPrinting(false);
+    const hiddenContainer = document.createElement('div');
+    hiddenContainer.style.cssText = 'position:fixed; left:-9999px; top:0; width:100%; height:100%; visibility:hidden; pointer-events:none;';
+    document.body.appendChild(hiddenContainer);
+
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = 'position:fixed; left:-9999px; top:0; width:100%; height:100%; visibility:hidden; pointer-events:none;';
+    document.body.appendChild(iframe);
+
+    const done = () => {
+      setPrinting(false);
+      if (hiddenContainer.parentNode) {
+        hiddenContainer.parentNode.removeChild(hiddenContainer);
+      }
+      if (iframe.parentNode) {
+        iframe.parentNode.removeChild(iframe);
+      }
+    };
     window.addEventListener('afterprint', done);
 
     (async () => {
       try {
-        /* Fonts first. The number, the price and the description are text;
-           print before the face has loaded and they are measured with
-           fallback metrics and re-flow inside a fixed-size sticker. */
+        /* Wait for fonts to load */
         if (document.fonts && document.fonts.ready) {
-          try { await document.fonts.ready; } catch { /* unsupported - the frames below still gate on layout */ }
+          try { await document.fonts.ready; } catch { /* unsupported */ }
         }
         if (cancelled) return;
 
-        /* Two frames: the first lets React's commit reach the screen, the
-           second lets the browser lay out the SVG bars JsBarcode drew during
-           that commit. */
+        /* Render labels in hidden container using ReactDOM */
+        const { createRoot } = await import('react-dom/client');
+        const root = createRoot(hiddenContainer);
+
+        const geometry = labelGeometry(format2up, run.page);
+        const sheetsHTML = sheets.map((sheetLabels) => {
+          const sheetContent = sheetLabels.map(({ key, row }) => {
+            const labelData = labelFor(row);
+            return <Label key={key} label={labelData} geometry={geometry} />;
+          });
+
+          return <div key={sheetLabels[0]?.key || 'sheet'} className="sheet">{sheetContent}</div>;
+        });
+
+        root.render(
+          <div>
+            {sheetsHTML}
+          </div>
+        );
+
+        /* Wait for React to mount and JsBarcode to draw */
         await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         if (cancelled) return;
 
-        const root = printRootRef.current;
-        const drawn = root ? Array.from(root.querySelectorAll('svg[data-barcode]')) : [];
+        /* Check if all barcodes are drawn in hidden container */
+        const drawn = Array.from(hiddenContainer.querySelectorAll('svg[data-barcode]'));
         const blank = drawn.filter((svg) => {
           const box = svg.getBoundingClientRect();
           return !svg.firstChild || box.width < 1 || box.height < 1;
         });
 
         const wanted = wantedRef.current;
-        if (!root || drawn.length !== wanted || blank.length) {
+        if (drawn.length !== wanted || blank.length) {
           /* Refusing to open the dialog is the point. A run that is short a
              label, or carries an empty box where a barcode should be,
              produces stickers that cannot be scanned and goods that cannot be
@@ -262,18 +311,48 @@ export default function GrcBarcodePrintPage() {
             '. Nothing was sent to the printer.'
           );
           setPrinting(false);
+          if (hiddenContainer.parentNode) {
+            hiddenContainer.parentNode.removeChild(hiddenContainer);
+          }
+          if (iframe.parentNode) {
+            iframe.parentNode.removeChild(iframe);
+          }
           return;
         }
 
-        setNotice('');
-        window.print();
+        /* Copy the rendered HTML (with drawn barcodes) to iframe */
+        const doc = iframe.contentDocument || iframe.contentWindow.document;
+        doc.open();
+        doc.write(`<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    @page { size: ${paperW}mm ${paperH}mm; margin: 0; }
+    html, body { margin:0; padding:0; width:${paperW}mm; print-color-adjust: exact; -webkit-print-color-adjust: exact; font-family: Arial, Helvetica, sans-serif; }
+    .sheet { width:${paperW}mm; height:${paperH}mm; display:flex; overflow:hidden; break-after:page; page-break-after:always; }
+    .sheet:last-child { break-after:auto; page-break-after:auto; }
+    .label { width:${labelDims.w}mm; height:${paperH}mm; box-sizing:border-box; overflow:hidden; padding:1.5mm 2mm; display:flex; flex-direction:column; justify-content:space-between; }
+    .label, .label * { border: none !important; outline: none !important; }
+    svg[data-barcode], img[data-barcode], canvas[data-barcode] { display:block; margin:0 auto; width:80%; max-width:40mm; height:9mm; object-fit:contain; }
+    .barcode-label { display:flex; flex-direction:column; justify-content:space-between; height:100%; }
+    .barcode-label > div { margin: 0.5mm 0; }
+    .barcode-label span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  </style>
+</head>
+<body>
+  ${hiddenContainer.innerHTML}
+</body>
+</html>`);
+        doc.close();
 
-        /* afterprint is the signal that the dialog is finished with, and in
-           every current browser print() has already blocked until then. The
-           frame below is the belt to that braces: it hands control back once
-           more so a browser whose print() returns EARLY still has its
-           afterprint delivered first, and the sheet is never pulled out from
-           under a dialog that is still reading it. */
+        /* Wait for iframe to render */
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        if (cancelled) return;
+
+        setNotice('');
+        iframe.contentWindow.print();
+
+        /* Wait for afterprint event */
         await new Promise((resolve) => requestAnimationFrame(resolve));
         if (!cancelled) setPrinting(false);
       } catch (failure) {
@@ -283,14 +362,26 @@ export default function GrcBarcodePrintPage() {
         console.error('Barcode label print failed', failure);
         setNotice('Printing stopped: the label sheet could not be prepared. Nothing was sent to the printer.');
         setPrinting(false);
+        if (hiddenContainer.parentNode) {
+          hiddenContainer.parentNode.removeChild(hiddenContainer);
+        }
+        if (iframe.parentNode) {
+          iframe.parentNode.removeChild(iframe);
+        }
       }
     })();
 
     return () => {
       cancelled = true;
       window.removeEventListener('afterprint', done);
-      document.body.classList.remove('printing-labels');
+      if (hiddenContainer.parentNode) {
+        hiddenContainer.parentNode.removeChild(hiddenContainer);
+      }
+      if (iframe.parentNode) {
+        iframe.parentNode.removeChild(iframe);
+      }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [printing]);
 
   /* the run is over - printed, refused or abandoned - so the next click may
@@ -525,26 +616,6 @@ export default function GrcBarcodePrintPage() {
         onCancel={cancelPrompt}
         onConfirm={confirmPrompt}
       />
-
-      {/* THE PRINT SURFACE.
-
-          Portaled to <body> so it is a sibling of the application rather than
-          a descendant of this page - the same arrangement the Barcode
-          Generation picker prints through, and for the same reason: at <body>
-          level the sheet is ordinary in-flow content that fragments across as
-          many pages as it needs, while the @media print rules in globals.css
-          take the rest of the application out of the box tree so not one
-          sheet of paper is spent on it.
-
-          Mounted only for the duration of a run, so nothing is duplicated on
-          screen or on paper at any other time. */}
-      {printing && typeof document !== 'undefined' && createPortal(
-        <div id="barcode-print-root" ref={printRootRef}>
-          <style>{pageRule}</style>
-          <GrcBarcodeLabelSheet rows={counted} format={format2up} gap={gap} page={run.page} />
-        </div>,
-        document.body
-      )}
     </div>
   );
 }

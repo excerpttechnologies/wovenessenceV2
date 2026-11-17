@@ -25,7 +25,7 @@ export default function AddTransactionPurchaseGrcPage() {
         },
         quickAdds: {
           agentId: {
-            label: '', title: '', slug: 'agent', endpoint: '/api/agent', inline: true,
+            label: 'Add', title: 'Add Agent', slug: 'agent', endpoint: '/api/agent', inline: true,
             fields: [
               { k: 'typeId', label: 'Type', type: 'ref', ref: 'contact-type-agent', req: true },
               { k: 'shortName', label: 'Short Name', type: 'text' },

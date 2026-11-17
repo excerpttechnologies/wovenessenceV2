@@ -4369,14 +4369,14 @@
 
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { renderToString } from "react-dom/server";
 import { useRouter } from "next/navigation";
 import { useScope } from "./ScopeContext";
-import GrcBarcodeLabelSheet from "./GrcBarcodeLabel";
+import GrcBarcodeLabelSheet, { Label, labelFor } from "./GrcBarcodeLabel";
 /* One geometry module for the sticker stock - the same one the label
    renderer lays a label out with and the GRC Barcode Print page prints
    from, so the preview here cannot be measured differently. */
-import { labelRun } from "@/lib/barcodeLabelGeometry";
+import { labelRun, parseSize, parsePageSize, labelGeometry } from "@/lib/barcodeLabelGeometry";
 import { useOptions } from "./useOptions";
 import { exportRowsData, formatFileSize } from "@/lib/format";
 import { useBarcodeLookup } from "./useScanner";
@@ -7105,7 +7105,6 @@ function AddItemModal({ open, onClose, onSubmit, onSubmitAndPrint, barcodeFormat
           <div className="mt-6 flex items-center justify-end gap-2">
             {reserveError && <div className="mb-2 w-full rounded border border-[#f5c2c7] bg-[#f8d7da] px-3 py-2 text-[13px] text-[#842029]">{reserveError}</div>}
             <button type="button" disabled={reserving} onClick={() => submit(false)} className="rounded-md bg-[#0d5ddc] px-7 py-3 text-[15px] font-semibold text-white shadow-[0_2px_8px_rgba(13,93,220,0.35)] transition hover:bg-[#0b4bb6] disabled:opacity-60">{reserving ? "Reserving barcodes..." : "Submit"}</button>
-            <button type="button" disabled={reserving} onClick={() => submit(true)} className="rounded-md bg-[#198754] px-7 py-3 text-[15px] font-semibold text-white shadow-[0_2px_8px_rgba(25,135,84,0.3)] transition hover:bg-[#146c43] disabled:opacity-60">Submit &amp; Print Label</button>
           </div>
       </div>
     </div>
@@ -7155,7 +7154,6 @@ function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
   /* the print run: mounted -> measured -> dialog. See runPrint below. */
   const [printing, setPrinting] = useState(false);
   const [printError, setPrintError] = useState('');
-  const printRootRef = useRef(null);
   /* how many labels this particular run was asked for - frozen at the click */
   const wantedRef = useRef(0);
   /* Taken synchronously the moment a run is asked for and released when it
@@ -7266,100 +7264,171 @@ function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
      printer's grippers take - which is what stops the leading sticker's
      barcode number being clipped on stock. */
   const run = labelRun(format, paper);
-  const { gap, pageRule, stockSize } = run;
+  const { gap, stockSize } = run;
+
+  /* Parse paper and label dimensions for iframe printing */
+  const paperDims = paper === 'stock' && format ? parsePageSize(format) : null;
+  const labelDims = format ? parseSize(format.labelSize) : { w: 50, h: 40 };
+  const paperW = paperDims ? paperDims.w : (paper === 'a4' ? 210 : 100);
+  const paperH = paperDims ? paperDims.h : (paper === 'a4' ? 297 : 40);
+  const labelsPerSheet = Math.max(1, Math.floor(paperW / labelDims.w));
+
+  /* Build labels array for iframe printing */
+  const labelsForPrint = selectedRows.flatMap((row, ri) => {
+    const n = Math.max(0, Math.floor(Number(row.copies) || 0));
+    return Array.from({ length: n }, (_, copy) => ({
+      key: `${row._id || row.id || ri}-${copy}`,
+      row,
+    }));
+  });
+
+  /* Group labels into sheets */
+  const sheets = [];
+  for (let i = 0; i < labelsForPrint.length; i += labelsPerSheet) {
+    sheets.push(labelsForPrint.slice(i, i + labelsPerSheet));
+  }
 
   /* ---------------------------------------------------------------- print --
-     window.print() photographs the DOM as it stands at the instant it is
-     called. It used to be called straight out of the click handler, before
-     React had committed anything and before JsBarcode had drawn a single bar,
-     so what went to the printer was whatever happened to be on screen.
-
-     The run is therefore staged. `printing` mounts the sheet; the effect
-     below waits for the browser to have actually finished with it, checks
-     that every barcode it was asked for is really there, and only then opens
-     the dialog. No timers: each await is a real signal from the browser. */
+     Render labels in a hidden container first, wait for barcodes to draw,
+     then copy the rendered HTML to an iframe for printing. This ensures JsBarcode effects run. */
   useEffect(() => {
     if (!printing) return undefined;
     let cancelled = false;
 
-    /* The class is what arms the print rules in globals.css. Gating them on it
-       rather than on the mere existence of the sheet means every other print
-       screen in the application - and this one at any other moment - keeps
-       printing exactly the way it does today. Removed in the cleanup below,
-       so there is no state to unwind by hand. */
-    document.body.classList.add('printing-labels');
+    const hiddenContainer = document.createElement('div');
+    hiddenContainer.style.cssText = 'position:fixed; left:-9999px; top:0; width:100%; height:100%; visibility:hidden; pointer-events:none;';
+    document.body.appendChild(hiddenContainer);
 
-    const done = () => setPrinting(false);
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = 'position:fixed; left:-9999px; top:0; width:100%; height:100%; visibility:hidden; pointer-events:none;';
+    document.body.appendChild(iframe);
+
+    const done = () => {
+      setPrinting(false);
+      if (hiddenContainer.parentNode) {
+        hiddenContainer.parentNode.removeChild(hiddenContainer);
+      }
+      if (iframe.parentNode) {
+        iframe.parentNode.removeChild(iframe);
+      }
+    };
     window.addEventListener('afterprint', done);
 
     (async () => {
       try {
-        /* Fonts first. The code, the price and the description are text; print
-           before the face has loaded and they are measured with fallback
-           metrics and re-flow inside a fixed-size sticker. */
+        /* Wait for fonts to load */
         if (document.fonts && document.fonts.ready) {
-          try { await document.fonts.ready; } catch { /* unsupported - the frames below still gate on layout */ }
+          try { await document.fonts.ready; } catch { /* unsupported */ }
         }
         if (cancelled) return;
 
-        /* Two frames. The first lets React's commit reach the screen, the
-           second lets the browser lay out the SVG children JsBarcode appended
-           synchronously during that commit. */
+        /* Render labels in hidden container using ReactDOM */
+        const { createRoot } = await import('react-dom/client');
+        const root = createRoot(hiddenContainer);
+
+        const geometry = labelGeometry(format, run.page);
+        const sheetsHTML = sheets.map((sheetLabels) => {
+          const sheetContent = sheetLabels.map(({ key, row }) => {
+            const labelData = labelFor(row);
+            return <Label key={key} label={labelData} geometry={geometry} />;
+          });
+
+          return <div key={sheetLabels[0]?.key || 'sheet'} className="sheet">{sheetContent}</div>;
+        });
+
+        root.render(
+          <div>
+            {sheetsHTML}
+          </div>
+        );
+
+        /* Wait for React to mount and JsBarcode to draw */
         await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         if (cancelled) return;
 
-        const root = printRootRef.current;
-        const drawn = root ? Array.from(root.querySelectorAll('svg[data-barcode]')) : [];
+        /* Check if all barcodes are drawn in hidden container */
+        const drawn = Array.from(hiddenContainer.querySelectorAll('svg[data-barcode]'));
         const blank = drawn.filter((svg) => {
           const box = svg.getBoundingClientRect();
           return !svg.firstChild || box.width < 1 || box.height < 1;
         });
 
         const wanted = wantedRef.current;
-        if (!root || drawn.length !== wanted || blank.length) {
-          /* Refusing to open the dialog is the point. A run that is short a
-             label, or carries an empty box where a barcode should be, produces
-             stickers that cannot be scanned and goods that cannot be found -
-             and the operator would have no way of knowing until the till. */
+        if (drawn.length !== wanted || blank.length) {
           setPrintError(
             'Printing stopped: ' + drawn.length + ' of ' + wanted +
             ' barcodes were drawn' + (blank.length ? ', ' + blank.length + ' of them empty' : '') +
             '. Nothing was sent to the printer.'
           );
           setPrinting(false);
+          if (hiddenContainer.parentNode) {
+            hiddenContainer.parentNode.removeChild(hiddenContainer);
+          }
+          if (iframe.parentNode) {
+            iframe.parentNode.removeChild(iframe);
+          }
           return;
         }
 
-        setPrintError('');
-        window.print();
+        /* Copy the rendered HTML (with drawn barcodes) to iframe */
+        const doc = iframe.contentDocument || iframe.contentWindow.document;
+        doc.open();
+        doc.write(`<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    @page { size: ${paperW}mm ${paperH}mm; margin: 0; }
+    html, body { margin:0; padding:0; width:${paperW}mm; print-color-adjust: exact; -webkit-print-color-adjust: exact; font-family: Arial, Helvetica, sans-serif; }
+    .sheet { width:${paperW}mm; height:${paperH}mm; display:flex; overflow:hidden; break-after:page; page-break-after:always; }
+    .sheet:last-child { break-after:auto; page-break-after:auto; }
+    .label { width:${labelDims.w}mm; height:${paperH}mm; box-sizing:border-box; overflow:hidden; padding:1.5mm 2mm; display:flex; flex-direction:column; justify-content:space-between; }
+    .label, .label * { border: none !important; outline: none !important; }
+    svg[data-barcode], img[data-barcode], canvas[data-barcode] { display:block; margin:0 auto; width:80%; max-width:40mm; height:9mm; object-fit:contain; }
+    .barcode-label { display:flex; flex-direction:column; justify-content:space-between; height:100%; }
+    .barcode-label > div { margin: 0.5mm 0; }
+    .barcode-label span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  </style>
+</head>
+<body>
+  ${hiddenContainer.innerHTML}
+</body>
+</html>`);
+        doc.close();
 
-        /* afterprint is the signal that the dialog is finished with, and in
-           every current browser print() has already blocked until then. The
-           frame below is the belt to that braces: it hands control back once
-           more so a browser whose print() returns EARLY still has its
-           afterprint delivered first, and the sheet is never pulled out from
-           under a dialog that is still reading it. */
+        /* Wait for iframe to render */
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        if (cancelled) return;
+
+        setPrintError('');
+        iframe.contentWindow.print();
+
+        /* Wait for afterprint event */
         await new Promise((resolve) => requestAnimationFrame(resolve));
         if (!cancelled) setPrinting(false);
       } catch (error) {
-        /* Without this the run could end with `printing` stuck true - which
-           leaves printing-labels welded to <body>, and every LATER print
-           anywhere in the application comes out blank. */
         console.error('Barcode label print failed', error);
         setPrintError('Printing stopped: the label sheet could not be prepared. Nothing was sent to the printer.');
         setPrinting(false);
+        if (hiddenContainer.parentNode) {
+          hiddenContainer.parentNode.removeChild(hiddenContainer);
+        }
+        if (iframe.parentNode) {
+          iframe.parentNode.removeChild(iframe);
+        }
       }
     })();
 
     return () => {
       cancelled = true;
       window.removeEventListener('afterprint', done);
-      document.body.classList.remove('printing-labels');
+      if (hiddenContainer.parentNode) {
+        hiddenContainer.parentNode.removeChild(hiddenContainer);
+      }
+      if (iframe.parentNode) {
+        iframe.parentNode.removeChild(iframe);
+      }
     };
-    /* expectedLabels is deliberately NOT a dependency. It is read from a ref
-       taken when Print was pressed, because the picker stays interactive
-       behind the dialog: nudging a copy count mid-run would otherwise re-run
-       this effect and open a SECOND print dialog for the same click. */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [printing]);
 
   /* Closing the picker abandons the run. The component is not unmounted when
@@ -7624,29 +7693,6 @@ function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
           <button type="button" onClick={onClose} className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700">Close</button>
         </div>
       </div>
-
-      {/* THE PRINT SURFACE.
-
-          Portaled to <body> so it is a sibling of the application rather than
-          a descendant of this modal. That matters: the modal is
-          `fixed inset-0` with a `max-h` scrolling body, and Chrome prints a
-          fixed box on the first page only and clips an overflow box instead
-          of paginating it - a sheet of labels left inside it would have come
-          out as one truncated page however the CSS was written.
-
-          At <body> level the sheet is ordinary in-flow content that fragments
-          across as many pages as it needs, and the @media print rules in
-          globals.css take the rest of the application out of the box tree so
-          not one sheet of paper is spent on it. */}
-      {printing && typeof document !== 'undefined' && createPortal(
-        <div id="barcode-print-root" ref={printRootRef}>
-          <style>{pageRule}</style>
-          {/* GrcBarcodeLabelSheet matches the print page exactly — same
-              component, same 2-column grid, same Label, same data contract. */}
-          <GrcBarcodeLabelSheet rows={selectedRows} format={format} gap={gap} page={run.page} />
-        </div>,
-        document.body
-      )}
     </div>
   );
 }
@@ -8453,7 +8499,7 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
   }, [provisionalSerialNo, grcHeader.grcNumber, grcHeader.supplierCode]);
 
   return (
-    <div className="min-h-screen bg-gray-100 px-2 pb-4 pt-4 md:pt-6">
+    <div className="min-h-screen bg-gray-100 px-2 pb-24 pt-4 md:pt-6">
       {/* Progress Overlay */}
       {savingProgress.show && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
@@ -8567,8 +8613,6 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
             <button type="button" onClick={exportFullRowsToExcel} disabled={validRows.length === 0 || fullExporting} className="flex items-center gap-1 rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50" title="Every field on every item row, as a real .xlsx (not the import template)">
               <Icon name="file" size={14} /> {fullExporting ? "Building..." : "Full Data Export"}
             </button>
-            <button type="button" onClick={() => setShowSaveConfirm(true)} disabled={saving} className="flex items-center gap-1 rounded bg-green-600 px-3 py-1 text-xs font-semibold text-white shadow hover:bg-green-700 disabled:opacity-60">Submit</button>
-            <div className="w-px h-6 bg-gray-300 mx-1" />
             {/* The picker could only ever be reached by adding another item
                 and pressing Submit & Print Label. Re-opening a GRC to reprint
                 a damaged sticker - the ordinary reason to come back to this
@@ -8577,7 +8621,6 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
               <Icon name="printer" size={14} /> Print Labels
             </button>
             <span className="rounded border border-gray-300 bg-gray-50 px-2 py-1">Pc(s) {totals.pcs}</span>
-            <div className="w-px h-6 bg-gray-300 mx-1" />
             {validRows.some((r) => r._importStatus === 'CHANGED') && (
               <button
                 type="button"
@@ -8594,6 +8637,7 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
                 {saving ? "Saving..." : `Generate For Changes (${validRows.filter((r) => r._importStatus === 'CHANGED').length})`}
               </button>
             )}
+            <button type="button" onClick={() => setShowSaveConfirm(true)} disabled={saving} className="flex items-center gap-1 rounded bg-green-600 px-3 py-1 text-xs font-semibold text-white shadow hover:bg-green-700 disabled:opacity-60">Submit</button>
           </div>
         </div>
 
@@ -8811,6 +8855,11 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
         <div className="flex items-center gap-2"><span className="text-gray-500">Total Taxable</span><span className="font-mono font-semibold text-gray-800">₹ {money(totals.taxable)}</span></div>
         <div className="flex items-center gap-2"><span className="text-gray-500">Total GST</span><span className="font-mono font-semibold text-gray-800">₹ {money(totals.gst)}</span></div>
         <div className="flex items-center gap-2"><span className="text-gray-500">Grand Total</span><span className="font-mono font-bold text-indigo-700">₹ {money(totals.net)}</span></div>
+      </div>
+
+      <div className="mt-6 flex items-center justify-end gap-2">
+        {saveError && <div className="mb-2 w-full rounded border border-[#f5c2c7] bg-[#f8d7da] px-3 py-2 text-[13px] text-[#842029]">{saveError}</div>}
+        <button type="button" disabled={saving} onClick={() => saveRows(validRows, true)} className="rounded-md bg-[#198754] px-7 py-3 text-[15px] font-semibold text-white shadow-[0_2px_8px_rgba(25,135,84,0.3)] transition hover:bg-[#146c43] disabled:opacity-60">Submit &amp; Print Label</button>
       </div>
 
       {/* The picker deliberately receives the rows and nothing else. What a

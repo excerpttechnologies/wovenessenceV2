@@ -804,7 +804,7 @@
 
 //   const selectedCells = (rect.r2 - rect.r1 + 1) * (rect.c2 - rect.c1 + 1);
 //   const where = !n
-//     ? "No rows yet - paste from Excel, or Import Excel"
+//     ? "No rows yet - Add Row, paste from Excel, or Import Excel"
 //     : selectedCells > 1
 //       ? `${plural(rect.r2 - rect.r1 + 1, "row")} × ${plural(rect.c2 - rect.c1 + 1, "column")} selected`
 //       : `Row ${active.r + 1} · ${columns[active.c]?.label || ""}`;
@@ -1808,7 +1808,7 @@ export default function ItemsSheet({
 
   const selectedCells = (rect.r2 - rect.r1 + 1) * (rect.c2 - rect.c1 + 1);
   const where = !n
-    ? "No rows yet - paste from Excel, or Import Excel"
+    ? "No rows yet - Add Row, paste from Excel, or Import Excel"
     : selectedCells > 1
       ? `${plural(rect.r2 - rect.r1 + 1, "row")} × ${plural(rect.c2 - rect.c1 + 1, "column")} selected`
       : `Row ${active.r + 1} · ${columns[active.c]?.label || ""}`;

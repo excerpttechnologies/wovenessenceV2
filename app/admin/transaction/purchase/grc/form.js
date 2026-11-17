@@ -358,7 +358,8 @@ export const FORM = {
             "k": "agentId",
             "label": "Agent",
             "type": "ref",
-            "ref": "agent"
+            "ref": "agent",
+            "layoutClass": "grc-bottom-agent"
           },
           {
             "k": "freightMode",
