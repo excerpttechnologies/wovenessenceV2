@@ -804,7 +804,7 @@
 
 //   const selectedCells = (rect.r2 - rect.r1 + 1) * (rect.c2 - rect.c1 + 1);
 //   const where = !n
-//     ? "No rows yet - Add Row, paste from Excel, or Import Excel"
+//     ? "No rows yet - paste from Excel, or Import Excel"
 //     : selectedCells > 1
 //       ? `${plural(rect.r2 - rect.r1 + 1, "row")} × ${plural(rect.c2 - rect.c1 + 1, "column")} selected`
 //       : `Row ${active.r + 1} · ${columns[active.c]?.label || ""}`;
@@ -1176,7 +1176,10 @@ export default function ItemsSheet({
   /* keyed on the custom-field NAMES: the parent rebuilds that array on every
      edit, and a new column set would re-render every row */
   const fieldKey = JSON.stringify(customFields);
-  const columns = useMemo(() => sheetColumns(JSON.parse(fieldKey), { identifierOf }), [fieldKey, identifierOf]);
+  const columns = useMemo(
+    () => sheetColumns(JSON.parse(fieldKey), { identifierOf }).filter((col) => !col.hidden),
+    [fieldKey, identifierOf],
+  );
   const firstEditable = Math.max(0, columns.findIndex((col) => !col.readOnly));
 
   const [active, setActive] = useState(() => ({ r: 0, c: firstEditable }));
@@ -1805,7 +1808,7 @@ export default function ItemsSheet({
 
   const selectedCells = (rect.r2 - rect.r1 + 1) * (rect.c2 - rect.c1 + 1);
   const where = !n
-    ? "No rows yet - Add Row, paste from Excel, or Import Excel"
+    ? "No rows yet - paste from Excel, or Import Excel"
     : selectedCells > 1
       ? `${plural(rect.r2 - rect.r1 + 1, "row")} × ${plural(rect.c2 - rect.c1 + 1, "column")} selected`
       : `Row ${active.r + 1} · ${columns[active.c]?.label || ""}`;
@@ -1900,14 +1903,6 @@ export default function ItemsSheet({
 
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-gray-300 bg-gray-50 px-3 py-2 text-xs">
         <div className="flex min-w-0 flex-1 items-center gap-3">
-          <button
-            type="button"
-            onClick={addRow}
-            title="Add an empty row at the end - Tab past the last cell does the same"
-            className="flex shrink-0 items-center gap-1 rounded border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
-          >
-            <Icon name="plus" size={14} /> Add Row
-          </button>
           <span role="status" aria-live="polite" className={`min-w-0 break-words ${notice?.tone === "error" ? "font-medium text-red-700" : "text-gray-600"}`}>
             {notice?.text || where}
           </span>
@@ -1926,7 +1921,7 @@ export default function ItemsSheet({
             </span>
           ) : null}
           {errorCells > 0 ? <span className="text-red-700">{plural(errorCells, "cell")} to fix</span> : null}
-          <span className="hidden xl:inline">Enter / F2 edit · Tab next · Esc cancel · Ctrl+C / Ctrl+V · Ctrl+Z undo</span>
+          <span>Enter / F2 edit · Tab next · Esc cancel · Ctrl+C / Ctrl+V · Ctrl+Z undo</span>
         </div>
       </div>
     </div>

@@ -393,17 +393,59 @@ function DeliveryDialog({ row, onClose, onSaved }) {
                 <label className="mb-1 block text-[13px] font-semibold">
                   LR Copy Upload
                 </label>
-                <input
-                  type="file"
-                  className="f-input"
-                  onChange={handleFileSelect}
-                  accept="image/*,application/pdf"
-                />
-                {data.document && (
-                  <div className="mt-2 text-[12px] text-inkmuted">
-                    {data.document.startsWith('data:image/') ? '📷 Image attached' : '📄 File attached'}
-                  </div>
-                )}
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="flex h-9 cursor-pointer items-center gap-2 rounded-md border border-linestrong bg-white px-2 py-1 text-[13px] hover:border-brand">
+                    <span className="shrink-0 rounded bg-[#eff2f7] px-2 py-1 text-[12px]">
+                      {data.document ? 'Change' : 'Choose File'}
+                    </span>
+                    <span className="truncate text-inkmuted text-[12px]">
+                      {data.document ? (data.document.startsWith('data:image/') ? 'Image attached' : 'File attached') : 'No file chosen'}
+                    </span>
+                    <input
+                      type="file"
+                      className="hidden"
+                      onChange={handleFileSelect}
+                      accept="image/*,application/pdf"
+                    />
+                  </label>
+                  {data.document && (
+                    <>
+                      <a
+                        href={data.document}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="shrink-0 rounded border border-linestrong px-2 py-1 text-[12px] text-brand-link hover:border-brand hover:text-brand"
+                      >
+                        View
+                      </a>
+                      {data.document.startsWith('data:image/') && (
+                        <button
+                          type="button"
+                          className="shrink-0 rounded border border-linestrong px-2 py-1 text-[12px] text-inkmuted hover:border-brand hover:text-brand"
+                          onClick={() => {
+                            fetch(data.document)
+                              .then((r) => r.blob())
+                              .then((blob) => {
+                                const file = new File([blob], 'lr-copy.jpg', { type: blob.type });
+                                setSelectedImageFile(file);
+                                setCropTargetField('document');
+                                setShowCropModal(true);
+                              });
+                          }}
+                        >
+                          Crop
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="shrink-0 rounded border border-linestrong px-2 py-1 text-[12px] text-inkmuted hover:border-danger hover:text-danger"
+                        onClick={() => set('document', '')}
+                      >
+                        Remove
+                      </button>
+                    </>
+                  )}
+                </div>
                 {errors.document && (
                   <div className="mt-1 text-[12px] text-red-600">{errors.document}</div>
                 )}
@@ -542,33 +584,61 @@ function DeliveryDialog({ row, onClose, onSaved }) {
                     <label className="mb-1 block text-[13px] font-semibold">
                       Vendor Invoice Copy
                     </label>
-                    {data.vendorInvoiceCopy ? (
-                      <div className="space-y-2">
-                        <a
-                          href={data.vendorInvoiceCopy}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-2 text-brand-link hover:underline"
-                        >
-                          <Icon name="file" size={16} />
-                          View Invoice Document
-                        </a>
-                        <button
-                          type="button"
-                          className="text-[12px] text-inkmuted hover:text-ink"
-                          onClick={() => set('vendorInvoiceCopy', '')}
-                        >
-                          Clear to upload new
-                        </button>
-                      </div>
-                    ) : (
-                      <input
-                        type="file"
-                        className="f-input"
-                        onChange={(e) => handleFileSelect(e, 'vendorInvoiceCopy')}
-                        accept="image/*,application/pdf,.doc,.docx"
-                      />
-                    )}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <label className="flex h-9 cursor-pointer items-center gap-2 rounded-md border border-linestrong bg-white px-2 py-1 text-[13px] hover:border-brand">
+                        <span className="shrink-0 rounded bg-[#eff2f7] px-2 py-1 text-[12px]">
+                          {data.vendorInvoiceCopy ? 'Change' : 'Choose File'}
+                        </span>
+                        <span className="truncate text-inkmuted text-[12px]">
+                          {data.vendorInvoiceCopy
+                            ? (data.vendorInvoiceCopy.startsWith('data:image/') ? 'Image attached' : 'File attached')
+                            : 'No file chosen'}
+                        </span>
+                        <input
+                          type="file"
+                          className="hidden"
+                          onChange={(e) => handleFileSelect(e, 'vendorInvoiceCopy')}
+                          accept="image/*,application/pdf,.doc,.docx"
+                        />
+                      </label>
+                      {data.vendorInvoiceCopy && (
+                        <>
+                          <a
+                            href={data.vendorInvoiceCopy}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="shrink-0 rounded border border-linestrong px-2 py-1 text-[12px] text-brand-link hover:border-brand hover:text-brand"
+                          >
+                            View
+                          </a>
+                          {data.vendorInvoiceCopy.startsWith('data:image/') && (
+                            <button
+                              type="button"
+                              className="shrink-0 rounded border border-linestrong px-2 py-1 text-[12px] text-inkmuted hover:border-brand hover:text-brand"
+                              onClick={() => {
+                                fetch(data.vendorInvoiceCopy)
+                                  .then((r) => r.blob())
+                                  .then((blob) => {
+                                    const file = new File([blob], 'vendor-invoice.jpg', { type: blob.type });
+                                    setSelectedImageFile(file);
+                                    setCropTargetField('vendorInvoiceCopy');
+                                    setShowCropModal(true);
+                                  });
+                              }}
+                            >
+                              Crop
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="shrink-0 rounded border border-linestrong px-2 py-1 text-[12px] text-inkmuted hover:border-danger hover:text-danger"
+                            onClick={() => set('vendorInvoiceCopy', '')}
+                          >
+                            Remove
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
                 )}
                 

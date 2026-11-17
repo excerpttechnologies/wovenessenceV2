@@ -36,29 +36,30 @@ async function main() {
     // Check if the format already exists
     const existing = await Catalog.findOne({
       catalog: 'barcodeLabels',
-      name: 'TSC TE310 104x40'
+      name: 'TSC TE310 52x40 (2-up)'
     });
 
     if (existing) {
-      console.log('TSC TE310 format already exists in the database');
+      console.log('TSC TE310 2-up format already exists in the database');
       console.log('  Name:', existing.name);
       console.log('  Page Size:', existing.pageSize);
       console.log('  Label Size:', existing.labelSize);
+      console.log('  Labels per row:', existing.stickerInRow);
       process.exit(0);
     }
 
-    // Add the TSC TE310 format
+    // Add the TSC TE310 format with 2 labels side-by-side (52mm each)
     const newFormat = await Catalog.create({
       catalog: 'barcodeLabels',
-      name: 'TSC TE310 104x40',
-      description: 'Sheet Size: 104mm x 40mm, Label Size: 104mm x 40mm, Labels per sheet: 1',
+      name: 'TSC TE310 52x40 (2-up)',
+      description: 'Sheet Size: 104mm x 40mm, Label Size: 52mm x 40mm, 2 labels side-by-side',
       pageSize: '104 x 40 mm',
-      labelSize: '104 x 40 mm',
-      stickerInRow: 1,
+      labelSize: '52 x 40 mm',
+      stickerInRow: 2,
       sort: 13, // After the existing formats
     });
 
-    console.log('Successfully added TSC TE310 format to the database:');
+    console.log('Successfully added TSC TE310 2-up format to the database:');
     console.log('  Name:', newFormat.name);
     console.log('  Page Size:', newFormat.pageSize);
     console.log('  Label Size:', newFormat.labelSize);
@@ -66,9 +67,9 @@ async function main() {
 
     console.log('\nNext steps:');
     console.log('1. Go to Settings > Barcode Label Settings');
-    console.log('2. Select "TSC TE310 104x40" and mark it as Default');
+    console.log('2. Select "TSC TE310 52x40 (2-up)" and mark it as Default');
     console.log('3. When printing, select "Label stock" in the Paper dropdown');
-    console.log('4. Configure the TSC TE310 printer driver for 104mm x 40mm labels');
+    console.log('4. Configure the TSC TE310 printer driver for 104mm x 40mm custom paper size');
 
   } catch (error) {
     console.error('Error:', error);

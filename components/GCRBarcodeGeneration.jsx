@@ -4142,7 +4142,7 @@
 //           </div>
 //         )}
 
-//         <div className="overflow-auto">
+//         <div className="overflow-auto max-h-[60vh]">
 //           {activeTab === "items" && (
 //             <ItemsSheet
 //               rows={rows}
@@ -4570,6 +4570,9 @@ function convertToERPTemplate(rawHeaders, rawRows) {
     'goodstype': 'goodsType',
     'itemcode': 'itemCode',
     'itemname': 'itemName',
+    'barcodeno': 'barcodeNo',
+    'barcodegenerated': 'barcodeGenerated',
+    'generatedbarcode': 'barcodeGenerated',
     'hsn': 'hsn',
     'gst': 'gst',
     'uom': 'uom',
@@ -8449,41 +8452,8 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
     return serialNo ? generateBarcodeValue({ ...parts, billSlNo: row.billSlNo, serialNo }) : "";
   }, [provisionalSerialNo, grcHeader.grcNumber, grcHeader.supplierCode]);
 
-  /* The final Submit bar is position:fixed - on a desktop that alone keeps it
-     at the window's bottom-right through any scroll. On a phone or tablet this
-     page is wider than the screen (fixed-width top bar and sidebar), and the
-     browser then pins fixed elements to that wider layout instead of to what
-     is on screen, so the bar sat off to the right and far below. This moves it
-     back by exactly the gap between where it landed and the visible
-     bottom-right - zero on a desktop, where nothing changes. */
-  const submitBarRef = useRef(null);
-  useEffect(() => {
-    const viewport = window.visualViewport;
-    const bar = submitBarRef.current;
-    if (!viewport || !bar) return undefined;
-    const place = () => {
-      bar.style.transform = "";
-      const box = bar.getBoundingClientRect();
-      const css = getComputedStyle(bar);
-      const dx = viewport.offsetLeft + viewport.width - parseFloat(css.right) - box.right;
-      const dy = viewport.offsetTop + viewport.height - parseFloat(css.bottom) - box.bottom;
-      if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) bar.style.transform = `translate(${dx}px, ${dy}px)`;
-    };
-    place();
-    viewport.addEventListener("resize", place);
-    viewport.addEventListener("scroll", place);
-    /* the page widening later (rows loaded) can widen that layout too */
-    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(place) : null;
-    observer?.observe(document.body);
-    return () => {
-      viewport.removeEventListener("resize", place);
-      viewport.removeEventListener("scroll", place);
-      observer?.disconnect();
-    };
-  }, []);
-
   return (
-    <div className="min-h-screen bg-gray-100 px-2 pb-24 pt-4 md:pt-6">
+    <div className="min-h-screen bg-gray-100 px-2 pb-4 pt-4 md:pt-6">
       {/* Progress Overlay */}
       {savingProgress.show && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
@@ -8597,6 +8567,8 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
             <button type="button" onClick={exportFullRowsToExcel} disabled={validRows.length === 0 || fullExporting} className="flex items-center gap-1 rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50" title="Every field on every item row, as a real .xlsx (not the import template)">
               <Icon name="file" size={14} /> {fullExporting ? "Building..." : "Full Data Export"}
             </button>
+            <button type="button" onClick={() => setShowSaveConfirm(true)} disabled={saving} className="flex items-center gap-1 rounded bg-green-600 px-3 py-1 text-xs font-semibold text-white shadow hover:bg-green-700 disabled:opacity-60">Submit</button>
+            <div className="w-px h-6 bg-gray-300 mx-1" />
             {/* The picker could only ever be reached by adding another item
                 and pressing Submit & Print Label. Re-opening a GRC to reprint
                 a damaged sticker - the ordinary reason to come back to this
@@ -8605,6 +8577,23 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
               <Icon name="printer" size={14} /> Print Labels
             </button>
             <span className="rounded border border-gray-300 bg-gray-50 px-2 py-1">Pc(s) {totals.pcs}</span>
+            <div className="w-px h-6 bg-gray-300 mx-1" />
+            {validRows.some((r) => r._importStatus === 'CHANGED') && (
+              <button
+                type="button"
+                onClick={() => {
+                  const changedRows = validRows.filter((r) => r._importStatus === 'CHANGED');
+                  if (window.confirm(`Generate barcodes for ${changedRows.length} changed row${changedRows.length === 1 ? '' : 's'} only?`)) {
+                    saveRows(changedRows, false);
+                  }
+                }}
+                disabled={saving}
+                className="flex items-center gap-1 rounded border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                title="Save only the rows that were changed during the last import"
+              >
+                {saving ? "Saving..." : `Generate For Changes (${validRows.filter((r) => r._importStatus === 'CHANGED').length})`}
+              </button>
+            )}
           </div>
         </div>
 
@@ -8684,7 +8673,7 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
           </div>
         )}
 
-        <div className="overflow-auto">
+        <div className="overflow-auto max-h-[60vh]">
           {activeTab === "items" && (
             <ItemsSheet
               rows={rows}
@@ -8853,37 +8842,7 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
         </div>
       )}
 
-      {/* Pinned to the viewport's bottom-right, which is the content area's
-          bottom-right too - the sidebar is on the left. z-40 keeps it above
-          the Items table's sticky/relative layers (without it they painted
-          over the bar mid-scroll) and below the z-50 dialogs; the root's pb-24
-          lets the last rows and totals scroll clear of it. Portal ensures the
-          button is rendered at document body level, preventing it from moving
-          with any parent scroll containers. */}
-      {/* Rendered in place, not through a client-only portal: the portal was
-          absent from the server HTML and present on the client, which is a
-          hydration mismatch (React discarded the server tree on every load).
-          position:fixed is already viewport-relative, so the bar does not
-          move with a scrolling parent anyway. */}
-      <div ref={submitBarRef} className="no-print fixed bottom-4 right-4 z-40 flex items-center gap-2">
-          {validRows.some((r) => r._importStatus === 'CHANGED') && (
-            <button
-              type="button"
-              onClick={() => {
-                const changedRows = validRows.filter((r) => r._importStatus === 'CHANGED');
-                if (window.confirm(`Generate barcodes for ${changedRows.length} changed row${changedRows.length === 1 ? '' : 's'} only?`)) {
-                  saveRows(changedRows, false);
-                }
-              }}
-              disabled={saving}
-              className="rounded-md bg-red-600 px-5 py-2 text-sm font-semibold text-white shadow hover:bg-red-700 disabled:opacity-60"
-              title="Save only the rows that were changed during the last import"
-            >
-              {saving ? "Saving..." : `Generate For Changes (${validRows.filter((r) => r._importStatus === 'CHANGED').length})`}
-            </button>
-          )}
-          <button type="button" onClick={() => setShowSaveConfirm(true)} disabled={saving} className="rounded-md bg-green-600 px-5 py-2 text-sm font-semibold text-white shadow hover:bg-green-700 disabled:opacity-60">Submit</button>
-      </div>
+
     </div>
   );
 }

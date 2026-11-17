@@ -947,7 +947,7 @@ export default function GrcBarcodeLabelSheet({ rows, format = null, gap = '1mm',
      ONE geometry for the whole sheet, so no label can come out a different
      size from its neighbour, and the same one on screen as on paper. */
   const geometry = labelGeometry(format, page || { onStock: false, gapMm: 1 });
-  const perRow = labelsPerRow(format);
+  const perRow = labelsPerRow(format);  /* already enforces Math.max(2, ...) */
 
   const labels = (rows || []).flatMap((row, ri) => {
     const n = Math.max(0, Math.floor(Number(row.copies) || 0));

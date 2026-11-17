@@ -1,182 +1,175 @@
 'use client';
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
+import ReactCrop, { centerCrop, makeAspectCrop } from 'react-image-crop';
+import 'react-image-crop/dist/ReactCrop.css';
 import Icon from './Icon';
 
-/**
- * Simple Image Crop Modal - No external libraries
- * Works on desktop, mobile, and tablet
- */
+/* ─── helpers ─────────────────────────────────────────────────────────── */
+
+function defaultCrop(w, h) {
+  return centerCrop(
+    makeAspectCrop({ unit: '%', width: 90 }, undefined, w, h),
+    w,
+    h,
+  );
+}
+
+function exportDataUrl(img, crop, mimeType) {
+  /* crop is in % units */
+  const scaleX = img.naturalWidth  / img.width;
+  const scaleY = img.naturalHeight / img.height;
+
+  const x = Math.round((crop.x      / 100) * img.width  * scaleX);
+  const y = Math.round((crop.y      / 100) * img.height * scaleY);
+  const w = Math.round((crop.width  / 100) * img.width  * scaleX);
+  const h = Math.round((crop.height / 100) * img.height * scaleY);
+
+  if (w < 1 || h < 1) return null;
+
+  const canvas = document.createElement('canvas');
+  canvas.width  = w;
+  canvas.height = h;
+  canvas.getContext('2d').drawImage(img, x, y, w, h, 0, 0, w, h);
+
+  const type = mimeType === 'image/png' ? 'image/png' : 'image/jpeg';
+  const url  = canvas.toDataURL(type, 0.92);
+  return url === 'data:,' ? null : url;
+}
+
+/* ─── component ───────────────────────────────────────────────────────── */
+
 export default function ImageCropModal({ imageFile, onCrop, onCancel }) {
-  const [imageUrl, setImageUrl] = useState(null);
-  const [rotation, setRotation] = useState(0);
-  const [zoom, setZoom] = useState(1);
-  const [processing, setProcessing] = useState(false);
+  const [crop, setCrop]             = useState(null);
+  const [completedCrop, setCompleted] = useState(null);
+  const [processing, setProcessing]  = useState(false);
+  const [error, setError]            = useState('');
+  const imgRef = useRef(null);
 
-  // Load image when file changes
+  /* Stable object URL — created once, cleaned up on unmount */
+  const [imageSrc] = useState(() =>
+    imageFile ? URL.createObjectURL(imageFile) : null,
+  );
+  useEffect(() => () => { if (imageSrc) URL.revokeObjectURL(imageSrc); }, [imageSrc]);
+
+  /* Lock body scroll while modal is open (important on mobile) */
   useEffect(() => {
-    if (imageFile) {
-      const url = URL.createObjectURL(imageFile);
-      setImageUrl(url);
-      return () => URL.revokeObjectURL(url);
-    }
-  }, [imageFile]);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, []);
 
-  const handleCrop = useCallback(async () => {
-    if (!imageUrl) return;
-    
+  const onImageLoad = useCallback((e) => {
+    const { naturalWidth: w, naturalHeight: h } = e.currentTarget;
+    const c = defaultCrop(w, h);
+    setCrop(c);
+    setCompleted(c);
+  }, []);
+
+  const handleSave = useCallback(() => {
+    const img = imgRef.current;
+    if (!img || !completedCrop) return;
     setProcessing(true);
+    setError('');
     try {
-      // Create canvas and draw cropped image
-      const img = new Image();
-      img.src = imageUrl;
-      await new Promise((resolve) => { img.onload = resolve; });
-
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      
-      // Set canvas size
-      canvas.width = img.width * zoom;
-      canvas.height = img.height * zoom;
-
-      // Apply rotation and zoom
-      ctx.translate(canvas.width / 2, canvas.height / 2);
-      ctx.rotate((rotation * Math.PI) / 180);
-      ctx.scale(zoom, zoom);
-      ctx.drawImage(img, -img.width / 2, -img.height / 2);
-
-      // Convert to data URL
-      const croppedDataUrl = canvas.toDataURL(imageFile.type, 0.9);
-      onCrop(croppedDataUrl);
-      setProcessing(false);
+      const dataUrl = exportDataUrl(img, completedCrop, imageFile?.type);
+      if (!dataUrl) throw new Error('Could not export the cropped area — please adjust the selection.');
+      onCrop(dataUrl);
     } catch (err) {
-      console.error('Crop error:', err);
+      setError(err.message || 'Crop failed.');
       setProcessing(false);
     }
-  }, [imageUrl, rotation, zoom, imageFile, onCrop]);
-
-  const handleReset = () => {
-    setRotation(0);
-    setZoom(1);
-  };
+  }, [completedCrop, imageFile, onCrop]);
 
   return (
+    /*
+      Full-screen overlay.
+      On mobile this fills the whole viewport so the user gets maximum
+      space to drag the crop handles.
+    */
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4"
-      onClick={processing ? undefined : onCancel}
+      className="fixed inset-0 z-[200] flex flex-col bg-black/70"
+      style={{ touchAction: 'none' }}   /* prevent page scroll during drag */
     >
+      {/* ── Header ─────────────────────────────────────────────────── */}
+      <div className="flex shrink-0 items-center bg-white px-4 py-3 shadow-sm">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={processing}
+          className="mr-3 rounded p-1 text-inkmuted hover:bg-slate-100 hover:text-ink active:bg-slate-200"
+          aria-label="Close"
+        >
+          <Icon name="x" size={20} />
+        </button>
+        <span className="text-[15px] font-bold text-ink">Crop Image</span>
+      </div>
+
+      {/* ── Crop area — fills all remaining space ───────────────────── */}
       <div
-        className="w-full max-w-3xl rounded-lg bg-white shadow-xl"
-        onClick={(e) => e.stopPropagation()}
+        className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-3"
+        style={{ background: '#1e1e1e' }}
       >
-        {/* Header */}
-        <div className="flex items-center border-b border-line px-5 py-3">
-          <span className="text-[16px] font-bold">Crop Image</span>
-          <span className="flex-1" />
+        {imageSrc && (
+          <ReactCrop
+            crop={crop}
+            onChange={(_px, pct) => setCrop(pct)}
+            onComplete={(_px, pct) => setCompleted(pct)}
+            ruleOfThirds
+            /* Minimum crop selection: 20px so a stray tap doesn't create
+               a 1×1px crop */
+            minWidth={20}
+            minHeight={20}
+            style={{ maxWidth: '100%', touchAction: 'none' }}
+          >
+            <img
+              ref={imgRef}
+              src={imageSrc}
+              alt="Crop preview"
+              onLoad={onImageLoad}
+              draggable={false}
+              style={{
+                /* On mobile use most of the screen height */
+                maxHeight: 'calc(100dvh - 140px)',
+                maxWidth: '100%',
+                display: 'block',
+                userSelect: 'none',
+                WebkitUserSelect: 'none',
+              }}
+            />
+          </ReactCrop>
+        )}
+      </div>
+
+      {/* ── Hint ───────────────────────────────────────────────────── */}
+      <div className="shrink-0 bg-black/60 px-4 py-1.5 text-center text-[11px] text-white/70">
+        Drag corners&nbsp;/&nbsp;edges to resize · Drag inside to move
+      </div>
+
+      {/* ── Footer ─────────────────────────────────────────────────── */}
+      <div className="shrink-0 bg-white px-4 py-3 shadow-[0_-1px_4px_rgba(0,0,0,0.08)]">
+        {error && (
+          <p className="mb-2 rounded bg-red-50 px-3 py-2 text-[12px] text-red-600">{error}</p>
+        )}
+        <div className="flex gap-3">
           <button
             type="button"
+            className="btn flex-1"
             onClick={onCancel}
             disabled={processing}
-            className="text-inkmuted hover:text-ink"
           >
-            <Icon name="x" size={16} />
+            Cancel
           </button>
-        </div>
-
-        {/* Body */}
-        <div className="p-5">
-          <div className="space-y-4">
-            {/* Image Preview */}
-            <div className="flex items-center justify-center overflow-hidden rounded-lg border border-line bg-gray-50" style={{ minHeight: '400px' }}>
-              {imageUrl && (
-                <img
-                  src={imageUrl}
-                  alt="Preview"
-                  style={{
-                    transform: `rotate(${rotation}deg) scale(${zoom})`,
-                    maxWidth: '100%',
-                    maxHeight: '400px',
-                    transition: 'transform 0.2s',
-                  }}
-                />
-              )}
-            </div>
-
-            {/* Controls */}
-            <div className="space-y-3">
-              {/* Zoom */}
-              <div>
-                <label className="mb-1.5 block text-[13px] font-semibold">
-                  Zoom: {zoom.toFixed(1)}x
-                </label>
-                <input
-                  type="range"
-                  min="0.5"
-                  max="3"
-                  step="0.1"
-                  value={zoom}
-                  onChange={(e) => setZoom(parseFloat(e.target.value))}
-                  className="w-full"
-                  disabled={processing}
-                />
-              </div>
-
-              {/* Rotate */}
-              <div className="flex items-center gap-2">
-                <label className="text-[13px] font-semibold">Rotate:</label>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => setRotation((r) => r - 90)}
-                  disabled={processing}
-                >
-                  <Icon name="undo" size={14} />
-                  Left 90°
-                </button>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => setRotation((r) => r + 90)}
-                  disabled={processing}
-                >
-                  Right 90°
-                  <Icon name="undo" size={14} style={{ transform: 'scaleX(-1)' }} />
-                </button>
-                <span className="text-[13px] text-inkmuted">{rotation}°</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-between border-t border-line px-5 py-3">
           <button
             type="button"
-            className="btn"
-            onClick={handleReset}
-            disabled={processing}
+            className="btn btn-primary flex-1"
+            onClick={handleSave}
+            disabled={processing || !completedCrop}
           >
-            <Icon name="refresh" size={14} />
-            Reset
+            {processing
+              ? <span className="spin mr-1" />
+              : <Icon name="check" size={15} />}
+            Crop &amp; Save
           </button>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              className="btn"
-              onClick={onCancel}
-              disabled={processing}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={handleCrop}
-              disabled={processing}
-            >
-              {processing ? <span className="spin" /> : <Icon name="check" size={14} />}
-              Crop & Save
-            </button>
-          </div>
         </div>
       </div>
     </div>

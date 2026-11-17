@@ -198,17 +198,18 @@ export default function GrcBarcodePrintPage() {
     [counted]
   );
 
-  /* The page the sheet is printed on, and the gutter between stickers: a cut
-     line's worth on A4 that somebody has to guillotine, none on die-cut stock
-     where the sheet IS the page and the extra millimetre would push the last
-     column off the paper. Both from the shared geometry module, so this page
-     and the picker cannot disagree about either. */
-  /* ONE call, so this page and the Barcode Generation picker cannot arrive
-     at two different sheets from one format. labelRun fits the labels inside
-     the page's PRINTABLE width - the sheet less the unprintable edge the
-     printer's grippers take - which is what stops the leading sticker's
-     barcode number being clipped on stock. */
-  const run = labelRun(format, paper, totalLabels);
+  /* FORCE 2-UP LAYOUT: Ensure minimum 2 labels per row regardless of what
+     is stored in the database. If the format's stickerInRow < 2, override it.
+     Do NOT adjust labelSize — fittedLabelSize() already divides the printable
+     box width by perRow, so it returns the correct per-label width. */
+  const format2up = useMemo(() => {
+    if (!format) return null;
+    const perRow = Math.max(2, Number(format.stickerInRow) || 2);
+    if (perRow === Number(format.stickerInRow)) return format; // already correct
+    return { ...format, stickerInRow: perRow };
+  }, [format]);
+
+  const run = labelRun(format2up, paper, totalLabels);
   const { gap, pageRule, stockSize } = run;
 
   /* THE PRINT RUN. The body class is what arms the label print rules in
@@ -511,7 +512,7 @@ export default function GrcBarcodePrintPage() {
            than a narrow window; nothing about the labels themselves changes
            with the viewport. */
         <div className="overflow-auto rounded border border-slate-200 bg-white p-3">
-          <GrcBarcodeLabelSheet rows={counted} format={format} gap={gap} page={run.page} />
+          <GrcBarcodeLabelSheet rows={counted} format={format2up} gap={gap} page={run.page} />
         </div>
       )}
 
@@ -540,7 +541,7 @@ export default function GrcBarcodePrintPage() {
       {printing && typeof document !== 'undefined' && createPortal(
         <div id="barcode-print-root" ref={printRootRef}>
           <style>{pageRule}</style>
-          <GrcBarcodeLabelSheet rows={counted} format={format} gap={gap} page={run.page} />
+          <GrcBarcodeLabelSheet rows={counted} format={format2up} gap={gap} page={run.page} />
         </div>,
         document.body
       )}
