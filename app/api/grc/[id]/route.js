@@ -44,6 +44,7 @@
 import { isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
 import Grc from '@/models/Grc';
+import Delivery from '@/models/Delivery';
 import { Supplier } from '@/lib/contacts';
 import { BarcodeLabel } from '@/lib/barcodeLabel';
 import { requireSession } from '@/lib/session';
@@ -84,7 +85,7 @@ export async function GET(_req, { params }) {
     if (denied) return json({ error: denied.message, code: denied.code }, 403);
   }
 
-  const [rows, supplier] = await Promise.all([
+  const [rows, supplier, delivery] = await Promise.all([
     /* _id breaks ties: one Submit inserts its rows within the same few
        milliseconds, and MongoDB does not keep equal createdAt values in any
        particular order - the grid and the label sheet came back shuffled */
@@ -103,6 +104,9 @@ export async function GET(_req, { params }) {
           .select(['contactId', 'businessName', 'firstName', 'lastName', ...PRICE_SETUP_DEFS.map((d) => d.key)].join(' '))
           .lean()
         : null,
+      grc.lrTransactionId && isValidObjectId(grc.lrTransactionId)
+        ? Delivery.findById(grc.lrTransactionId).select('document transactionNo').lean()
+        : null,
   ]);
   const supplierPriceSetup = buildSupplierPriceSetup(PRICE_SETUP_DEFS, supplier, { supplierId: grc.supplierId || '' });
   const setupValue = (key) => supplierPriceSetup.fields.find((f) => f.key === key)?.value ?? null;
@@ -111,6 +115,8 @@ export async function GET(_req, { params }) {
     grc: {
       ...grc,
       _id: String(grc._id),
+      lrCopy: grc.lrCopy || delivery?.document || '',
+      lrTransactionNo: grc.lrTransactionNo || delivery?.transactionNo || '',
       supplierName: supplier?.businessName || [supplier?.firstName, supplier?.lastName].filter(Boolean).join(' '),
       /* The stored code, verbatim - not derived from the name and never
          defaulted to a placeholder. It is ERP data for the screens and

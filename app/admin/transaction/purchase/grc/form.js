@@ -249,7 +249,8 @@ export const FORM = {
           "vendorDocDate": "vendorInvoiceDate",
           "vendorInvoiceCopy": "vendorInvoiceCopy",
           "lrTransactionNo": "transactionNo",
-          "freightAmount": "freightAmount"
+          "freightAmount": "freightAmount",
+          "lrCopy": "document"
         }
       },
       {
@@ -390,10 +391,18 @@ export const FORM = {
             "req": true
           },
           {
+            "k": "lrCopy",
+            "layoutClass": "grc-bottom-lr-copy",
+            "label": "LR Copy",
+            "type": "lrCopy",
+            "info": true
+          },
+          {
             "k": "vendorInvoiceCopy",
             "layoutClass": "grc-bottom-invoice-copy",
             "label": "Vendor Invoice Copy",
             "type": "file",
+            "accept": "image/*,.pdf",
             "info": true
           },
           {

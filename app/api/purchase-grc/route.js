@@ -325,7 +325,7 @@ export async function POST(req) {
   }
 
   const delivery = await Delivery.findById(doc.lrTransactionId)
-    .select('supplierId transactionNo invPmNumber businessId freightAmount').lean();
+    .select('supplierId transactionNo invPmNumber businessId freightAmount document').lean();
   if (!delivery) return json({ errors: { lrTransactionId: 'Selected LR / Transaction was not found.' } }, 422);
 
   if (String(delivery.supplierId) !== String(doc.supplierId)) {
@@ -354,6 +354,7 @@ export async function POST(req) {
   /* Copied off the delivery rather than trusted from the form, so the GRC
      always agrees with the LR it was raised against. */
   doc.lrTransactionNo = delivery.transactionNo || '';
+  if (!doc.lrCopy && delivery.document) doc.lrCopy = delivery.document || '';
   if (!doc.vendorDocNo) doc.vendorDocNo = delivery.invPmNumber || '';
   /* the vendor's GST is a snapshot of the master at the time of receipt */
   if (!doc.vendorGstNo) doc.vendorGstNo = supplier.gstNo || '';

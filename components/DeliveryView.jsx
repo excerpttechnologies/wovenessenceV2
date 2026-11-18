@@ -16,6 +16,7 @@ import { AGENT_QUICK_FIELDS, FIELD_LABELS as SUPPLIER_FIELD_LABELS, TABS as SUPP
 import SupplierImportPanel from './SupplierImportPanel';
 import AttachmentsDialog from './AttachmentsDialog';
 import ImageCropModal from './ImageCropModal';
+import DocumentPreviewModal from './DocumentPreviewModal';
 
 /* The LR-page quick-add does not collect a transporter code. The API still
   requires one, so the dialog supplies an internal value when saving. */
@@ -98,6 +99,16 @@ function Section({ title, children }) {
 
 /* ------------------------------------------------------------- ADD/EDIT -- */
 
+const DRAFT_PREFIX = 'groo_delivery_lr_draft';
+const DRAFT_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+function getDraftKey(user, business, location) {
+  const u = user?._id || user?.id || user?.username || 'user';
+  const b = business || 'default';
+  const l = location || 'default';
+  return `${DRAFT_PREFIX}_${u}_${b}_${l}`;
+}
+
 function DeliveryDialog({ row, onClose, onSaved }) {
   const scope = useScope();
   const isEdit = Boolean(row?._id);
@@ -136,6 +147,241 @@ function DeliveryDialog({ row, onClose, onSaved }) {
   const [selectedImageFile, setSelectedImageFile] = useState(null);
   const [croppedImageUrl, setCroppedImageUrl] = useState(null);
   const [cropTargetField, setCropTargetField] = useState('document'); // 'document' or 'invoiceCopy'
+  const [previewModal, setPreviewModal] = useState({ open: false, url: '', title: '' });
+
+  /* Draft & confirmation states */
+  const [isDirty, setIsDirty] = useState(false);
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+  const [draftRestored, setDraftRestored] = useState(false);
+  const [draftStatus, setDraftStatus] = useState('');
+  const [hasPendingFile, setHasPendingFile] = useState(false);
+
+  /* Check if form contains non-empty user input */
+  const checkIsDirty = useCallback((currentData) => {
+    if (!currentData) return false;
+    const userFields = [
+      'transporterId', 'lrNumber', 'bookingDate', 'supplierId',
+      'vendorInvoiceNo', 'vendorInvoiceDate', 'parcelQty', 'value',
+      'freightAmount', 'autoCharges', 'tips', 'document',
+      'vendorInvoiceCopy', 'vendorWaybill', 'supplierCode', 'vendorGstNo',
+    ];
+    for (const k of userFields) {
+      const v = currentData[k];
+      if (v !== undefined && v !== null && String(v).trim() !== '' && String(v) !== '0') {
+        return true;
+      }
+    }
+    if (currentData.gstApplicable === 'Yes') return true;
+    if (currentData.transactionNo && !isEdit && currentData.transactionNo.trim() !== '') return true;
+    return false;
+  }, [isEdit]);
+
+  /* Save draft to browser Local Storage */
+  const saveDraftToStorage = useCallback((currentData) => {
+    if (isEdit || typeof window === 'undefined') return;
+    if (!currentData || !checkIsDirty(currentData)) return;
+
+    try {
+      const key = getDraftKey(scope.user, scope.business, scope.location);
+
+      let docToSave = currentData.document || '';
+      let hasLocalFileFlag = false;
+
+      if (docToSave.startsWith('data:')) {
+        if (docToSave.length > 400000) {
+          docToSave = '';
+          hasLocalFileFlag = true;
+        }
+      }
+
+      let invoiceCopyToSave = currentData.vendorInvoiceCopy || '';
+      if (invoiceCopyToSave.startsWith('data:') && invoiceCopyToSave.length > 400000) {
+        invoiceCopyToSave = '';
+      }
+
+      const payload = {
+        version: 1,
+        savedAt: Date.now(),
+        scope: {
+          userId: scope.user?._id || scope.user?.id || scope.user?.username || '',
+          business: scope.business || '',
+          location: scope.location || '',
+          finYear: scope.finYear || '',
+        },
+        data: {
+          ...currentData,
+          document: docToSave,
+          vendorInvoiceCopy: invoiceCopyToSave,
+        },
+        hasLocalFile: hasLocalFileFlag,
+      };
+
+      localStorage.setItem(key, JSON.stringify(payload));
+      setDraftStatus('Draft saved');
+      setTimeout(() => {
+        setDraftStatus((prev) => (prev === 'Draft saved' ? '' : prev));
+      }, 3000);
+    } catch (err) {
+      console.warn('Failed to save draft to localStorage:', err);
+      try {
+        const key = getDraftKey(scope.user, scope.business, scope.location);
+        const fallbackPayload = {
+          version: 1,
+          savedAt: Date.now(),
+          data: { ...currentData, document: '', vendorInvoiceCopy: '' },
+          hasLocalFile: true,
+        };
+        localStorage.setItem(key, JSON.stringify(fallbackPayload));
+        setDraftStatus('Draft saved');
+      } catch {
+        // Storage full
+      }
+    }
+  }, [isEdit, checkIsDirty, scope.user, scope.business, scope.location, scope.finYear]);
+
+  /* Clear draft from Local Storage */
+  const clearDraftFromStorage = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const key = getDraftKey(scope.user, scope.business, scope.location);
+      localStorage.removeItem(key);
+    } catch (err) {
+      console.warn('Failed to clear draft:', err);
+    }
+  }, [scope.user, scope.business, scope.location]);
+
+  /* Restore draft automatically on open */
+  useEffect(() => {
+    if (isEdit || typeof window === 'undefined') return;
+    const key = getDraftKey(scope.user, scope.business, scope.location);
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (!parsed || !parsed.data) return;
+
+      // Expiry check (7 days)
+      if (parsed.savedAt && (Date.now() - parsed.savedAt > DRAFT_EXPIRY_MS)) {
+        localStorage.removeItem(key);
+        return;
+      }
+
+      // Check if draft has user values
+      if (!checkIsDirty(parsed.data)) return;
+
+      setData((current) => ({
+        ...current,
+        ...parsed.data,
+        transactionDate: parsed.data.transactionDate || current.transactionDate,
+      }));
+
+      setIsDirty(true);
+      setDraftRestored(true);
+      setDraftStatus('Draft restored');
+      if (parsed.hasLocalFile) {
+        setHasPendingFile(true);
+      }
+      setTimeout(() => {
+        setDraftStatus((prev) => (prev === 'Draft restored' ? '' : prev));
+      }, 4000);
+    } catch (e) {
+      console.warn('Error restoring draft:', e);
+    }
+  }, [isEdit, checkIsDirty, scope.user, scope.business, scope.location]);
+
+  /* Discard draft and reset to default */
+  const handleDiscardDraft = () => {
+    clearDraftFromStorage();
+    const d = {};
+    FIELDS.forEach((f) => {
+      const v = row?.[f.k];
+      d[f.k] = v === undefined || v === null
+        ? (f.def === 'now' ? nowLocal()
+          : f.def === 'today' ? new Date().toISOString().slice(0, 10)
+            : (f.def !== undefined ? f.def : ''))
+        : (f.type === 'date' ? String(v).slice(0, 10) : (f.type === 'ref' ? String(v) : v));
+    });
+    setData(d);
+    setIsDirty(false);
+    setDraftRestored(false);
+    setHasPendingFile(false);
+    setDraftStatus('');
+    setFlash({ type: 'ok', msg: 'Draft discarded. Form reset to blank.' });
+  };
+
+  /* Close confirmation handlers */
+  const handleAttemptClose = useCallback(() => {
+    if (isDirty && checkIsDirty(data)) {
+      setShowCloseConfirm(true);
+    } else {
+      onClose();
+    }
+  }, [isDirty, checkIsDirty, data, onClose]);
+
+  const handleContinueEditing = () => {
+    setShowCloseConfirm(false);
+  };
+
+  const handleSaveDraftAndClose = () => {
+    saveDraftToStorage(data);
+    setShowCloseConfirm(false);
+    onClose();
+  };
+
+  /* Debounced save whenever user changes a field */
+  useEffect(() => {
+    if (isEdit || !isDirty) return;
+    setDraftStatus('Saving draft...');
+    const timer = setTimeout(() => {
+      saveDraftToStorage(data);
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [data, isDirty, isEdit, saveDraftToStorage]);
+
+  /* Periodic 1-minute backup auto-save */
+  useEffect(() => {
+    if (isEdit || !isDirty) return;
+    const interval = setInterval(() => {
+      saveDraftToStorage(data);
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [data, isDirty, isEdit, saveDraftToStorage]);
+
+  /* Escape key listener to trigger confirmation if dirty */
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        if (addingTransporter || addingSupplier || showCropModal) return;
+        e.preventDefault();
+        handleAttemptClose();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [addingTransporter, addingSupplier, showCropModal, handleAttemptClose]);
+
+  /* Browser refresh & navigation protection (beforeunload & pagehide) */
+  useEffect(() => {
+    if (isEdit || !isDirty) return;
+
+    const handleBeforeUnload = (e) => {
+      saveDraftToStorage(data);
+      e.preventDefault();
+      e.returnValue = '';
+      return '';
+    };
+
+    const handlePageHide = () => {
+      saveDraftToStorage(data);
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('pagehide', handlePageHide);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('pagehide', handlePageHide);
+    };
+  }, [isEdit, isDirty, data, saveDraftToStorage]);
 
   /* The next Transaction No, shown only as a hint.
 
@@ -168,12 +414,14 @@ function DeliveryDialog({ row, onClose, onSaved }) {
 
   const set = (k, v) => {
     setData((d) => ({ ...d, [k]: v }));
+    if (!isEdit) setIsDirty(true);
     setErrors((e) => (e[k] ? { ...e, [k]: undefined } : e));
   };
   
   const handleFileSelect = (e, fieldName = 'document') => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (!isEdit) setIsDirty(true);
     // Check if it's an image
     if (file.type.startsWith('image/')) {
       setSelectedImageFile(file);
@@ -190,6 +438,7 @@ function DeliveryDialog({ row, onClose, onSaved }) {
   const handleCroppedImage = (croppedDataUrl) => {
     setCroppedImageUrl(croppedDataUrl);
     set(cropTargetField, croppedDataUrl);
+    if (!isEdit) setIsDirty(true);
     setShowCropModal(false);
     setSelectedImageFile(null);
   };
@@ -218,6 +467,9 @@ function DeliveryDialog({ row, onClose, onSaved }) {
       }
       if (!r.ok) { setFlash({ type: 'err', msg: d.error || 'Save failed' }); return; }
 
+      /* Successful submission: clear Local Storage draft */
+      clearDraftFromStorage();
+      setIsDirty(false);
       onSaved();
     } finally {
       setSaving(false);
@@ -325,23 +577,48 @@ function DeliveryDialog({ row, onClose, onSaved }) {
 
       <div
         className="fixed inset-0 z-40 flex items-start justify-center overflow-auto bg-black/45 p-4 pt-10"
-        onMouseDown={onClose}
+        onMouseDown={handleAttemptClose}
       >
         <div
           className="w-full max-w-[560px] rounded-lg bg-white shadow-pop"
           onMouseDown={(e) => e.stopPropagation()}
         >
           <div className="flex items-center border-b border-line px-4 py-3">
-            <span className="text-[15px] font-bold">
-              {isEdit ? 'Edit' : 'Add'} Delivery / LR Transaction
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[15px] font-bold">
+                {isEdit ? 'Edit' : 'Add'} Delivery / LR Transaction
+              </span>
+              {draftStatus && (
+                <span className="text-[11.5px] font-normal italic text-inkmuted">
+                  &bull; {draftStatus}
+                </span>
+              )}
+            </div>
             <span className="flex-1" />
-            <button type="button" onClick={onClose} className="text-inkmuted">
+            <button type="button" onClick={handleAttemptClose} className="text-inkmuted">
               <Icon name="x" size={15} />
             </button>
           </div>
 
           <div className="px-4 py-4">
+            {draftRestored && (
+              <div className="mb-3 flex items-center justify-between rounded-md border border-amber-300 bg-amber-50 px-3.5 py-2 text-[12.5px] text-amber-900">
+                <div className="flex items-center gap-2">
+                  <span className="inline-block h-2 w-2 rounded-full bg-amber-500 shrink-0" />
+                  <span>
+                    Previous unsaved draft restored.
+                    {hasPendingFile && ' (Note: LR Copy must be selected again before saving)'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="text-[11.5px] font-semibold text-danger underline hover:text-red-800 shrink-0 ml-2"
+                  onClick={handleDiscardDraft}
+                >
+                  Discard Draft
+                </button>
+              </div>
+            )}
             {flash && <div className={'flash ' + (flash.type === 'err' ? 'flash-err' : 'flash-ok')}>{flash.msg}</div>}
 
             <Section title="Transaction Info">
@@ -394,7 +671,7 @@ function DeliveryDialog({ row, onClose, onSaved }) {
                   LR Copy Upload
                 </label>
                 <div className="flex flex-wrap items-center gap-2">
-                  <label className="flex h-9 cursor-pointer items-center gap-2 rounded-md border border-linestrong bg-white px-2 py-1 text-[13px] hover:border-brand">
+                  <label className="attachment-picker flex h-9 cursor-pointer items-center gap-2 rounded-md border border-linestrong bg-white px-2 py-1 text-[13px]">
                     <span className="shrink-0 rounded bg-[#eff2f7] px-2 py-1 text-[12px]">
                       {data.document ? 'Change' : 'Choose File'}
                     </span>
@@ -410,17 +687,17 @@ function DeliveryDialog({ row, onClose, onSaved }) {
                   </label>
                   {data.document && (
                     <>
-                      <a
-                        href={data.document}
-                        download={data.document.startsWith('data:image/') ? 'lr-copy.jpg' : 'lr-copy.pdf'}
-                        className="shrink-0 rounded border border-linestrong px-2 py-1 text-[12px] text-brand-link hover:border-brand hover:text-brand"
+                      <button
+                        type="button"
+                        onClick={() => setPreviewModal({ open: true, url: data.document, title: 'LR Copy Preview' })}
+                        className="attachment-action"
                       >
                         View
-                      </a>
+                      </button>
                       {data.document.startsWith('data:image/') && (
                         <button
                           type="button"
-                          className="shrink-0 rounded border border-linestrong px-2 py-1 text-[12px] text-inkmuted hover:border-brand hover:text-brand"
+                          className="attachment-action"
                           onClick={() => {
                             fetch(data.document)
                               .then((r) => r.blob())
@@ -437,7 +714,7 @@ function DeliveryDialog({ row, onClose, onSaved }) {
                       )}
                       <button
                         type="button"
-                        className="shrink-0 rounded border border-linestrong px-2 py-1 text-[12px] text-inkmuted hover:border-danger hover:text-danger"
+                        className="attachment-action attachment-action-danger"
                         onClick={() => set('document', '')}
                       >
                         Remove
@@ -584,7 +861,7 @@ function DeliveryDialog({ row, onClose, onSaved }) {
                       Vendor Invoice Copy
                     </label>
                     <div className="flex flex-wrap items-center gap-2">
-                      <label className="flex h-9 cursor-pointer items-center gap-2 rounded-md border border-linestrong bg-white px-2 py-1 text-[13px] hover:border-brand">
+                      <label className="attachment-picker flex h-9 cursor-pointer items-center gap-2 rounded-md border border-linestrong bg-white px-2 py-1 text-[13px]">
                         <span className="shrink-0 rounded bg-[#eff2f7] px-2 py-1 text-[12px]">
                           {data.vendorInvoiceCopy ? 'Change' : 'Choose File'}
                         </span>
@@ -602,18 +879,17 @@ function DeliveryDialog({ row, onClose, onSaved }) {
                       </label>
                       {data.vendorInvoiceCopy && (
                         <>
-                          <a
-                            href={data.vendorInvoiceCopy}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="shrink-0 rounded border border-linestrong px-2 py-1 text-[12px] text-brand-link hover:border-brand hover:text-brand"
+                          <button
+                            type="button"
+                            onClick={() => setPreviewModal({ open: true, url: data.vendorInvoiceCopy, title: 'Vendor Invoice Copy' })}
+                            className="attachment-action"
                           >
                             View
-                          </a>
+                          </button>
                           {data.vendorInvoiceCopy.startsWith('data:image/') && (
                             <button
                               type="button"
-                              className="shrink-0 rounded border border-linestrong px-2 py-1 text-[12px] text-inkmuted hover:border-brand hover:text-brand"
+                              className="attachment-action"
                               onClick={() => {
                                 fetch(data.vendorInvoiceCopy)
                                   .then((r) => r.blob())
@@ -630,7 +906,7 @@ function DeliveryDialog({ row, onClose, onSaved }) {
                           )}
                           <button
                             type="button"
-                            className="shrink-0 rounded border border-linestrong px-2 py-1 text-[12px] text-inkmuted hover:border-danger hover:text-danger"
+                            className="attachment-action attachment-action-danger"
                             onClick={() => set('vendorInvoiceCopy', '')}
                           >
                             Remove
@@ -694,7 +970,7 @@ function DeliveryDialog({ row, onClose, onSaved }) {
             </Section>
 
             <div className="mt-4 flex justify-end gap-2">
-              <button type="button" className="btn" onClick={onClose}>Cancel</button>
+              <button type="button" className="btn" onClick={handleAttemptClose}>Cancel</button>
               <button type="button" className="btn btn-primary" onClick={submit} disabled={saving}>
                 {saving ? <span className="spin" /> : <Icon name="save" size={14} />} Save
               </button>
@@ -711,6 +987,63 @@ function DeliveryDialog({ row, onClose, onSaved }) {
             setShowCropModal(false);
             setSelectedImageFile(null);
           }}
+        />
+      )}
+
+      {/* Close confirmation dialog */}
+      {showCloseConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <div
+            className="w-full max-w-[460px] rounded-lg bg-white p-5 shadow-2xl"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3.5">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-600">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                  <line x1="12" y1="9" x2="12" y2="13" />
+                  <line x1="12" y1="17" x2="12.01" y2="17" />
+                </svg>
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-[15px] font-bold text-gray-900">
+                  Unsaved Changes
+                </h3>
+                <p className="mt-1.5 text-[13px] leading-relaxed text-gray-600">
+                  Do you want to close this form? Your entered data will be saved as a draft and can be restored when you reopen it.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2.5">
+              <button
+                type="button"
+                className="btn"
+                onClick={handleContinueEditing}
+              >
+                Continue Editing
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleSaveDraftAndClose}
+              >
+                <Icon name="save" size={14} /> Save Draft &amp; Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {previewModal.open && (
+        <DocumentPreviewModal
+          open={previewModal.open}
+          url={previewModal.url}
+          title={previewModal.title}
+          onClose={() => setPreviewModal({ open: false, url: '', title: '' })}
         />
       )}
     </>

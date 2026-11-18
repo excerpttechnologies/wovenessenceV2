@@ -26,6 +26,7 @@ const GrcSchema = new mongoose.Schema(
     logisticId: { type: mongoose.Schema.Types.ObjectId, ref: 'logistic', default: null },
     stockPointId: { type: mongoose.Schema.Types.ObjectId, ref: 'stockPoint', default: null },
     stockPointName: { type: String, default: 'Warehouse' },
+    lrCopy: { type: String, default: '' },
     vendorInvoiceCopy: { type: String, default: '' },
     vendorWaybill: { type: String, default: '' },
     hsnCode: { type: String, default: '' },

@@ -584,7 +584,7 @@ export async function GET(req) {
     }],
     total,
     pages,
-    page: everything ? 1 : page,
+    page: everything ? 1 : page,    
     perPage: everything ? total : perPage,
     barcodeSearch: barcode ? { text: barcode, mode } : null,
     note,

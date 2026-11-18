@@ -1,4 +1,5 @@
 import fs from 'fs/promises';
+import path from 'path';
 import { requireSession } from '@/lib/session';
 import { resolveStored, mimeForStoredName } from '@/lib/uploads';
 
@@ -9,11 +10,8 @@ import { resolveStored, mimeForStoredName } from '@/lib/uploads';
    invisible in normal use, but the files are not world-readable.
 
    The content type comes from the stored extension, which was chosen by the
-   server from an allowlist at upload time. Nothing the client ever supplied
-   is echoed back in a header.
-
-   Filenames are content hashes, so a given URL's bytes can never change -
-   hence the immutable cache. */
+   server from an allowlist at upload time. Content-Disposition is set to
+   inline to permit in-browser viewing for PDFs and images without forcing downloads. */
 
 const json = (d, s = 200) => Response.json(d, { status: s });
 
@@ -34,14 +32,25 @@ export async function GET(req, { params }) {
     return json({ error: 'Not found' }, 404);
   }
 
-  return new Response(data, {
-    headers: {
-      'Content-Type': mimeForStoredName(abs),
-      'Content-Length': String(data.length),
-      'Cache-Control': 'private, max-age=31536000, immutable',
-      /* a stored PDF should render or download, never execute in our origin */
-      'X-Content-Type-Options': 'nosniff',
-      'Content-Security-Policy': "default-src 'none'; img-src 'self'; object-src 'none'",
-    },
-  });
+  const mime = mimeForStoredName(abs);
+  const filename = path.basename(abs);
+
+  const headers = {
+    'Content-Type': mime,
+    'Content-Length': String(data.length),
+    'Content-Disposition': `inline; filename="${filename}"`,
+    'Cache-Control': 'private, max-age=31536000, immutable',
+    'X-Content-Type-Options': 'nosniff',
+  };
+
+  /* For PDFs, allow inline browser preview inside iframes and tabs */
+  if (mime === 'application/pdf') {
+    headers['Content-Security-Policy'] = "default-src 'self' blob:; object-src 'self' blob:; frame-ancestors 'self'";
+  } else if (mime.startsWith('image/')) {
+    headers['Content-Security-Policy'] = "default-src 'none'; img-src 'self' data: blob:; style-src 'unsafe-inline'";
+  } else {
+    headers['Content-Security-Policy'] = "default-src 'none'";
+  }
+
+  return new Response(data, { headers });
 }

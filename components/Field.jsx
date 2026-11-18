@@ -349,7 +349,7 @@
 // //    colour does not depend on the portal's capitalisation or hyphens. */
 // // const squashWord = (v) => String(v ?? '').toLowerCase().replace(/[^a-z]/g, '');
 
-// // export default function Field({ f, value, error, onChange, onOptionChange, selectedOption }) {
+// // export default function Field({ f, value, error, onChange, onOptionChange, selectedOption, data }) {
 // //   /* Written as literal class strings: Tailwind scans source text, so a class
 // //      assembled at runtime (`md:col-span-${n}`) would never be generated. */
 // //   const SPAN = { 2: 'md:col-span-2', 3: 'md:col-span-2 xl:col-span-3', all: 'col-span-full' };
@@ -1201,7 +1201,7 @@
 //    colour does not depend on the portal's capitalisation or hyphens. */
 // const squashWord = (v) => String(v ?? '').toLowerCase().replace(/[^a-z]/g, '');
 
-// export default function Field({ f, value, error, onChange, onOptionChange, selectedOption }) {
+// export default function Field({ f, value, error, onChange, onOptionChange, selectedOption, data }) {
 //   /* Written as literal class strings: Tailwind scans source text, so a class
 //      assembled at runtime (`md:col-span-${n}`) would never be generated. */
 //   const SPAN = { 2: 'md:col-span-2', 3: 'md:col-span-2 xl:col-span-3', all: 'col-span-full' };
@@ -1524,6 +1524,7 @@ import MultiSelect from './MultiSelect';
 import { useOptions, useCities } from './useOptions';
 import { compressImage, prettyBytes } from '@/lib/imageFile';
 import BarcodeScanner from './BarcodeScanner';
+import DocumentPreviewModal from './DocumentPreviewModal';
 
 function Label({ f }) {
   /* ph = placeholder-only field: the original shows no label above these,
@@ -1646,12 +1647,13 @@ function FileField({ f, value, onChange }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [meta, setMeta] = useState(null); // { name, size } for this session
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   const acceptsImages = String(f.accept || '').includes('image');
   const stored = typeof value === 'string' ? value : '';
   const isUploaded = stored.startsWith('/api/files/');
   const isLegacyDataUrl = stored.startsWith('data:image/');
-  const canPreview = isLegacyDataUrl || (isUploaded && /\.(jpg|png|webp|gif)$/i.test(stored));
+  const canPreview = isLegacyDataUrl || (isUploaded && /\.(jpg|png|webp|gif|jpeg)$/i.test(stored));
 
   async function upload(blob, filename) {
     const body = new FormData();
@@ -1719,7 +1721,7 @@ function FileField({ f, value, onChange }) {
       <div className="flex items-center gap-2">
         <label
           className={
-            'flex h-9 flex-1 items-center gap-2 overflow-hidden rounded-md border border-linestrong bg-white px-1 text-[13px] '
+            'attachment-picker flex h-9 flex-1 items-center gap-2 overflow-hidden rounded-md border border-linestrong bg-white px-1 text-[13px] '
             + (busy ? 'cursor-wait opacity-60' : 'cursor-pointer hover:border-brand')
           }
         >
@@ -1738,18 +1740,17 @@ function FileField({ f, value, onChange }) {
 
         {stored && !busy && (
           <>
-            <a
-              href={stored}
-              target="_blank"
-              rel="noreferrer"
-              className="shrink-0 rounded border border-linestrong px-2 py-1 text-[12px] text-brand-link hover:border-brand hover:text-brand"
+            <button
+              type="button"
+              onClick={() => setPreviewOpen(true)}
+              className="attachment-action hover:border-brand hover:text-brand"
             >
               View
-            </a>
+            </button>
             <button
               type="button"
               onClick={clear}
-              className="shrink-0 rounded border border-linestrong px-2 py-1 text-[12px] text-inkmuted hover:border-danger hover:text-danger"
+              className="attachment-action attachment-action-danger"
             >
               Remove
             </button>
@@ -1758,16 +1759,176 @@ function FileField({ f, value, onChange }) {
       </div>
 
       {canPreview && (
-        /* eslint-disable-next-line @next/next/no-img-element -- these are
-           session-gated app routes, not something next/image can optimise */
         <img
           src={stored}
           alt=""
-          className="mt-2 h-20 w-20 rounded border border-line object-cover"
+          className="mt-2 h-16 w-16 rounded border border-line object-cover cursor-pointer hover:opacity-90 shadow-sm"
+          onClick={() => setPreviewOpen(true)}
         />
       )}
 
       {err && <div className="f-err">{err}</div>}
+
+      {previewOpen && (
+        <DocumentPreviewModal
+          open={previewOpen}
+          url={stored}
+          title={f.label || 'Vendor Invoice Copy'}
+          onClose={() => setPreviewOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function LrCopyField({ f, value, onChange, lrTransactionId, lrTransactionNo, data }) {
+  const [loading, setLoading] = useState(false);
+  const [fetchError, setFetchError] = useState('');
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [uploadBusy, setUploadBusy] = useState(false);
+  const stored = typeof value === 'string' ? value : '';
+  const currentLrId = lrTransactionId || data?.lrTransactionId;
+  const currentLrNo = lrTransactionNo || data?.lrTransactionNo;
+
+  const lastFetchedLrIdRef = useRef(null);
+
+  useEffect(() => {
+    if (!currentLrId) {
+      if (stored && lastFetchedLrIdRef.current) {
+        onChange('');
+      }
+      lastFetchedLrIdRef.current = null;
+      return;
+    }
+
+    // Skip if already fetched for this LR id and value exists
+    if (lastFetchedLrIdRef.current === currentLrId && stored) {
+      return;
+    }
+
+    let active = true;
+    lastFetchedLrIdRef.current = currentLrId;
+    setLoading(true);
+    setFetchError('');
+
+    fetch(`/api/delivery/${currentLrId}`)
+      .then(async (res) => {
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.error || 'Failed to fetch LR document');
+        return body;
+      })
+      .then((body) => {
+        if (!active) return;
+        const doc = body.doc?.document || body.doc?.lrCopy || '';
+        if (doc) {
+          onChange(doc);
+        } else {
+          onChange('');
+        }
+      })
+      .catch((err) => {
+        if (!active) return;
+        console.warn('LR Copy fetch error:', err);
+        setFetchError('Failed to fetch LR document');
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [currentLrId]);
+
+  async function handleReplaceFile(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    setUploadBusy(true);
+    try {
+      const body = new FormData();
+      body.append('file', file, file.name);
+      const r = await fetch('/api/upload', { method: 'POST', body });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || 'Upload failed.');
+      onChange(d.url);
+    } catch (err) {
+      alert(err.message || 'Upload failed');
+    } finally {
+      setUploadBusy(false);
+    }
+  }
+
+  const isImage = stored.startsWith('data:image/') || /\.(jpg|png|webp|gif|jpeg)$/i.test(stored);
+
+  return (
+    <div>
+      <div className="flex items-center gap-2">
+        <div className="flex h-9 flex-1 items-center gap-2 overflow-hidden rounded-md border border-linestrong bg-slate-50 px-2.5 text-[13px]">
+          {loading ? (
+            <div className="flex items-center gap-2 text-inkmuted">
+              <span className="spin" style={{ width: 14, height: 14 }} />
+              <span className="text-[12px] italic">Fetching LR Copy...</span>
+            </div>
+          ) : stored ? (
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
+              <span className="truncate text-slate-700 font-medium text-[12.5px]">
+                {currentLrNo ? `LR Copy (${currentLrNo})` : 'LR Copy Available'}
+              </span>
+            </div>
+          ) : currentLrId ? (
+            <span className="text-amber-700 text-[12px] italic">No LR Copy Uploaded</span>
+          ) : (
+            <span className="text-inkmuted text-[12px] italic">Select an LR / Transaction Number first</span>
+          )}
+        </div>
+
+        {stored && !loading && (
+          <button
+            type="button"
+            onClick={() => setPreviewOpen(true)}
+            className="attachment-action hover:border-brand hover:text-brand"
+          >
+            View
+          </button>
+        )}
+
+        {/* Optional upload / replace */}
+        {currentLrId && !loading && (
+          <label className="attachment-action cursor-pointer hover:border-brand hover:text-brand">
+            <span>{uploadBusy ? 'Uploading...' : stored ? 'Replace' : 'Upload'}</span>
+            <input
+              type="file"
+              className="hidden"
+              accept="image/*,.pdf"
+              disabled={uploadBusy}
+              onChange={handleReplaceFile}
+            />
+          </label>
+        )}
+      </div>
+
+      {isImage && stored && (
+        <img
+          src={stored}
+          alt="LR Copy Thumbnail"
+          className="mt-2 h-16 w-16 rounded border border-line object-cover cursor-pointer hover:opacity-90 shadow-sm"
+          onClick={() => setPreviewOpen(true)}
+        />
+      )}
+
+      {fetchError && <div className="f-err mt-1 text-[12px] text-red-600">{fetchError}</div>}
+
+      {previewOpen && (
+        <DocumentPreviewModal
+          open={previewOpen}
+          url={stored}
+          title={currentLrNo ? `LR Copy - ${currentLrNo}` : (f.label || 'LR Copy Preview')}
+          onClose={() => setPreviewOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -1866,7 +2027,7 @@ function PincodeField({ f, value, onChange, patch }) {
    colour does not depend on the portal's capitalisation or hyphens. */
 const squashWord = (v) => String(v ?? '').toLowerCase().replace(/[^a-z]/g, '');
 
-export default function Field({ f, value, error, onChange, onOptionChange, selectedOption }) {
+export default function Field({ f, value, error, onChange, onOptionChange, selectedOption, data }) {
   /* Written as literal class strings: Tailwind scans source text, so a class
      assembled at runtime (`md:col-span-${n}`) would never be generated. */
   const SPAN = { 2: 'md:col-span-2', 3: 'md:col-span-2 xl:col-span-3', all: 'col-span-full' };
@@ -2024,6 +2185,19 @@ export default function Field({ f, value, error, onChange, onOptionChange, selec
 
     case 'file':
       control = <FileField f={f} value={value} onChange={set} />;
+      break;
+
+    case 'lrCopy':
+      control = (
+        <LrCopyField
+          f={f}
+          value={value}
+          onChange={set}
+          lrTransactionId={data?.lrTransactionId}
+          lrTransactionNo={data?.lrTransactionNo}
+          data={data}
+        />
+      );
       break;
 
     case 'text':

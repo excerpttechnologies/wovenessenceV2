@@ -204,6 +204,7 @@ export default function EditTransactionPurchaseGrcPage() {
                 key={field.k}
                 f={field}
                 value={data[field.k]}
+                data={data}
                 onChange={set}
                 selectedOption={field.k === 'supplierId' ? supplierOption : undefined}
               />
@@ -236,8 +237,7 @@ export default function EditTransactionPurchaseGrcPage() {
               {rows.length === 0 && (
                 <tr><td colSpan={SHOW_BARCODE_GENERATED ? 15 : 14} className="dt-empty">
                   {data.importedFrom
-                    ? `No item detail was included for this GRC in the historical import${
-                      data.totalQuantity ? ` - its header records a total quantity of ${data.totalQuantity}` : ''
+                    ? `No item detail was included for this GRC in the historical import${data.totalQuantity ? ` - its header records a total quantity of ${data.totalQuantity}` : ''
                     }. Re-import once the source export includes this GRC's items.`
                     : 'No barcode items yet.'}
                 </td></tr>

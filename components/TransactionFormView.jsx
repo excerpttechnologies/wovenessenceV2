@@ -2344,6 +2344,7 @@ export default function TransactionFormView({ cfg, id, slug }) {
                           key={f.k + '-' + quickAddNonce} 
                           f={isLocked(f) ? { ...f, disabled: true } : f} 
                           value={data[f.k]} 
+                          data={data}
                           error={errors[f.k]} 
                           onChange={set} 
                           onOptionChange={(option) => {
@@ -2621,7 +2622,7 @@ export default function TransactionFormView({ cfg, id, slug }) {
         {saving ? <span className="spin" /> : <Icon name="save" size={14} />} Submit
       </button>
       {cfg.afterSaveBarcode && savedId && (
-        <button type="button" className="btn mx-auto mt-2 flex h-[38px] w-full max-w-[390px] justify-center bg-indigo-600 text-white" onClick={() => router.push((cfg.barcodePath || '') + savedId + (cfg.barcodeSuffix || ''))}>
+        <button type="button" className="btn mx-auto mt-2 flex h-[38px] w-full max-w-[390px] justify-center bg-indigo-600 text-white hover:border-indigo-700 hover:bg-indigo-700 hover:text-white" onClick={() => router.push((cfg.barcodePath || '') + savedId + (cfg.barcodeSuffix || ''))}>
           <Icon name="barcode" size={14} /> Barcode Generation
         </button>
       )}

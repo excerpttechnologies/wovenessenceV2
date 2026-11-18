@@ -1,6 +1,7 @@
 import { isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
 import Grc from '@/models/Grc';
+import Delivery from '@/models/Delivery';
 import { screenDenialAnyAction, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import PurchaseInvoice from '@/models/PurchaseInvoice';
 import { BarcodeLabel } from '@/lib/barcodeLabel';
@@ -57,7 +58,14 @@ export async function GET(req, { params }) {
   /* read while viewing or editing the GRC */
   const no = await grcDenied(session, id, [PERM.READ, PERM.UPDATE]);
   if (no) return no;
-  return json({ doc: { ...doc, _id: String(doc._id) } });
+
+  let lrCopy = doc.lrCopy || '';
+  if (!lrCopy && doc.lrTransactionId && isValidObjectId(doc.lrTransactionId)) {
+    const delivery = await Delivery.findById(doc.lrTransactionId).select('document').lean();
+    if (delivery?.document) lrCopy = delivery.document;
+  }
+
+  return json({ doc: { ...doc, _id: String(doc._id), lrCopy } });
 }
 
 export async function PUT(req, { params }) {
