@@ -11,7 +11,7 @@ const COLUMNS = [
   { key: 'number', label: 'DOCUMENT NO' },
   { key: 'date', label: 'DATE' },
   { key: 'party', label: 'PARTY' },
-  { key: 'itemName', label: 'ITEM NAME' },
+  { key: 'barcodeNo', label: 'BARCODE NO' },
   { key: 'itemCode', label: 'ITEM CODE' },
   { key: 'qty', label: 'QTY' },
   { key: 'rate', label: 'RATE' },
@@ -23,7 +23,7 @@ const SALE_COLUMNS = [
   { key: 'date', label: 'DATE' },
   { key: 'customer', label: 'CUSTOMER' },
   { key: 'supplier', label: 'SUPPLIER' },
-  { key: 'itemName', label: 'ITEM NAME' },
+  { key: 'barcodeNo', label: 'BARCODE NO' },
   { key: 'itemCode', label: 'ITEM CODE' },
   { key: 'qty', label: 'QTY' },
   { key: 'rate', label: 'RATE' },
@@ -34,7 +34,7 @@ const STOCK_COLUMNS = [
   { key: 'number', label: 'DOCUMENT NO' },
   { key: 'date', label: 'DATE' },
   { key: 'party', label: 'PARTY' },
-  { key: 'itemName', label: 'ITEM NAME' },
+  { key: 'barcodeNo', label: 'BARCODE NO' },
   { key: 'itemCode', label: 'ITEM CODE' },
   { key: 'qty', label: 'QTY' },
   { key: 'rate', label: 'RATE' },
@@ -140,7 +140,7 @@ export default function PurchaseDetailView({
     const term = search.trim().toLowerCase();
     if (!term) return rows;
     return rows.filter((row) => [
-      row.number, row.party, row.customer, row.supplier, row.itemName, row.itemCode,
+      row.number, row.party, row.customer, row.supplier, row.barcodeNo, row.itemCode,
     ].some((value) => String(value || '').toLowerCase().includes(term)));
   }, [rows, search]);
   const pageCount = Math.max(1, Math.ceil(filteredRows.length / perPage));

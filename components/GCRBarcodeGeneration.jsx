@@ -4163,7 +4163,7 @@
 //                 <tr className="bg-gray-100 text-left text-gray-700">
 //                   <th className="border border-gray-300 px-2 py-2">Sl No</th>
 //                   <th className="border border-gray-300 px-2 py-2">Bill Sl No.</th>
-//                   <th className="border border-gray-300 px-2 py-2">Item Name</th>
+//                   <th className="border border-gray-300 px-2 py-2 w-24">Item Name</th>
 //                   <th className="border border-gray-300 px-2 py-2">QTY</th>
 //                   <th className="border border-gray-300 px-2 py-2">Before GST Amount</th>
 //                   <th className="border border-gray-300 px-2 py-2">GST Amount</th>
@@ -4182,7 +4182,7 @@
 //                         and are no longer both the row's position. */}
 //                     <td className="border border-gray-300 px-2 py-2">{index + 1}</td>
 //                     <td className="border border-gray-300 px-2 py-2">{row.billSlNo || "-"}</td>
-//                     <td className="border border-gray-300 px-2 py-2">{row.itemName}</td>
+//                     <td className="border border-gray-300 px-2 py-2 w-24 max-w-24 overflow-hidden text-ellipsis whitespace-nowrap">{row.itemName}</td>
 //                     <td className="border border-gray-300 px-2 py-2">{money(row.qty)}</td>
 //                     <td className="border border-gray-300 px-2 py-2">{money(row.beforeTax)}</td>
 //                     <td className="border border-gray-300 px-2 py-2">{money(row.gst)}</td>
@@ -4261,7 +4261,7 @@
 //                         ("9A1163") - never barcodeGenerated ("G1319 * 05183 *
 //                         1 * 1"), and never a value worked out here. A row not
 //                         saved yet has none until Submit gives it one. */}
-//                     <td className="border border-gray-300 px-2 py-2"><input value={(row._id && row.barcodeNo) || ""} disabled className="w-52 rounded border border-gray-200 bg-gray-100 px-2 py-1 font-mono text-gray-500" aria-label="System generated barcode" /></td>
+//                     <td className="border border-gray-300 px-2 py-2"><input value={(row._id && row.barcodeNo) || ""} disabled className="w-28 rounded border border-gray-200 bg-gray-100 px-2 py-1 font-mono text-gray-500" aria-label="System generated barcode" /></td>
 //                     {additionalFields.map((field) => <td key={field} className="border border-gray-300 px-2 py-2">{row.customFields?.[field] || "-"}</td>)}
 //                     {/* Not Tab stops: this table has no inputs, so Tab out of
 //                         the Add Item form ran through the toolbar straight onto
@@ -8738,7 +8738,7 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
                 <tr className="bg-gray-100 text-left text-gray-700">
                   <th className="border border-gray-300 px-2 py-2">Sl No</th>
                   <th className="border border-gray-300 px-2 py-2">Bill Sl No.</th>
-                  <th className="border border-gray-300 px-2 py-2">Item Name</th>
+                  <th className="border border-gray-300 px-2 py-2 w-24">Item Name</th>
                   <th className="border border-gray-300 px-2 py-2">QTY</th>
                   <th className="border border-gray-300 px-2 py-2">Before GST Amount</th>
                   <th className="border border-gray-300 px-2 py-2">GST Amount</th>
@@ -8757,7 +8757,7 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
                         and are no longer both the row's position. */}
                     <td className="border border-gray-300 px-2 py-2">{index + 1}</td>
                     <td className="border border-gray-300 px-2 py-2">{row.billSlNo || "-"}</td>
-                    <td className="border border-gray-300 px-2 py-2">{row.itemName}</td>
+                    <td className="border border-gray-300 px-2 py-2 w-24 max-w-24 overflow-hidden text-ellipsis whitespace-nowrap">{row.itemName}</td>
                     <td className="border border-gray-300 px-2 py-2">{money(row.qty)}</td>
                     <td className="border border-gray-300 px-2 py-2">{money(row.beforeTax)}</td>
                     <td className="border border-gray-300 px-2 py-2">{money(row.gst)}</td>
@@ -8784,7 +8784,7 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
               <thead>
                 <tr className="bg-gray-100 text-left text-gray-700">
                   <th className="border border-gray-300 px-2 py-2">Sl No</th>
-                  <th className="border border-gray-300 px-2 py-2">Item</th>
+                  <th className="border border-gray-300 px-2 py-2 w-24">Item</th>
                   <th className="border border-gray-300 px-2 py-2">QTY/MTR</th>
                   <th className="border border-gray-300 px-2 py-2">No. of Cuts</th>
                   <th className="border border-gray-300 px-2 py-2">Purchase Rate</th>
@@ -8799,12 +8799,11 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
                   <th className="border border-gray-300 px-2 py-2">Variant</th>
                   <th className="border border-gray-300 px-2 py-2">Barcode No</th>
                   {additionalFields.map((field) => <th key={field} className="border border-gray-300 px-2 py-2">{field}</th>)}
-                  <th className="border border-gray-300 px-2 py-2">Action</th>
                 </tr>
               </thead>
               <tbody>
                 {validRows.length === 0 ? (
-                  <tr><td colSpan={16 + additionalFields.length} className="px-3 py-8 text-center text-gray-500">No data found</td></tr>
+                  <tr><td colSpan={15 + additionalFields.length} className="px-3 py-8 text-center text-gray-500">No data found</td></tr>
                 ) : validRows.map((row, index) => (
                   <tr key={row.id || index} className={
                     row._importStatus === 'CHANGED' ? "bg-red-50 border-l-4 border-l-red-500" :
@@ -8812,7 +8811,7 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
                     "odd:bg-white even:bg-gray-50"
                   }>
                     <td className="border border-gray-300 px-2 py-2">{index + 1}</td>
-                    <td className="border border-gray-300 px-2 py-2">
+                    <td className="border border-gray-300 px-2 py-2 w-24 max-w-24 overflow-hidden text-ellipsis whitespace-nowrap">
                       {row.itemCode || "-"}
                       {row._importStatus === 'CHANGED' && <span className="ml-1 rounded bg-red-500 px-1 py-0.5 text-[10px] font-semibold text-white">CHANGED</span>}
                       {row._importStatus === 'NEW'     && <span className="ml-1 rounded bg-green-600 px-1 py-0.5 text-[10px] font-semibold text-white">NEW</span>}
@@ -8836,13 +8835,8 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
                         ("9A1163") - never barcodeGenerated ("G1319 * 05183 *
                         1 * 1"), and never a value worked out here. A row not
                         saved yet has none until Submit gives it one. */}
-                    <td className="border border-gray-300 px-2 py-2"><input value={(row._id && row.barcodeNo) || ""} disabled className="w-52 rounded border border-gray-200 bg-gray-100 px-2 py-1 font-mono text-gray-500" aria-label="System generated barcode" /></td>
+                    <td className="border border-gray-300 px-2 py-2"><input value={(row._id && row.barcodeNo) || ""} disabled className="w-28 rounded border border-gray-200 bg-gray-100 px-2 py-1 font-mono text-gray-500" aria-label="System generated barcode" /></td>
                     {additionalFields.map((field) => <td key={field} className="border border-gray-300 px-2 py-2">{row.customFields?.[field] || "-"}</td>)}
-                    {/* Not Tab stops: this table has no inputs, so Tab out of
-                        the Add Item form ran through the toolbar straight onto
-                        row 1's Delete - which removes an unsaved row with no
-                        confirm. Deleting stays a deliberate click. */}
-                    <td className="border border-gray-300 px-2 py-2"><div className="flex gap-2"><button type="button" tabIndex={-1} className="text-blue-600 hover:underline">Edit</button><button type="button" tabIndex={-1} onClick={() => { if (!row._id || window.confirm(`Remove barcode ${row.barcodeNo || ""}? It will be deleted from this GRC when you click Submit.`)) removeRow(row); }} disabled={isLockedRow(row)} title={lockReason(row) || undefined} className="text-red-600 hover:underline disabled:cursor-not-allowed disabled:text-gray-400 disabled:no-underline">Delete</button></div></td>
                   </tr>
                 ))}
               </tbody>

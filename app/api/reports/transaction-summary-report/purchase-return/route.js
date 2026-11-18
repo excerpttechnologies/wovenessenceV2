@@ -56,7 +56,7 @@ export async function GET(req) {
         number: document.grtNo || '',
         date: document.grtDate || document.createdAt || null,
         party: supplierById.get(String(document.supplierId || '')) || '',
-        itemName: String(item.itemName ?? item['Item Name'] ?? ''),
+        barcodeNo: String(item.barcodeNo ?? item['Barcode No'] ?? ''),
         itemCode: String(item.itemCode ?? item.batchNo ?? item.BatchNO ?? item['Item Code'] ?? ''),
         qty: r2(qty),
         rate: r2(rate),

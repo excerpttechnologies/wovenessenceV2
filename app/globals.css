@@ -1361,7 +1361,11 @@ html {
     display: none !important;
   }
 
-  .print-doc-wrapper {
+  /* Scope these to the GRC body class: the generic invoice rule at the top
+     of this stylesheet (`body > *:not(.print-doc)`) also matches this wrapper
+     and would otherwise hide it, blanking the challan. A plain
+     `.print-doc-wrapper` selector loses that specificity contest. */
+  body.printing-grc .print-doc-wrapper {
     display: block !important;
     visibility: visible !important;
     position: static !important;
@@ -1371,11 +1375,11 @@ html {
     max-width: 100% !important;
   }
 
-  .print-doc-wrapper * {
+  body.printing-grc .print-doc-wrapper * {
     visibility: visible !important;
   }
 
-  .print-doc {
+  body.printing-grc .print-doc-wrapper .print-doc {
     display: block !important;
     visibility: visible !important;
     position: static !important;

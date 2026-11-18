@@ -287,7 +287,7 @@ import ProductGroup from '@/models/ProductGroup';
 import { Supplier } from '@/lib/contacts';
 import { json, num, r2, scopeOf, pageOf } from '@/lib/reports';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
-import { imageUrl } from '@/lib/inventory';
+import { erpImageForBarcode, imageUrl } from '@/lib/inventory';
 
 /* /api/reports/barcode-report - read-only.
 
@@ -355,13 +355,32 @@ export async function GET(req) {
   const typed = (key) => String(sp.get(key) || '').replace(/\u0000/g, '').trim();
   const barcode = typed('barcodeNo');
   const itemCode = typed('itemCode');
-  if (!barcode && !itemCode) return json({ error: 'Enter a Barcode or an Item Code.' }, 422);
+  
+  /* Roles & Permissions (17-10-2026): Barcode Report -> Read */
+  const itemBarcodeReport = sp.get('reportType') === 'item-barcode';
+  const itemId = typed('itemId');
+  const grcNo = typed('grcNo');
+  const billNo = typed('billNo');
+  const supplierId = typed('supplierId');
+  if (!itemBarcodeReport && !barcode && !itemCode) {
+    return json({ error: 'Enter a Barcode or an Item Code.' }, 422);
+  }
+  for (const [label, value] of [['Item', itemId], ['Supplier', supplierId]]) {
+    if (value && !isValidObjectId(value)) return json({ error: `${label} selection is invalid.` }, 422);
+  }
   /* never unscoped: without a business this would read every business's
      barcodes - and an export would write them all to one file */
   if (!businessId) return json({ error: 'Select a business in the top bar.' }, 422);
 
-  /* Roles & Permissions (17-10-2026): Barcode Report -> Read */
-  const denied = await screenDenial({ session, screen: SCREENS.BARCODE_REPORT, label: 'the barcode report', action: PERM.READ, businessId });
+  /* Roles & Permissions (17-10-2026): each barcode report has its own read permission. */
+  const reportScreen = itemBarcodeReport ? SCREENS.ITEM_BARCODE_REPORT : SCREENS.BARCODE_REPORT;
+  const denied = await screenDenial({
+    session,
+    screen: reportScreen,
+    label: itemBarcodeReport ? 'the item barcode report' : 'the barcode report',
+    action: PERM.READ,
+    businessId,
+  });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   /* BarcodeLabel stores its scope as plain strings, and locationId is very
@@ -389,9 +408,39 @@ export async function GET(req) {
     filter.barcodeNo = mode === 'exact' ? whole : { $regex: '^' + escapeRegex(barcode), $options: 'i' };
   }
   if (itemCode) filter.itemCode = { $regex: escapeRegex(itemCode), $options: 'i' };
+    if (supplierId) filter.supplierId = supplierId;
   if (finYear) filter.finYear = { $in: [finYear, '', null] };
   if (locationId) filter.locationId = { $in: [String(locationId), '', null] };
 
+   const reportFilters = [];
+  if (itemBarcodeReport && itemId) {
+    const item = await Item.findOne({ _id: itemId, businessId }).select('itemCode name').lean();
+    const itemKeys = item ? [item.itemCode, item.name].filter(Boolean) : [];
+    reportFilters.push(itemKeys.length
+      ? { $or: [{ itemId }, { itemCode: { $in: itemKeys } }, { itemName: { $in: itemKeys } }] }
+      : { _id: null });
+  }
+  const grcScope = { businessId };
+  if (locationId) grcScope.locationId = locationId;
+  if (finYear) grcScope.finYear = { $in: [finYear, '', null] };
+  if (grcNo) {
+    const expression = { $regex: escapeRegex(grcNo), $options: 'i' };
+    const matchedGrcs = await Grc.find({ ...grcScope, grcNumber: expression }).select('_id').lean();
+    reportFilters.push({
+      $or: [
+        { grcNo: expression },
+        ...(matchedGrcs.length ? [{ grcId: { $in: matchedGrcs.map((grc) => String(grc._id)) } }] : []),
+      ],
+    });
+  }
+  if (billNo) {
+    const expression = { $regex: escapeRegex(billNo), $options: 'i' };
+    const matchedGrcs = await Grc.find({ ...grcScope, vendorDocNo: expression }).select('_id').lean();
+    reportFilters.push(matchedGrcs.length
+      ? { grcId: { $in: matchedGrcs.map((grc) => String(grc._id)) } }
+      : { billSlNo: expression });
+  }
+  if (reportFilters.length) filter.$and = reportFilters;
   /* the whole result, light: what the count, the order, the totals and the
      page are all cut from */
   const list = await BarcodeLabel.find(filter).select('barcodeNo qty finalNet createdAt').lean();
@@ -415,12 +464,34 @@ export async function GET(req) {
   /* Group / Sub Group are the ITEM's masters - a barcode keeps none of its
      own - and Supplier is the supplier master's name */
   const ids = (values) => [...new Set(values.filter((id) => id && isValidObjectId(String(id))).map(String))];
-  const items = await Item.find({ _id: { $in: ids(rows.map((r) => r.itemId)) } }).select('subGroupId image').lean();
+  const itemCodes = [...new Set(rows
+    .flatMap((row) => [row.itemCode, row.itemName])
+    .map((value) => String(value || '').trim())
+    .filter(Boolean))];
+  const itemMatch = [];
+  const itemIds = ids(rows.map((row) => row.itemId));
+  if (itemIds.length) itemMatch.push({ _id: { $in: itemIds } });
+  if (itemCodes.length) {
+    itemMatch.push({ itemCode: { $in: itemCodes } }, { name: { $in: itemCodes } });
+  }
+  const items = itemMatch.length
+    ? await Item.find({ businessId, $or: itemMatch }).select('itemCode name subGroupId image').lean()
+    : [];
   const subs = await ProductGroup.find({ _id: { $in: ids(items.map((i) => i.subGroupId)) } }).select('name parentId').lean();
   const parents = await ProductGroup.find({ _id: { $in: ids(subs.map((s) => s.parentId)) } }).select('name').lean();
   const suppliers = await Supplier.find({ _id: { $in: ids(rows.map((r) => r.supplierId)) } }).select('businessName contactId').lean();
   const itemById = new Map(items.map((i) => [String(i._id), i]));
-  const subOfItem = new Map(items.map((i) => [String(i._id), String(i.subGroupId || '')]));
+  const itemByCode = new Map();
+  items.forEach((item) => {
+    if (item.itemCode) itemByCode.set(String(item.itemCode).toLowerCase(), item);
+    if (item.name && !itemByCode.has(String(item.name).toLowerCase())) {
+      itemByCode.set(String(item.name).toLowerCase(), item);
+    }
+  });
+  const itemForRow = (row) => itemById.get(String(row.itemId || ''))
+    || itemByCode.get(String(row.itemCode || '').trim().toLowerCase())
+    || itemByCode.get(String(row.itemName || '').trim().toLowerCase())
+    || null;
   const subById = new Map(subs.map((s) => [String(s._id), s]));
   const groupName = new Map(parents.map((p) => [String(p._id), p.name || '']));
 
@@ -430,16 +501,16 @@ export async function GET(req) {
      Stock Report reads Group Name as item.subGroupId's own name. So the Group
      of an item is its sub-group's parent when there is one, the group doc
      itself when there is not; only then is there no Sub Group to show. */
-  const groupOf = (itemId) => {
-    const sub = subById.get(subOfItem.get(String(itemId)));
+   const groupOf = (item) => {
+    const sub = subById.get(String(item?.subGroupId || ''));
     if (!sub) return '';
     if (sub.parentId && isValidObjectId(String(sub.parentId))) {
       return groupName.get(String(sub.parentId)) || '';
     }
     return sub.name || '';
   };
-  const subGroupOf = (itemId) => {
-    const sub = subById.get(subOfItem.get(String(itemId)));
+  const subGroupOf = (item) => {
+    const sub = subById.get(String(item?.subGroupId || ''));
     return sub && sub.parentId && isValidObjectId(String(sub.parentId)) ? (sub.name || '') : '';
   };
   const supplierName = new Map(suppliers.map((s) => [String(s._id), s.businessName || '']));
@@ -449,12 +520,13 @@ export async function GET(req) {
     rows.map((r) => r.grcId).filter((id) => id && isValidObjectId(String(id)))
   )];
   const grcs = grcIds.length
-    ? await Grc.find({ _id: { $in: grcIds } }).select('grcNumber').lean()
+    ? await Grc.find({ _id: { $in: grcIds } }).select('grcNumber vendorDocNo').lean()
     : [];
   const grcNoById = new Map(grcs.map((g) => [String(g._id), g.grcNumber || '']));
+  const billNoById = new Map(grcs.map((g) => [String(g._id), g.vendorDocNo || '']));
 
   const mapped = rows.map((r) => {
-    const item = itemById.get(String(r.itemId));
+     const item = itemForRow(r);
     const barcodeNumber = r.barcodeNo || canonicalBarcodeValue(r.barcodeGenerated) || '';
     return {
       _id: String(r._id),
@@ -465,12 +537,14 @@ export async function GET(req) {
          the label prints) - not shown as the barcode */
       barcodeGenerated: canonicalBarcodeValue(r.barcodeGenerated) || '',
       itemCode: r.itemCode || '',
+       itemName: item?.name || r.itemName || '',
       description: r.printDescription || r.supplierDescription || '',
-      subGroup: subGroupOf(r.itemId),
-      group: groupOf(r.itemId),
+        subGroup: subGroupOf(item),
+      group: groupOf(item),
       designNo: r.designNo || '',
       supplier: supplierName.get(String(r.supplierId)) || '',
       imageUrl: imageUrl(r.imageUrl || r.filePath || '', barcodeNumber, r.oldBarcode),
+       legacyImageUrl: erpImageForBarcode(barcodeNumber) || erpImageForBarcode(r.oldBarcode),
       itemImageUrl: imageUrl(item?.image || ''),
       qty: num(r.qty),
       uom: r.uom || '',
@@ -485,6 +559,7 @@ export async function GET(req) {
       /* a unit imported from the other ERP's report has no GRC here - it keeps
          the GRC number it was received on over there */
       grcNo: grcNoById.get(String(r.grcId)) || r.grcNo || '',
+      billNo: billNoById.get(String(r.grcId)) || r.billSlNo || '',
     };
   });
 

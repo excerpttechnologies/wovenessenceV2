@@ -61,7 +61,7 @@ export async function GET(req) {
       number: movement.refNo || '-',
       date: movement.at || movement.createdAt || null,
       party: locationById.get(fromLocationId) || movement.reason || 'Transfer',
-      itemName: movement.itemName || barcode?.printDescription || '',
+      barcodeNo: barcode?.barcodeNo || barcode?.barcodeGenerated || '',
       itemCode: movement.itemCode || barcode?.itemCode || '',
       qty: r2(qty),
       rate: r2(rate),

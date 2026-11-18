@@ -5797,10 +5797,16 @@ const REFS = {
   customer:                  { load: () => import('@/models/Contact'), kind: 'Customer', label: 'businessName', nameFallback: ['firstName', 'lastName'], codeField: 'contactId' },
  
   'product/filter':          { load: () => import('@/models/ProductFilter') },
-  'product/group':           { load: () => import('@/models/ProductGroup'), includeAll: true },
+'product/group':           { load: () => import('@/models/ProductGroup'), parentField: 'parentId', parentParam: 'parentId', includeAll: true },
+  'product/group-parent':    { load: () => import('@/models/ProductGroup'), where: { parentId: null }, includeAll: true },
   uom:                       { load: () => import('@/models/Uom') },
   'attribute-addon':         { load: () => import('@/models/AttributeAddon'), where: { name: { $nin: ['SUPPLIER DESCRIPTION', 'Supplier Description', 'supplier description'] } } },
-  item:                      { load: () => import('@/models/Item'), parentField: 'subGroupId', parentParam: 'groupId' },
+   item:                      {
+    load: () => import('@/models/Item'),
+    parentField: 'subGroupId',
+    parentParam: 'groupId',
+    parentGroupParam: 'parentGroupId',
+  },
   'item-code':               { load: () => import('@/models/Item'), label: 'itemCode', nameFallback: ['name'], parentField: 'subGroupId', parentParam: 'groupId', includeAll: true },
   logistic:                  { load: () => import('@/models/Logistic') },
  
@@ -6144,6 +6150,20 @@ export async function GET(req) {
   /* a picker narrowed to one CITY - see cityFields on the supplier ref.
      Case-insensitive and tolerant of stray spaces, because the city on a
      contact was typed by hand. */
+
+
+      if (entry.parentGroupParam) {
+    const parentGroupId = sp.get(entry.parentGroupParam);
+    if (parentGroupId) {
+      if (!isValidObjectId(parentGroupId)) return json({ error: 'Invalid parent selection' }, 400);
+      const ProductGroup = (await import('@/models/ProductGroup')).default;
+      const childFilter = { parentId: parentGroupId };
+      if (filter.businessId) childFilter.businessId = filter.businessId;
+      const childIds = await ProductGroup.distinct('_id', childFilter);
+      filter.subGroupId = { $in: [parentGroupId, ...childIds] };
+    }
+  }
+
   if (entry.cityFields) {
     const city = (sp.get('city') || '').trim();
     if (city) {
@@ -6251,6 +6271,7 @@ export async function GET(req) {
       name: textOf(r),
       ...(entry.codeField ? { code: String(r[entry.codeField] ?? '') } : {}),
       ...(entry.codeField === 'contactId' ? { gstNo: String(r.gstNo ?? '') } : {}),
+        ...(ref === 'citygroup' ? { cities: Array.isArray(r.cities) ? r.cities : [] } : {}),
       ...(entry.defaultField && r[entry.defaultField] ? { isDefault: true } : {}),
       /* which location the row belongs to ('' = shared by the whole
          business), so a form can pick the row bound to the header LOCATION */

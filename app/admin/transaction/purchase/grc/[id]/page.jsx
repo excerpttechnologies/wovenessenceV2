@@ -129,7 +129,34 @@ export default function EditTransactionPurchaseGrcPage() {
   }
 
   const openBarcode = () => router.push(`/admin/transaction/purchase/grc/${id}/barcode-generation`);
-  const openPrint = () => window.open(`/api/grc/${id}/download`, '_blank');
+  /* The GRC's own document - print directly using iframe without navigation */
+  const openPrint = async () => {
+    try {
+      const response = await fetch(`/api/grc/${id}/print`);
+      if (!response.ok) throw new Error('Failed to load GRC for printing');
+      const html = await response.text();
+      
+      // Create a hidden iframe
+      const iframe = document.createElement('iframe');
+      iframe.style.cssText = 'position:fixed; left:-9999px; top:0; width:210mm; height:297mm; visibility:hidden;';
+      document.body.appendChild(iframe);
+      
+      iframe.contentDocument.write(html);
+      iframe.contentDocument.close();
+      
+      // Wait for iframe to load, then print
+      setTimeout(() => {
+        iframe.contentWindow.print();
+        // Remove iframe after printing
+        setTimeout(() => {
+          document.body.removeChild(iframe);
+        }, 1000);
+      }, 500);
+    } catch (error) {
+      console.error('Print failed:', error);
+      alert('Failed to print GRC. Please try again.');
+    }
+  };
   const set = (key, value) => setData((current) => ({ ...current, [key]: value }));
   const cell = (value) => value || '-';
   /* A GRC with barcode rows is totalled from its rows - taxable = final rate
@@ -179,41 +206,8 @@ export default function EditTransactionPurchaseGrcPage() {
   }
 
   async function downloadInvoicePdf(invoiceId) {
-    try {
-      // Import html2pdf dynamically to avoid SSR issues
-      const html2pdf = (await import('html2pdf.js')).default;
-
-      // First open the modal to render the invoice
-      setShowInvoice(true);
-
-      // Wait for the modal to render and data to load
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // Find the invoice element
-      const element = document.querySelector('.print-doc');
-      if (!element) {
-        throw new Error('Invoice element not found');
-      }
-
-      // Configure html2pdf options
-      const opt = {
-        margin: 10,
-        filename: `PurchaseInvoice_${data.grcNumber || invoiceId}.pdf`,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-      };
-
-      // Generate PDF
-      await html2pdf().set(opt).from(element).save();
-
-      // Close the modal after download
-      setShowInvoice(false);
-    } catch (error) {
-      console.error('PDF download failed:', error);
-      alert('Failed to download PDF. Please try again.');
-      setShowInvoice(false);
-    }
+    // Open the invoice print page in a new tab - user can print/download from there
+    window.open(`/admin/transaction/purchase/purchase-invoice/print/${invoiceId}`, '_blank');
   }
 
   if (!data.grcNumber && !status) return <div className="p-6 text-sm text-slate-500">Loading...</div>;
@@ -224,8 +218,8 @@ export default function EditTransactionPurchaseGrcPage() {
         <div className="card-head flex items-center justify-between gap-3">
           <span className="card-title">Edit Goods Receipt Challan</span>
           <div className="flex gap-2">
-            <button type="button" onClick={openPrint} className="btn">Print GRC</button>
-            <button type="button" onClick={openBarcode} className="btn btn-primary">Barcode Generation</button>
+            <button type="button" onClick={() => router.push(`/admin/transaction/purchase/grc/print/${id}`)} className="btn">Print GRC</button>
+            <button type="button" onClick={openBarcode} className="btn btn-primary">Edit Barcode</button>
             {/* Close (21-10-2026): back to the GRC list without saving */}
             <button
               type="button"
@@ -377,11 +371,11 @@ export default function EditTransactionPurchaseGrcPage() {
           </table>
           {invoiceStatus && <div className="px-4 pt-3 text-sm text-cell">{invoiceStatus}</div>}
           <div className="flex flex-wrap justify-end gap-2 px-4 py-3">
-            <button type="button" className="btn bg-[#198754] text-white" onClick={generatePurchaseInvoice} disabled={Boolean(invoiceId)}>Generate Purchase Invoice</button>
-            {invoiceId && <button type="button" className="btn" onClick={() => setShowInvoice(true)}>View Purchase Invoice</button>}
-            {invoiceId && <button type="button" className="btn" onClick={() => setShowInvoice(true)}>Print Purchase Invoice</button>}
-            {invoiceId && <button type="button" className="btn" onClick={() => downloadInvoicePdf(invoiceId)}>Download Purchase Invoice (PDF)</button>}
-            <button type="button" className="btn bg-[#10bddd] text-white" onClick={submit} disabled={saving}>{saving ? 'Saving...' : 'Submit GRC'}</button>
+            <button type="button" className="btn bg-[#198754] text-white" onClick={(e) => { e.preventDefault(); generatePurchaseInvoice(); }} disabled={Boolean(invoiceId)}>Generate Purchase Invoice</button>
+            {invoiceId && <button type="button" className="btn" onClick={(e) => { e.preventDefault(); setShowInvoice(true); }}>View Purchase Invoice</button>}
+            {invoiceId && <button type="button" className="btn" onClick={(e) => { e.preventDefault(); setShowInvoice(true); setTimeout(() => window.print(), 500); }}>Print Purchase Invoice</button>}
+            {invoiceId && <button type="button" className="btn" onClick={(e) => { e.preventDefault(); downloadInvoicePdf(invoiceId); }}>Download Purchase Invoice (PDF)</button>}
+            <button type="button" className="btn bg-[#10bddd] text-white" onClick={(e) => { e.preventDefault(); submit(); }} disabled={saving}>{saving ? 'Saving...' : 'Submit GRC'}</button>
           </div>
         </div>
       </div>

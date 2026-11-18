@@ -412,8 +412,7 @@ function DeliveryDialog({ row, onClose, onSaved }) {
                     <>
                       <a
                         href={data.document}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                        download={data.document.startsWith('data:image/') ? 'lr-copy.jpg' : 'lr-copy.pdf'}
                         className="shrink-0 rounded border border-linestrong px-2 py-1 text-[12px] text-brand-link hover:border-brand hover:text-brand"
                       >
                         View
