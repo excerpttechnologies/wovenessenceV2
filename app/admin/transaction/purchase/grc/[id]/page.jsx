@@ -37,7 +37,6 @@ import Field from '@/components/Field';
 import Icon from '@/components/Icon';
 import { FORM } from '../form';
 import { useScope } from '@/components/ScopeContext';
-import PurchaseInvoicePrintView from '@/components/PurchaseInvoicePrintView';
 import { encodedBarcodeValue } from '@/lib/barcodeValue';
 import { grcTotals, grcMoney, rowQty, rowTaxable, rowGst, rowNet } from '@/lib/grcMoney';
 
@@ -61,7 +60,6 @@ export default function EditTransactionPurchaseGrcPage() {
   const [status, setStatus] = useState('');
   const [saving, setSaving] = useState(false);
   const [invoiceId, setInvoiceId] = useState(null);
-  const [showInvoice, setShowInvoice] = useState(false);
   const [invoiceStatus, setInvoiceStatus] = useState('');
 
   useEffect(() => {
@@ -129,34 +127,6 @@ export default function EditTransactionPurchaseGrcPage() {
   }
 
   const openBarcode = () => router.push(`/admin/transaction/purchase/grc/${id}/barcode-generation`);
-  /* The GRC's own document - print directly using iframe without navigation */
-  const openPrint = async () => {
-    try {
-      const response = await fetch(`/api/grc/${id}/print`);
-      if (!response.ok) throw new Error('Failed to load GRC for printing');
-      const html = await response.text();
-      
-      // Create a hidden iframe
-      const iframe = document.createElement('iframe');
-      iframe.style.cssText = 'position:fixed; left:-9999px; top:0; width:210mm; height:297mm; visibility:hidden;';
-      document.body.appendChild(iframe);
-      
-      iframe.contentDocument.write(html);
-      iframe.contentDocument.close();
-      
-      // Wait for iframe to load, then print
-      setTimeout(() => {
-        iframe.contentWindow.print();
-        // Remove iframe after printing
-        setTimeout(() => {
-          document.body.removeChild(iframe);
-        }, 1000);
-      }, 500);
-    } catch (error) {
-      console.error('Print failed:', error);
-      alert('Failed to print GRC. Please try again.');
-    }
-  };
   const set = (key, value) => setData((current) => ({ ...current, [key]: value }));
   const cell = (value) => value || '-';
   /* A GRC with barcode rows is totalled from its rows - taxable = final rate
@@ -205,11 +175,6 @@ export default function EditTransactionPurchaseGrcPage() {
     }
   }
 
-  async function downloadInvoicePdf(invoiceId) {
-    // Open the invoice print page in a new tab - user can print/download from there
-    window.open(`/admin/transaction/purchase/purchase-invoice/print/${invoiceId}`, '_blank');
-  }
-
   if (!data.grcNumber && !status) return <div className="p-6 text-sm text-slate-500">Loading...</div>;
 
   return (
@@ -218,7 +183,6 @@ export default function EditTransactionPurchaseGrcPage() {
         <div className="card-head flex items-center justify-between gap-3">
           <span className="card-title">Edit Goods Receipt Challan</span>
           <div className="flex gap-2">
-            <button type="button" onClick={() => router.push(`/admin/transaction/purchase/grc/print/${id}`)} className="btn">Print GRC</button>
             <button type="button" onClick={openBarcode} className="btn btn-primary">Edit Barcode</button>
             {/* Close (21-10-2026): back to the GRC list without saving */}
             <button
@@ -372,14 +336,11 @@ export default function EditTransactionPurchaseGrcPage() {
           {invoiceStatus && <div className="px-4 pt-3 text-sm text-cell">{invoiceStatus}</div>}
           <div className="flex flex-wrap justify-end gap-2 px-4 py-3">
             <button type="button" className="btn bg-[#198754] text-white" onClick={(e) => { e.preventDefault(); generatePurchaseInvoice(); }} disabled={Boolean(invoiceId)}>Generate Purchase Invoice</button>
-            {invoiceId && <button type="button" className="btn" onClick={(e) => { e.preventDefault(); setShowInvoice(true); }}>View Purchase Invoice</button>}
-            {invoiceId && <button type="button" className="btn" onClick={(e) => { e.preventDefault(); setShowInvoice(true); setTimeout(() => window.print(), 500); }}>Print Purchase Invoice</button>}
-            {invoiceId && <button type="button" className="btn" onClick={(e) => { e.preventDefault(); downloadInvoicePdf(invoiceId); }}>Download Purchase Invoice (PDF)</button>}
+            <button type="button" className="btn" onClick={() => router.push(`/admin/transaction/purchase/grc/print/${id}`)}>Print GRC</button>
             <button type="button" className="btn bg-[#10bddd] text-white" onClick={(e) => { e.preventDefault(); submit(); }} disabled={saving}>{saving ? 'Saving...' : 'Submit GRC'}</button>
           </div>
         </div>
       </div>
-      {showInvoice && invoiceId && <PurchaseInvoicePrintView id={invoiceId} onClose={() => setShowInvoice(false)} />}
     </div>
   );
 }

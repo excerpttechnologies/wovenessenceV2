@@ -130,7 +130,7 @@ export async function GET(req) {
     .filter((id) => isValidObjectId(id));
   const items = productItemIds.length
     ? await Item.find({ _id: { $in: productItemIds.map((id) => new Types.ObjectId(id)) } })
-        .select('name itemCode rsp image description').lean()
+      .select('name itemCode rsp image description').lean()
     : [];
   const itemById = new Map(items.map((item) => [String(item._id), item]));
 
