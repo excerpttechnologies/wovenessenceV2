@@ -38,7 +38,7 @@ function exportDataUrl(img, crop, mimeType) {
 
 /* ─── component ───────────────────────────────────────────────────────── */
 
-export default function ImageCropModal({ imageFile, onCrop, onCancel }) {
+export default function ImageCropModal({ imageFile, onCrop, onCancel, onSkip }) {
   const [crop, setCrop]             = useState(null);
   const [completedCrop, setCompleted] = useState(null);
   const [processing, setProcessing]  = useState(false);
@@ -150,7 +150,7 @@ export default function ImageCropModal({ imageFile, onCrop, onCancel }) {
         {error && (
           <p className="mb-2 rounded bg-red-50 px-3 py-2 text-[12px] text-red-600">{error}</p>
         )}
-        <div className="flex gap-3">
+        <div className="flex gap-2">
           <button
             type="button"
             className="btn flex-1"
@@ -159,6 +159,16 @@ export default function ImageCropModal({ imageFile, onCrop, onCancel }) {
           >
             Cancel
           </button>
+          {onSkip && (
+            <button
+              type="button"
+              className="btn flex-1 border-slate-300 text-slate-700 hover:bg-slate-50"
+              onClick={onSkip}
+              disabled={processing}
+            >
+              Use Original
+            </button>
+          )}
           <button
             type="button"
             className="btn btn-primary flex-1"

@@ -4391,6 +4391,9 @@ import {
   money, finalRateOf, sameValue, sheetColumns, sheetProblems, isLockedRow, lockReason, isBlankRow,
   SHEET_INHERITED_FIELDS, ITEM_FIELD_LABELS,
 } from "@/lib/itemsSheet";
+import {
+  masterIndex, normaliseItemCode, rowItemIssues, itemValidationSummary, itemValidationMessage,
+} from "@/lib/itemMasterValidation";
 import ItemsSheet from "./ItemsSheet";
 import {
   generateBarcodeValue, composedValueOf, unitNumberOf, parseBarcodeValue,
@@ -7729,6 +7732,9 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
   const [saveError, setSaveError] = useState("");
   /* the confirmation shown once a save has actually generated barcodes */
   const [saveNotice, setSaveNotice] = useState("");
+  /* Item Master price differences the save accepted: an amber note, never a
+     refusal, and each is a button that opens the row it belongs to. */
+  const [saveWarnings, setSaveWarnings] = useState([]);
   /* Set the moment a save starts - `saving` only lands on the next render, so
      a second click before then would send the same rows again. */
   const savingRef = useRef(false);
@@ -8173,10 +8179,18 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
     setSaving(true);
     setSaveError("");
     setSaveNotice("");
+    setSaveWarnings([]);
     
+    /* Which rows the Item Master rules must look at: everything this save
+       CREATES, plus every saved row the operator touched. Keyed by the row's
+       own id and read BEFORE the UI-only flags are stripped below. */
+    const incomingRows = rowsToSave.filter((row) => !isBlankRow(row));
+    const itemCheckKeys = new Set(incomingRows
+      .filter((row) => !row._id || row._edited || row._importStatus === "CHANGED")
+      .map((row) => String(row.id ?? row._id ?? "")));
     /* Strip the UI-only fields before sending to the API, and leave out the
        empty rows the ITEMS sheet keeps for typing into */
-    rowsToSave = rowsToSave.filter((row) => !isBlankRow(row)).map(({ _importStatus, _edited, ...rest }) => rest);
+    rowsToSave = incomingRows.map(({ _importStatus, _edited, ...rest }) => rest);
     /* saved rows removed on the grid - deleted by this Submit, by id */
     const deleteIds = pendingDeletes.map((entry) => entry.row._id).filter(Boolean);
     
@@ -8211,6 +8225,55 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
         setSavingProgress({ show: false, stage: '', completed: 0, total: 0 });
         setSaveError("There is nothing to save.");
         return false;
+      }
+
+      /* Item Master, Retail Price and discount rules, before anything is
+         sent. The save route runs the SAME rules again as the final authority;
+         this pass exists so the operator is told which cells to fix while the
+         sheet is still in front of them. A Retail Price that differs from the
+         master is a WARNING and never blocks. */
+      let itemWarnings = [];
+      const itemCheckIndexes = rowsToSave
+        .map((row, index) => ({ row, index }))
+        .filter(({ row }) => itemCheckKeys.has(String(row.id ?? row._id ?? "")))
+        .map(({ index }) => index);
+      if (itemCheckIndexes.length) {
+        const codes = [...new Set(itemCheckIndexes
+          .map((index) => String(rowsToSave[index]?.itemCode ?? "").trim())
+          .filter(Boolean))];
+        let master = { items: [], masterEmpty: false };
+        if (codes.length) {
+          const answer = await fetch("/api/item/validate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ codes, business: scope.business || "" }),
+          });
+          /* If the lookup itself fails the save still goes: the API checks
+             these rows again before writing, so nothing invalid is stored. */
+          if (answer.ok) master = await answer.json().catch(() => master);
+        }
+        const byCode = masterIndex(master.items || []);
+        const issues = new Map();
+        itemCheckIndexes.forEach((index) => {
+          const row = rowsToSave[index];
+          issues.set(index, rowItemIssues(
+            row,
+            byCode.get(normaliseItemCode(row?.itemCode)) || null,
+            { checkMaster: true, businessHasItems: !master.masterEmpty },
+          ));
+        });
+        const summary = itemValidationSummary(rowsToSave, issues);
+        itemWarnings = summary.warnings;
+        if (summary.errors.length) {
+          const first = summary.errors[0];
+          const firstRow = rowsToSave[first.rowIndex];
+          setShowSaveConfirm(false);
+          setSavingProgress({ show: false, stage: '', completed: 0, total: 0 });
+          setActiveTab("items");
+          setSheetFocus({ rowId: firstRow?.id, key: first.field, at: Date.now() });
+          setSaveError(itemValidationMessage(summary));
+          return false;
+        }
       }
 
       /* Purchase price, before anything is sent - the same rule the Add Item
@@ -8314,6 +8377,15 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
         const data = await response.json().catch(() => ({}));
         setShowSaveConfirm(false);
         setSavingProgress({ show: false, stage: '', completed: 0, total: 0 });
+        /* Structured item refusal: open the cells it names, the same way the
+           sheet's own pre-submit check does. `rowId` comes back on every
+           entry, so the exact row can be found even if blank rows shifted the
+           index the server saw. */
+        if (data.code === "ITEM_VALIDATION" && Array.isArray(data.errors) && data.errors.length) {
+          const first = data.errors[0];
+          setActiveTab("items");
+          setSheetFocus({ rowId: first.rowId, key: first.field, at: Date.now() });
+        }
         setSaveError(data.error || `Save failed (HTTP ${response.status})`);
         return false;
       }
@@ -8368,8 +8440,18 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
       }));
       setPendingDeletes([]);
       /* The save IS the generation - for Submit and Submit & Print Label
-         alike - so this is the confirmation for both buttons. */
-      setSaveNotice("Barcode generated successfully.");
+         alike - so this is the confirmation for both buttons. Accepted price
+         differences keep an amber note instead: the barcodes were generated,
+         and the operator is asked to check the price that was kept. */
+      const acceptedWarnings = Array.isArray(saved.warnings) && saved.warnings.length
+        ? saved.warnings
+        : itemWarnings;
+      if (acceptedWarnings.length) {
+        setSaveWarnings(acceptedWarnings);
+        setSaveNotice("");
+      } else {
+        setSaveNotice("Barcode generated successfully.");
+      }
 
       // Close progress overlay
       setSavingProgress({ show: false, stage: '', completed: 0, total: 0 });
@@ -8728,12 +8810,43 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
           </div>
         )}
 
+        {/* Retail Price differences the save ACCEPTED: the barcodes were
+            generated, so this is not a refusal - it asks the operator to check
+            the price that was kept, and each line opens its row. */}
+        {saveWarnings.length > 0 && (
+          <div className="flex items-start justify-between gap-4 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+            <div className="flex flex-col gap-1">
+              <span className="font-semibold">
+                {saveWarnings.length} price difference{saveWarnings.length === 1 ? "" : "s"} kept as entered - the barcodes were generated. Please verify.
+              </span>
+              {saveWarnings.slice(0, 5).map((warning, index) => (
+                <button
+                  key={`${warning.rowId ?? warning.rowIndex}-${warning.field}-${index}`}
+                  type="button"
+                  onClick={() => {
+                    setActiveTab("items");
+                    setSheetFocus({ rowId: warning.rowId, key: warning.field, at: Date.now() });
+                  }}
+                  className="text-left underline decoration-amber-400 underline-offset-2 hover:text-amber-950"
+                >
+                  Row {(warning.rowIndex ?? index) + 1}: {warning.message}
+                </button>
+              ))}
+              {saveWarnings.length > 5 && (
+                <span>and {saveWarnings.length - 5} more</span>
+              )}
+            </div>
+            <button type="button" onClick={() => setSaveWarnings([])} className="text-amber-700" aria-label="Dismiss price warning">×</button>
+          </div>
+        )}
+
         <div className="overflow-auto max-h-[60vh]">
           {activeTab === "items" && (
             <ItemsSheet
               rows={rows}
               customFields={additionalFields}
               rateCodeMapping={rateCodeMapping}
+              business={scope.business || ""}
               createRow={createSheetRow}
               onChangeRows={setRows}
               onRemoveRow={removeRow}

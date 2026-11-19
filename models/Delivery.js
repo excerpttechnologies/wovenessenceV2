@@ -68,68 +68,68 @@ import AttachmentSchema from './attachmentSchema.js';
 export const LABEL_FIELD = 'transactionNo';
 
 const DeliverySchema = new mongoose.Schema(
-  {
-    businessId: { type: mongoose.Schema.Types.ObjectId, ref: 'business', default: null, index: true },
-    locationId: { type: mongoose.Schema.Types.ObjectId, ref: 'companyLocation', default: null, index: true },
-    finYear: { type: String, default: '', index: true },
+   {
+      businessId: { type: mongoose.Schema.Types.ObjectId, ref: 'business', default: null, index: true },
+      locationId: { type: mongoose.Schema.Types.ObjectId, ref: 'companyLocation', default: null, index: true },
+      finYear: { type: String, default: '', index: true },
 
-    transactionNo: { type: String, default: '', index: true },
-   document: { type: String, default: '' },
-   invoiceCopy: { type: String, default: '' },
-    transactionDate: { type: Date, default: null },
-    transporterId: { type: mongoose.Schema.Types.ObjectId, ref: 'transporter', default: null, index: true },
-    lrNumber: { type: String, default: '' },
-    bookingDate: { type: Date, default: null },
+      transactionNo: { type: String, default: '', index: true },
+      document: { type: String, default: '' },
+      invoiceCopy: { type: String, default: '' },
+      transactionDate: { type: Date, default: null },
+      transporterId: { type: mongoose.Schema.Types.ObjectId, ref: 'transporter', default: null, index: true },
+      lrNumber: { type: String, default: '' },
+      bookingDate: { type: Date, default: null },
 
-    supplierId: { type: mongoose.Schema.Types.ObjectId, ref: 'supplier', default: null },
-    supplierCode: { type: String, default: '' },
-    vendorGstNo: { type: String, default: '' },
-    invPmNumber: { type: String, default: '' },
-    
-    /* Vendor Invoice Information - from GRC */
-    grcId: { type: mongoose.Schema.Types.ObjectId, ref: 'grc', default: null },
-    grcNumber: { type: String, default: '' },
-    vendorInvoiceNo: { type: String, default: '' },
-    vendorInvoiceDate: { type: Date, default: null },
-    vendorInvoiceCopy: { type: String, default: '' },
-    vendorWaybill: { type: String, default: '' },
-    
-    parcelQty: { type: Number, default: null },
-    value: { type: Number, default: null },
+      supplierId: { type: mongoose.Schema.Types.ObjectId, ref: 'supplier', default: null },
+      supplierCode: { type: String, default: '' },
+      vendorGstNo: { type: String, default: '' },
+      invPmNumber: { type: String, default: '' },
 
-    freightAmount: { type: Number, default: 0 },
-    gstApplicable: { type: String, default: 'No' },
-    /* split out so the view dialog can show "Input CGST @ x%" without
-       reverse-engineering it from the totals */
-    gstRate: { type: Number, default: 0 },
-    inputCgst: { type: Number, default: 0 },
-    inputSgst: { type: Number, default: 0 },
-    totalFreight: { type: Number, default: 0 },
+      /* Vendor Invoice Information - from GRC */
+      grcId: { type: mongoose.Schema.Types.ObjectId, ref: 'grc', default: null },
+      grcNumber: { type: String, default: '' },
+      vendorInvoiceNo: { type: String, default: '' },
+      vendorInvoiceDate: { type: Date, default: null },
+      vendorInvoiceCopy: { type: String, default: '' },
+      vendorWaybill: { type: String, default: '' },
 
-    autoCharges: { type: Number, default: 0 },
-    tips: { type: Number, default: 0 },
-    supplierContactId: { type: String, default: '' },
+      parcelQty: { type: Number, default: null },
+      value: { type: Number, default: null },
 
-    /* Set when a dispatch picks this consignment up; null means it is still
-       available. Same pattern as GRC -> Purchase Invoice elsewhere in the
-       app, so the "unassigned" filter reads the same way. */
-    dispatchId: { type: mongoose.Schema.Types.ObjectId, ref: 'dispatch', default: null, index: true },
-    /* Documents and photos attached to this record from the Action column's
-       Upload button (components/AttachmentsDialog.jsx via /api/attachments).
-       An ARRAY, appended to - a second upload never replaces the first. The
-       bytes live in the shared store (lib/uploads.js); what is kept here is
-       the /api/files URL and the file's own details. */
-    attachments: { type: [AttachmentSchema], default: [] },
-  },
-  { timestamps: true }
+      freightAmount: { type: Number, default: 0 },
+      gstApplicable: { type: String, default: 'No' },
+      /* split out so the view dialog can show "Input CGST @ x%" without
+         reverse-engineering it from the totals */
+      gstRate: { type: Number, default: 0 },
+      inputCgst: { type: Number, default: 0 },
+      inputSgst: { type: Number, default: 0 },
+      totalFreight: { type: Number, default: 0 },
+
+      autoCharges: { type: Number, default: 0 },
+      tips: { type: Number, default: 0 },
+      supplierContactId: { type: String, default: '' },
+
+      /* Set when a dispatch picks this consignment up; null means it is still
+         available. Same pattern as GRC -> Purchase Invoice elsewhere in the
+         app, so the "unassigned" filter reads the same way. */
+      dispatchId: { type: mongoose.Schema.Types.ObjectId, ref: 'dispatch', default: null, index: true },
+      /* Documents and photos attached to this record from the Action column's
+         Upload button (components/AttachmentsDialog.jsx via /api/attachments).
+         An ARRAY, appended to - a second upload never replaces the first. The
+         bytes live in the shared store (lib/uploads.js); what is kept here is
+         the /api/files URL and the file's own details. */
+      attachments: { type: [AttachmentSchema], default: [] },
+   },
+   { timestamps: true }
 );
 
 /* Unique transaction number per business + location + financial year.
    Prevents duplicate LR numbers when two users save simultaneously. */
 DeliverySchema.index(
-  { businessId: 1, locationId: 1, finYear: 1, transactionNo: 1 },
-  { unique: true, partialFilterExpression: { transactionNo: { $gt: '' } } }
+   { businessId: 1, locationId: 1, finYear: 1, transactionNo: 1 },
+   { unique: true, partialFilterExpression: { transactionNo: { $gt: '' } } }
 );
 
 export default mongoose.models.delivery ||
-  mongoose.model('delivery', DeliverySchema, 'delivery');
+   mongoose.model('delivery', DeliverySchema, 'delivery');

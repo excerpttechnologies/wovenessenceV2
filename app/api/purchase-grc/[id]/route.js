@@ -59,8 +59,9 @@ export async function GET(req, { params }) {
   const no = await grcDenied(session, id, [PERM.READ, PERM.UPDATE]);
   if (no) return no;
 
-  let lrCopy = doc.lrCopy || '';
-  if (!lrCopy && doc.lrTransactionId && isValidObjectId(doc.lrTransactionId)) {
+  let lrCopy = doc.lrCopy;
+  const hasLrCopy = Array.isArray(lrCopy) ? lrCopy.length > 0 : Boolean(lrCopy);
+  if (!hasLrCopy && doc.lrTransactionId && isValidObjectId(doc.lrTransactionId)) {
     const delivery = await Delivery.findById(doc.lrTransactionId).select('document').lean();
     if (delivery?.document) lrCopy = delivery.document;
   }

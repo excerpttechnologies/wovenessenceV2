@@ -111,11 +111,14 @@ export async function GET(_req, { params }) {
   const supplierPriceSetup = buildSupplierPriceSetup(PRICE_SETUP_DEFS, supplier, { supplierId: grc.supplierId || '' });
   const setupValue = (key) => supplierPriceSetup.fields.find((f) => f.key === key)?.value ?? null;
 
+  const hasLrCopy = Array.isArray(grc.lrCopy) ? grc.lrCopy.length > 0 : Boolean(grc.lrCopy);
+  const lrCopy = hasLrCopy ? grc.lrCopy : (delivery?.document || []);
+
   return json({
     grc: {
       ...grc,
       _id: String(grc._id),
-      lrCopy: grc.lrCopy || delivery?.document || '',
+      lrCopy,
       lrTransactionNo: grc.lrTransactionNo || delivery?.transactionNo || '',
       supplierName: supplier?.businessName || [supplier?.firstName, supplier?.lastName].filter(Boolean).join(' '),
       /* The stored code, verbatim - not derived from the name and never

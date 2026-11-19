@@ -959,11 +959,15 @@
 "use client";
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Icon from "./Icon";
 import {
   sheetColumns, parseTsv, toTsv, planPaste, planClear, rowErrors, lockReason, needsCheck, isBlankRow,
-  describeSkipped,
+  describeSkipped, money,
 } from "@/lib/itemsSheet";
+import {
+  isItemLookupField, masterItemOf, itemSelectionPatch, rowItemIssues, normaliseItemCode,
+} from "@/lib/itemMasterValidation";
 
 /* The ITEMS tab of GRC Barcode Generation, as a spreadsheet.
 
@@ -1013,11 +1017,45 @@ function LockGlyph() {
   );
 }
 
+/* The characters of `text` that match `query`, highlighted in the suggestion
+   list. Matching is case-insensitive and may start in the middle of the code -
+   the same test the item master's search uses. */
+function Highlighted({ text, query }) {
+  const value = String(text ?? '');
+  const needle = String(query ?? '').trim();
+  if (!needle) return value;
+  const at = value.toLowerCase().indexOf(needle.toLowerCase());
+  if (at < 0) return value;
+  return (
+    <>
+      {value.slice(0, at)}
+      <mark className="rounded bg-amber-200 px-0 text-gray-900">{value.slice(at, at + needle.length)}</mark>
+      {value.slice(at + needle.length)}
+    </>
+  );
+}
+
+/* Which cell values ask the item master for suggestions.
+
+   Item Code always does. A price / description cell does too when what is
+   typed is not a plain number - or when the row has no item yet, so an item
+   can be picked from any of those cells. Typing 450 into the Retail Price of a
+   row that already names its item is a price edit, not an item search. */
+function itemSearchText(key, value, row) {
+  if (!isItemLookupField(key)) return '';
+  const typed = String(value ?? '').trim();
+  if (typed.length < 2) return '';
+  if (key === 'itemCode' || key === 'itemName' || key === 'supplierDescription' || key === 'printDescription') return typed;
+  const looksNumeric = /^-?\d+(\.\d+)?$/.test(typed);
+  if (looksNumeric && String(row?.itemCode ?? '').trim()) return '';
+  return typed;
+}
+
 /* One grid row. Memoised: the props are this row's own data, whether the
    cursor / selection / editor is on it, and handlers that never change, so
    moving the cursor re-renders two rows, not the sheet. */
 const SheetRow = memo(function SheetRow({
-  row, r, columns, activeC, activeFocused, selC1, selC2, editing, errors, locked, confirming,
+  row, r, columns, activeC, activeFocused, selC1, selC2, editing, errors, checks, locked, confirming,
   editorRef, onEditorChange, onEditorKeyDown, onEditorBlur, onEditorPick, onRequestRemove, onConfirmRemove, onCancelRemove,
 }) {
   const status = row._importStatus;
@@ -1033,7 +1071,8 @@ const SheetRow = memo(function SheetRow({
         const isActive = activeC === c;
         const isSelected = selC1 !== null && c >= selC1 && c <= selC2;
         const isEditing = editing !== null && editing.c === c;
-        const error = errors ? errors[col.key] || "" : "";
+        const error = (errors ? errors[col.key] || "" : "") || checks?.errors?.[col.key] || "";
+        const warning = error ? "" : checks?.warnings?.[col.key] || "";
         const style = {};
         if (isActive) style.boxShadow = `inset 0 0 0 2px ${activeFocused ? BRAND : INACTIVE_CURSOR}`;
         if (frozen && isSelected) style.backgroundColor = SELECTED_OPAQUE;
@@ -1051,9 +1090,10 @@ const SheetRow = memo(function SheetRow({
             key={col.key}
             data-r={r}
             data-c={c}
+            data-warning={warning ? true : undefined}
             className={classes}
             style={style}
-            title={error || (frozen && locked) || undefined}
+            title={error || warning || (frozen && locked) || undefined}
             aria-selected={isActive || undefined}
           >
             {isEditing ? (
@@ -1070,7 +1110,7 @@ const SheetRow = memo(function SheetRow({
                   aria-invalid={editing.error ? true : undefined}
                   spellCheck={false}
                   autoComplete="off"
-                  className={`absolute inset-0 z-[5] h-full w-full select-text border-2 bg-white px-2 text-xs text-gray-900 outline-none ${editing.error ? "border-red-600" : "border-brand"}`}
+                  className={`absolute inset-0 z-[5] h-full w-full select-text border-2 bg-white px-2 text-xs text-gray-900 outline-none ${editing.error ? "border-red-600" : warning ? "border-amber-500" : "border-brand"}`}
                 />
                 {editing.error ? (
                   <div role="alert" className="pointer-events-none absolute left-0 top-full z-[25] mt-0.5 whitespace-nowrap rounded bg-red-600 px-1.5 py-0.5 text-[11px] font-medium text-white shadow">
@@ -1112,6 +1152,8 @@ const SheetRow = memo(function SheetRow({
                 ) : null}
                 {error ? (
                   <span aria-hidden="true" className="pointer-events-none absolute right-0 top-0 h-0 w-0 border-l-[7px] border-t-[7px] border-l-transparent border-t-red-600" />
+                ) : warning ? (
+                  <span aria-label={warning} title={warning} className="pointer-events-none absolute right-0 top-0 flex h-3.5 w-3.5 items-center justify-center rounded-bl bg-amber-500 text-[9px] font-bold leading-none text-white">!</span>
                 ) : null}
               </>
             )}
@@ -1166,6 +1208,7 @@ export default function ItemsSheet({
   customFields = [],
   identifierOf = null,
   rateCodeMapping = null,
+  business = "",
   createRow,
   onChangeRows,
   onRemoveRow,
@@ -1195,6 +1238,25 @@ export default function ItemsSheet({
   const [view, setView] = useState({ top: 0, height: 600 });
   const [metrics, setMetrics] = useState({ row: 33, head: 34 });
 
+  /* ---- item master autocomplete + validation -------------------------
+     `suggest` is the open drop-down: which cell it belongs to, the text it
+     searched and the matching master rows. It is rendered in a portal (see the
+     bottom of this component) so the sheet's own overflow box cannot clip it.
+     `checks` holds the last master validation of each row, by row id:
+     { errors, warnings, master }. Both are filled from the real API only. */
+  const [suggest, setSuggest] = useState(null);
+  const [dropRect, setDropRect] = useState(null);
+  const [checks, setChecks] = useState({});
+  const [picking, setPicking] = useState(null);
+  const suggestRef = useRef(null);
+  suggestRef.current = suggest;
+  const checksRef = useRef({});
+  checksRef.current = checks;
+  const editorElRef = useRef(null);
+  const itemCacheRef = useRef(new Map());
+  const itemSeqRef = useRef(0);
+  const validateSeqRef = useRef(0);
+
   const scrollRef = useRef(null);
   const dragRef = useRef(false);
   const rafRef = useRef(0);
@@ -1204,7 +1266,7 @@ export default function ItemsSheet({
   /* the latest props and state, for handlers that must stay the same
      function across renders so the memoised rows are not re-rendered */
   const live = useRef(null);
-  live.current = { rows, columns, active, anchor, editing, metrics, rateCodeMapping, createRow, onChangeRows, onRemoveRow };
+  live.current = { rows, columns, active, anchor, editing, metrics, rateCodeMapping, business, createRow, onChangeRows, onRemoveRow };
 
   const focusGrid = useCallback(() => {
     scrollRef.current?.focus({ preventScroll: true });
@@ -1372,6 +1434,194 @@ export default function ItemsSheet({
     setEditing(null);
   }, []);
 
+  /* ------------------------------------------- item master autocomplete -- */
+
+  const closeSuggest = useCallback(() => {
+    itemSeqRef.current += 1;
+    setSuggest(null);
+    setDropRect(null);
+  }, []);
+
+  /* The drop-down follows the editor while the sheet scrolls, so it stays
+     under the active cell instead of floating where it opened. */
+  useIsoLayoutEffect(() => {
+    if (!suggest || !editing) return undefined;
+    const el = editorElRef.current;
+    if (!el) return undefined;
+    const update = () => {
+      const r = el.getBoundingClientRect();
+      setDropRect((prev) => {
+        const next = { left: r.left, top: r.bottom + 2, width: r.width };
+        return prev && prev.left === next.left && prev.top === next.top && prev.width === next.width ? prev : next;
+      });
+    };
+    update();
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("resize", update);
+    };
+  }, [suggest?.rowId, suggest?.c, editing?.value]);
+
+  /* Clicking outside the drop-down (or outside the editor) closes it without
+     touching the cell, as Excel does. */
+  useEffect(() => {
+    if (!suggest) return undefined;
+    const onDown = (event) => {
+      if (event.target.closest?.("[data-item-suggest]")) return;
+      if (editorElRef.current && editorElRef.current.contains(event.target)) return;
+      closeSuggest();
+    };
+    document.addEventListener("mousedown", onDown, true);
+    return () => document.removeEventListener("mousedown", onDown, true);
+  }, [Boolean(suggest), closeSuggest]);
+
+  /* Every keystroke in an eligible cell asks the item master, debounced so a
+     burst of typing is one request. The query and a loading flag are set at
+     once, so the operator sees the list is on its way. */
+  useEffect(() => {
+    const ed = editing;
+    if (!ed) { setSuggest(null); setDropRect(null); return undefined; }
+    const col = live.current.columns[ed.c];
+    const row = live.current.rows[ed.r];
+    const query = itemSearchText(col?.key, ed.value, row);
+    if (!query) { setSuggest(null); setDropRect(null); return undefined; }
+
+    const seq = itemSeqRef.current + 1;
+    itemSeqRef.current = seq;
+    setSuggest((prev) => ({
+      r: ed.r, c: ed.c, rowId: ed.rowId, query: ed.value,
+      items: prev && prev.rowId === ed.rowId && prev.c === ed.c ? prev.items : [],
+      loading: true, active: 0, message: "",
+    }));
+
+    const timer = setTimeout(async () => {
+      try {
+        const qs = new URLSearchParams({ perPage: "20", search: query });
+        if (business) qs.set("business", business);
+        const response = await fetch("/api/item?" + qs);
+        if (itemSeqRef.current !== seq) return;
+        if (!response.ok) throw new Error("HTTP " + response.status);
+        const payload = await response.json();
+        const items = (payload.rows || []).map((item) => masterItemOf(item)).filter(Boolean);
+        items.forEach((item) => {
+          itemCacheRef.current.set(normaliseItemCode(item.itemCode), item);
+          itemCacheRef.current.set(normaliseItemCode(item.name), item);
+        });
+        setSuggest((prev) => (prev && prev.rowId === ed.rowId && prev.c === ed.c && itemSeqRef.current === seq
+          ? {
+            ...prev, items, loading: false, active: 0,
+            message: items.length ? "" : "No matching items found in the Item Master.",
+          }
+          : prev));
+      } catch {
+        if (itemSeqRef.current !== seq) return;
+        setSuggest((prev) => (prev && prev.rowId === ed.rowId && prev.c === ed.c
+          ? { ...prev, items: [], loading: false, message: "Could not load items. Check the connection and type again." }
+          : prev));
+      }
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [editing?.rowId, editing?.r, editing?.c, editing?.value, business, columns]);
+
+  /* Verifies a row against the item master and keeps its warnings / errors for
+     the cell markers and the footer. Called when a cell is committed, and
+     before Submit by GCRBarcodeGeneration. */
+  const validateRow = useCallback(async (row) => {
+    if (!row?.id) return;
+    if (!needsCheck(row) || isBlankRow(row)) {
+      setChecks((prev) => {
+        if (!(row.id in prev)) return prev;
+        const next = { ...prev };
+        delete next[row.id];
+        return next;
+      });
+      return;
+    }
+    const code = String(row.itemCode ?? "").trim();
+    if (!code) {
+      setChecks((prev) => ({ ...prev, [row.id]: rowItemIssues(row, null, { checkMaster: false }) }));
+      return;
+    }
+    const cached = itemCacheRef.current.get(normaliseItemCode(code));
+    if (cached) {
+      setChecks((prev) => ({ ...prev, [row.id]: rowItemIssues(row, cached) }));
+      return;
+    }
+
+    const seq = validateSeqRef.current + 1;
+    validateSeqRef.current = seq;
+    try {
+      const response = await fetch("/api/item/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ codes: [code], business: business || undefined }),
+      });
+      if (!response.ok) return;
+      const payload = await response.json();
+      const master = (payload.items || [])[0] || null;
+      if (master) {
+        itemCacheRef.current.set(normaliseItemCode(master.itemCode), master);
+        itemCacheRef.current.set(normaliseItemCode(master.name), master);
+      }
+      const still = live.current.rows.find((item) => item.id === row.id);
+      if (!still || String(still.itemCode ?? "").trim() !== code) return;
+      if (validateSeqRef.current !== seq) return;
+      setChecks((prev) => ({
+        ...prev,
+        [row.id]: rowItemIssues({ ...row, ...still }, master, { businessHasItems: !payload.masterEmpty }),
+      }));
+    } catch {
+      /* a network failure is not a verdict - the save route still checks */
+    }
+  }, [business]);
+
+  /* Picking a suggestion: the item's details, prices and HSN are applied
+     through the same rules as the Add Item form, the editor closes, and the
+     row is validated against the item just chosen. No row is added or removed
+     and no barcode field is touched. */
+  const pickItem = useCallback(async (item) => {
+    const ed = live.current.editing;
+    if (!ed) return;
+    const rowId = ed.rowId;
+    const row = live.current.rows.find((entry) => entry.id === rowId);
+    if (!row) return;
+    closeSuggest();
+    /* the editor closes at once: the pick replaces whatever was typed, and a
+       second Enter while the detail is on its way cannot pick twice */
+    live.current.editing = null;
+    setEditing(null);
+    setPicking({ rowId, code: item.itemCode || item.name });
+    let detail = item;
+    try {
+      if (item.id) {
+        const response = await fetch(`/api/item/${encodeURIComponent(item.id)}/detail`);
+        if (response.ok) {
+          const payload = await response.json();
+          detail = { ...item, ...(payload?.item || {}) };
+        }
+      }
+    } catch { /* the list row already carries code, name and prices */ }
+    setPicking(null);
+
+    const master = masterItemOf(detail);
+    if (!master) return;
+    itemCacheRef.current.set(normaliseItemCode(master.itemCode), master);
+    itemCacheRef.current.set(normaliseItemCode(master.name), master);
+
+    const currentRow = live.current.rows.find((entry) => entry.id === rowId) || row;
+    const patch = itemSelectionPatch(currentRow, master);
+    const issues = rowItemIssues({ ...currentRow, ...patch }, master);
+    emit(live.current.rows.map((entry) => (entry.id === rowId ? { ...entry, ...patch, _edited: true } : entry)));
+    setChecks((prev) => ({ ...prev, [rowId]: issues }));
+    setNotice(Object.keys(issues.warnings).length && !Object.keys(issues.errors).length
+      ? { tone: "info", text: issues.warnings.retailPrice || `${master.itemCode || master.name} selected.` }
+      : { tone: "info", text: `${master.itemCode || master.name} selected from the Item Master.` });
+    focusGrid();
+  }, [closeSuggest, emit, focusGrid]);
+
   /* Applies the open edit. Returns false - keeping the editor open with the
      reason - when the column refuses the value. */
   const commitEdit = useCallback(() => {
@@ -1395,10 +1645,15 @@ export default function ItemsSheet({
     }
     cur.editing = null;
     setEditing(null);
-    emit(cur.rows.map((item, i) => (i === ed.r ? { ...item, ...result.patch, _edited: true } : item)));
+    const updated = { ...row, ...result.patch, _edited: true };
+    emit(cur.rows.map((item, i) => (i === ed.r ? updated : item)));
     setNotice(null);
+    /* master validation when a cell that belongs to the item was committed -
+       a typed code is checked at once, and a changed price / discount is
+       compared with the item's own values */
+    if (needsCheck(updated) && !isBlankRow(updated)) validateRow(updated);
     return true;
-  }, [emit]);
+  }, [emit, validateRow]);
 
   const addRow = useCallback(() => {
     const cur = live.current;
@@ -1450,6 +1705,30 @@ export default function ItemsSheet({
     const ed = live.current.editing;
     if (!ed) return;
     const { key, shiftKey } = event;
+    /* the open item drop-down owns Up / Down / Enter / Esc while it is shown,
+       exactly as an Excel autocomplete does */
+    const sug = suggestRef.current;
+    const open = sug && sug.rowId === ed.rowId && sug.c === ed.c && sug.items.length > 0;
+    if (open && (key === "ArrowDown" || key === "ArrowUp")) {
+      event.preventDefault();
+      event.stopPropagation();
+      const step = key === "ArrowDown" ? 1 : -1;
+      setSuggest((prev) => (prev ? { ...prev, active: (prev.active + step + prev.items.length) % prev.items.length } : prev));
+      return;
+    }
+    if (open && key === "Enter") {
+      event.preventDefault();
+      event.stopPropagation();
+      pickItem(sug.items[sug.active] || sug.items[0]);
+      return;
+    }
+    if (sug && key === "Escape") {
+      /* one Escape closes the suggestions; a second cancels the edit */
+      event.preventDefault();
+      event.stopPropagation();
+      closeSuggest();
+      return;
+    }
     /* a drop-down cell: Up / Down step through its list while editing (after
        Enter, F2 or a double-click) - or with Alt at any time; after typing
        over the cell they move on, as everywhere else */
@@ -1493,7 +1772,7 @@ export default function ItemsSheet({
         moveTo(ed.r + DIRS[key][0], ed.c + DIRS[key][1]);
       }
     }
-  }, [commitEdit, cancelEdit, focusGrid, moveTo, tabFrom]);
+  }, [commitEdit, cancelEdit, focusGrid, moveTo, tabFrom, pickItem, closeSuggest]);
 
   /* Clicking away keeps a valid value, as Excel does. A value the column
      refuses cannot be left in the cell, so the old one is put back and the
@@ -1520,6 +1799,7 @@ export default function ItemsSheet({
   }, [commitEdit, focusGrid]);
 
   const editorRef = useCallback((el) => {
+    editorElRef.current = el;
     if (!el) return;
     el.focus({ preventScroll: true });
     const end = el.value.length;
@@ -1789,10 +2069,21 @@ export default function ItemsSheet({
 
   let editedCount = 0;
   let errorCells = 0;
+  let warningCells = 0;
+  let invalidItemCodes = 0;
+  let priceWarnings = 0;
+  let invalidDiscounts = 0;
   rows.forEach((row) => {
     if (row._edited) editedCount += 1;
     const errors = errorsOf(row);
     if (errors) errorCells += Object.keys(errors).length;
+    const check = checks[row.id];
+    if (!check) return;
+    errorCells += Object.keys(check.errors || {}).length;
+    warningCells += Object.keys(check.warnings || {}).length;
+    if (check.errors?.itemCode) invalidItemCodes += 1;
+    if (check.warnings?.retailPrice) priceWarnings += 1;
+    if (check.errors?.disc1 || check.errors?.discount) invalidDiscounts += 1;
   });
 
   const n = rows.length;
@@ -1883,6 +2174,7 @@ export default function ItemsSheet({
                   selC2={inRows ? rect.c2 : null}
                   editing={editing && editing.r === r ? editing : null}
                   errors={errorsOf(row)}
+                  checks={checks[row.id]}
                   locked={lockReason(row)}
                   confirming={confirmId === row.id}
                   editorRef={editorRef}
@@ -1921,9 +2213,82 @@ export default function ItemsSheet({
             </span>
           ) : null}
           {errorCells > 0 ? <span className="text-red-700">{plural(errorCells, "cell")} to fix</span> : null}
+          {invalidItemCodes > 0 ? <span className="text-red-700">{plural(invalidItemCodes, "invalid item code")}</span> : null}
+          {invalidDiscounts > 0 ? <span className="text-red-700">{plural(invalidDiscounts, "invalid discount")}</span> : null}
+          {priceWarnings > 0 ? <span className="text-amber-700">{plural(priceWarnings, "price to verify")}</span> : null}
+          {warningCells > 0 && !priceWarnings ? <span className="text-amber-700">{plural(warningCells, "warning")}</span> : null}
           <span>Enter / F2 edit · Tab next · Esc cancel · Ctrl+C / Ctrl+V · Ctrl+Z undo</span>
         </div>
       </div>
+
+      {/* The item master drop-down lives in a portal on document.body: the
+          sheet is an overflow box, so a list rendered inside the active cell
+          would be clipped by the next rows / the scroll container. It is
+          positioned under the editor and follows it while scrolling. */}
+      {typeof document !== "undefined" && suggest && dropRect && createPortal(
+        <div
+          data-item-suggest
+          role="listbox"
+          aria-label="Item Master suggestions"
+          style={{
+            position: "fixed",
+            left: Math.max(8, Math.min(dropRect.left, (window.innerWidth || 1200) - Math.max(dropRect.width, 380) - 8)),
+            top: Math.max(8, Math.min(dropRect.top, (window.innerHeight || 800) - 336)),
+            width: Math.max(dropRect.width, 380),
+            maxWidth: "calc(100vw - 16px)",
+            zIndex: 9999,
+          }}
+          className="overflow-hidden rounded-md border border-gray-300 bg-white text-xs shadow-2xl"
+        >
+          <div className="flex items-center justify-between border-b border-gray-200 bg-gray-50 px-2 py-1.5 text-[11px] font-medium text-gray-600">
+            <span>Item Master - &quot;{suggest.query}&quot;</span>
+            <span>{suggest.loading ? "Searching..." : `${suggest.items.length} match${suggest.items.length === 1 ? "" : "es"}`}</span>
+          </div>
+          {suggest.loading ? (
+            <div className="flex items-center gap-2 px-3 py-3 text-gray-600">
+              <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-gray-300 border-t-brand" />
+              Searching the Item Master...
+            </div>
+          ) : null}
+          {!suggest.loading && suggest.message ? (
+            <div className="px-3 py-3 text-gray-600">{suggest.message}</div>
+          ) : null}
+          {!suggest.loading && suggest.items.length ? (
+            <ul className="max-h-72 overflow-y-auto py-0.5">
+              {suggest.items.map((item, index) => {
+                const active = index === suggest.active;
+                const description = item.description || item.name;
+                return (
+                  <li
+                    key={`${item.id || item.code}-${index}`}
+                    role="option"
+                    aria-selected={active}
+                    onMouseDown={(event) => { event.preventDefault(); pickItem(item); }}
+                    onMouseEnter={() => setSuggest((prev) => (prev ? { ...prev, active: index } : prev))}
+                    className={`cursor-pointer border-b border-gray-100 px-2 py-1.5 last:border-b-0 ${active ? "bg-brand text-white" : "text-gray-800 hover:bg-brand/10"}`}
+                  >
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="font-mono text-[12px] font-semibold">
+                        <Highlighted text={item.itemCode || item.name} query={suggest.query} />
+                      </span>
+                      {item.retailPrice !== null ? (
+                        <span className={`shrink-0 font-mono text-[11px] ${active ? "text-white/90" : "text-gray-500"}`}>₹{money(item.retailPrice)}</span>
+                      ) : null}
+                    </div>
+                    {description && description !== (item.itemCode || item.name) ? (
+                      <div className={`mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap ${active ? "text-white/85" : "text-gray-500"}`}>{description}</div>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
+          <div className="border-t border-gray-200 bg-gray-50 px-2 py-1 text-[10px] text-gray-500">
+            {picking ? `Applying ${picking.code}...` : "Up / Down choose · Enter select · Esc close"}
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }

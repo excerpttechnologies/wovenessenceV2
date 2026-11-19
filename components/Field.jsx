@@ -1525,6 +1525,7 @@ import { useOptions, useCities } from './useOptions';
 import { compressImage, prettyBytes } from '@/lib/imageFile';
 import BarcodeScanner from './BarcodeScanner';
 import DocumentPreviewModal from './DocumentPreviewModal';
+import MultiFileUpload, { normalizeFiles } from './MultiFileUpload';
 
 function Label({ f }) {
   /* ph = placeholder-only field: the original shows no label above these,
@@ -1644,165 +1645,39 @@ function CheckRefField({ f, value, onChange }) {
    server-side storage existed keeps rendering.
    ========================================================================== */
 function FileField({ f, value, onChange }) {
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-  const [meta, setMeta] = useState(null); // { name, size } for this session
-  const [previewOpen, setPreviewOpen] = useState(false);
-
-  const acceptsImages = String(f.accept || '').includes('image');
-  const stored = typeof value === 'string' ? value : '';
-  const isUploaded = stored.startsWith('/api/files/');
-  const isLegacyDataUrl = stored.startsWith('data:image/');
-  const canPreview = isLegacyDataUrl || (isUploaded && /\.(jpg|png|webp|gif|jpeg)$/i.test(stored));
-
-  async function upload(blob, filename) {
-    const body = new FormData();
-    body.append('file', blob, filename);
-    const r = await fetch('/api/upload', { method: 'POST', body });
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(d.error || 'Upload failed.');
-    return d;
-  }
-
-  async function pick(e) {
-    const file = e.target.files?.[0];
-    /* let the same file be chosen again after a Remove */
-    e.target.value = '';
-    if (!file) return;
-
-    setErr('');
-    setBusy(true);
-    try {
-      let blob = file;
-      let name = file.name;
-
-      if (file.type.startsWith('image/')) {
-        const out = await compressImage(file, {
-          maxDim: f.maxDim,
-          maxBytes: f.maxKb ? f.maxKb * 1024 : undefined,
-        });
-        blob = out.blob;
-        /* the canvas re-encodes to JPEG, so the name must follow or the
-           server picks the extension from a type that no longer matches */
-        if (out.type === 'image/jpeg' && !/\.jpe?g$/i.test(name)) {
-          name = name.replace(/\.[^.]+$/, '') + '.jpg';
-        }
-      }
-
-      const saved = await upload(blob, name);
-      onChange(saved.url);
-      setMeta({ name: file.name, size: saved.size });
-    } catch (ex) {
-      setErr(ex.message || 'Could not upload that file.');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function clear() {
-    /* only the reference is dropped. The file itself is content-addressed
-       and may be shared with another record, so it is left on disk - see
-       the note on orphans in lib/uploads.js. */
-    onChange('');
-    setMeta(null);
-    setErr('');
-  }
-
-  const caption = meta
-    ? meta.name + (meta.size ? ' (' + prettyBytes(meta.size) + ')' : '')
-    : isUploaded
-      ? 'Stored file'
-      : isLegacyDataUrl
-        ? 'Embedded image'
-        : stored || 'No file chosen';
-
   return (
-    <div>
-      <div className="flex items-center gap-2">
-        <label
-          className={
-            'attachment-picker flex h-9 flex-1 items-center gap-2 overflow-hidden rounded-md border border-linestrong bg-white px-1 text-[13px] '
-            + (busy ? 'cursor-wait opacity-60' : 'cursor-pointer hover:border-brand')
-          }
-        >
-          <span className="shrink-0 rounded bg-[#eff2f7] px-2 py-1">
-            {busy ? 'Uploading...' : acceptsImages ? 'Choose File' : 'Choose Image'}
-          </span>
-          <span className="truncate text-inkmuted">{caption}</span>
-          <input
-            type="file"
-            className="hidden"
-            accept={f.accept || undefined}
-            disabled={busy}
-            onChange={pick}
-          />
-        </label>
-
-        {stored && !busy && (
-          <>
-            <button
-              type="button"
-              onClick={() => setPreviewOpen(true)}
-              className="attachment-action hover:border-brand hover:text-brand"
-            >
-              View
-            </button>
-            <button
-              type="button"
-              onClick={clear}
-              className="attachment-action attachment-action-danger"
-            >
-              Remove
-            </button>
-          </>
-        )}
-      </div>
-
-      {canPreview && (
-        <img
-          src={stored}
-          alt=""
-          className="mt-2 h-16 w-16 rounded border border-line object-cover cursor-pointer hover:opacity-90 shadow-sm"
-          onClick={() => setPreviewOpen(true)}
-        />
-      )}
-
-      {err && <div className="f-err">{err}</div>}
-
-      {previewOpen && (
-        <DocumentPreviewModal
-          open={previewOpen}
-          url={stored}
-          title={f.label || 'Vendor Invoice Copy'}
-          onClose={() => setPreviewOpen(false)}
-        />
-      )}
-    </div>
+    <MultiFileUpload
+      value={value}
+      onChange={onChange}
+      label={f.label}
+      placeholder={f.placeholder || `Choose ${f.label || 'File(s)'}`}
+      accept={f.accept || 'image/*,.pdf,application/pdf'}
+      disabled={!!f.disabled}
+      readOnly={!!f.readOnly}
+      title={f.label || 'Document Preview'}
+    />
   );
 }
 
 function LrCopyField({ f, value, onChange, lrTransactionId, lrTransactionNo, data }) {
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState('');
-  const [previewOpen, setPreviewOpen] = useState(false);
-  const [uploadBusy, setUploadBusy] = useState(false);
-  const stored = typeof value === 'string' ? value : '';
   const currentLrId = lrTransactionId || data?.lrTransactionId;
   const currentLrNo = lrTransactionNo || data?.lrTransactionNo;
 
+  const files = normalizeFiles(value);
   const lastFetchedLrIdRef = useRef(null);
 
   useEffect(() => {
     if (!currentLrId) {
-      if (stored && lastFetchedLrIdRef.current) {
-        onChange('');
+      if (files.length > 0 && lastFetchedLrIdRef.current) {
+        onChange([]);
       }
       lastFetchedLrIdRef.current = null;
       return;
     }
 
-    // Skip if already fetched for this LR id and value exists
-    if (lastFetchedLrIdRef.current === currentLrId && stored) {
+    if (lastFetchedLrIdRef.current === currentLrId && files.length > 0) {
       return;
     }
 
@@ -1819,12 +1694,11 @@ function LrCopyField({ f, value, onChange, lrTransactionId, lrTransactionNo, dat
       })
       .then((body) => {
         if (!active) return;
-        const doc = body.doc?.document || body.doc?.lrCopy || '';
-        if (doc) {
-          onChange(doc);
-        } else {
-          onChange('');
-        }
+        const fetchedDocs = [
+          ...normalizeFiles(body.doc?.document),
+          ...normalizeFiles(body.doc?.attachments),
+        ];
+        onChange(fetchedDocs);
       })
       .catch((err) => {
         if (!active) return;
@@ -1840,95 +1714,29 @@ function LrCopyField({ f, value, onChange, lrTransactionId, lrTransactionNo, dat
     };
   }, [currentLrId]);
 
-  async function handleReplaceFile(e) {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-
-    setUploadBusy(true);
-    try {
-      const body = new FormData();
-      body.append('file', file, file.name);
-      const r = await fetch('/api/upload', { method: 'POST', body });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(d.error || 'Upload failed.');
-      onChange(d.url);
-    } catch (err) {
-      alert(err.message || 'Upload failed');
-    } finally {
-      setUploadBusy(false);
-    }
-  }
-
-  const isImage = stored.startsWith('data:image/') || /\.(jpg|png|webp|gif|jpeg)$/i.test(stored);
-
   return (
     <div>
-      <div className="flex items-center gap-2">
-        <div className="flex h-9 flex-1 items-center gap-2 overflow-hidden rounded-md border border-linestrong bg-slate-50 px-2.5 text-[13px]">
-          {loading ? (
-            <div className="flex items-center gap-2 text-inkmuted">
-              <span className="spin" style={{ width: 14, height: 14 }} />
-              <span className="text-[12px] italic">Fetching LR Copy...</span>
-            </div>
-          ) : stored ? (
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
-              <span className="truncate text-slate-700 font-medium text-[12.5px]">
-                {currentLrNo ? `LR Copy (${currentLrNo})` : 'LR Copy Available'}
-              </span>
-            </div>
-          ) : currentLrId ? (
-            <span className="text-amber-700 text-[12px] italic">No LR Copy Uploaded</span>
-          ) : (
-            <span className="text-inkmuted text-[12px] italic">Select an LR / Transaction Number first</span>
-          )}
+      {loading ? (
+        <div className="flex h-9 items-center gap-2 rounded-md border border-linestrong bg-slate-50 px-2.5 text-[12.5px] text-inkmuted">
+          <span className="spin inline-block h-3.5 w-3.5 border-2 border-brand border-t-transparent rounded-full" />
+          <span className="italic">Fetching LR Copy attachments...</span>
         </div>
-
-        {stored && !loading && (
-          <button
-            type="button"
-            onClick={() => setPreviewOpen(true)}
-            className="attachment-action hover:border-brand hover:text-brand"
-          >
-            View
-          </button>
-        )}
-
-        {/* Optional upload / replace */}
-        {currentLrId && !loading && (
-          <label className="attachment-action cursor-pointer hover:border-brand hover:text-brand">
-            <span>{uploadBusy ? 'Uploading...' : stored ? 'Replace' : 'Upload'}</span>
-            <input
-              type="file"
-              className="hidden"
-              accept="image/*,.pdf"
-              disabled={uploadBusy}
-              onChange={handleReplaceFile}
-            />
-          </label>
-        )}
-      </div>
-
-      {isImage && stored && (
-        <img
-          src={stored}
-          alt="LR Copy Thumbnail"
-          className="mt-2 h-16 w-16 rounded border border-line object-cover cursor-pointer hover:opacity-90 shadow-sm"
-          onClick={() => setPreviewOpen(true)}
+      ) : !currentLrId ? (
+        <div className="flex h-9 items-center rounded-md border border-linestrong bg-slate-50 px-2.5 text-[12.5px] text-inkmuted italic">
+          Select an LR / Transaction Number first
+        </div>
+      ) : (
+        <MultiFileUpload
+          value={files}
+          onChange={onChange}
+          label="LR Copy"
+          placeholder="Upload LR Copy (Images / PDFs)"
+          title={currentLrNo ? `LR Copy - ${currentLrNo}` : 'LR Copy Preview'}
+          accept="image/*,.pdf,application/pdf"
+          disabled={!currentLrId}
         />
       )}
-
       {fetchError && <div className="f-err mt-1 text-[12px] text-red-600">{fetchError}</div>}
-
-      {previewOpen && (
-        <DocumentPreviewModal
-          open={previewOpen}
-          url={stored}
-          title={currentLrNo ? `LR Copy - ${currentLrNo}` : (f.label || 'LR Copy Preview')}
-          onClose={() => setPreviewOpen(false)}
-        />
-      )}
     </div>
   );
 }

@@ -17,6 +17,7 @@ import SupplierImportPanel from './SupplierImportPanel';
 import AttachmentsDialog from './AttachmentsDialog';
 import ImageCropModal from './ImageCropModal';
 import DocumentPreviewModal from './DocumentPreviewModal';
+import MultiFileUpload, { normalizeFiles } from './MultiFileUpload';
 
 /* The LR-page quick-add does not collect a transporter code. The API still
   requires one, so the dialog supplies an internal value when saving. */
@@ -162,8 +163,8 @@ function DeliveryDialog({ row, onClose, onSaved }) {
     const userFields = [
       'transporterId', 'lrNumber', 'bookingDate', 'supplierId',
       'vendorInvoiceNo', 'vendorInvoiceDate', 'parcelQty', 'value',
-      'freightAmount', 'autoCharges', 'tips', 'document',
-      'vendorInvoiceCopy', 'vendorWaybill', 'supplierCode', 'vendorGstNo',
+      'freightAmount', 'autoCharges', 'tips',
+      'vendorWaybill', 'supplierCode', 'vendorGstNo',
     ];
     for (const k of userFields) {
       const v = currentData[k];
@@ -171,6 +172,8 @@ function DeliveryDialog({ row, onClose, onSaved }) {
         return true;
       }
     }
+    if (normalizeFiles(currentData.document).length > 0) return true;
+    if (normalizeFiles(currentData.vendorInvoiceCopy).length > 0) return true;
     if (currentData.gstApplicable === 'Yes') return true;
     if (currentData.transactionNo && !isEdit && currentData.transactionNo.trim() !== '') return true;
     return false;
@@ -184,18 +187,41 @@ function DeliveryDialog({ row, onClose, onSaved }) {
     try {
       const key = getDraftKey(scope.user, scope.business, scope.location);
 
-      let docToSave = currentData.document || '';
+      let docToSave = currentData.document || [];
       let hasLocalFileFlag = false;
 
-      if (docToSave.startsWith('data:')) {
-        if (docToSave.length > 400000) {
-          docToSave = '';
-          hasLocalFileFlag = true;
-        }
+      if (Array.isArray(docToSave)) {
+        docToSave = docToSave.map((f) => {
+          if (!f) return null;
+          if (typeof f === 'string') {
+            if (f.startsWith('data:') && f.length > 400000) {
+              hasLocalFileFlag = true;
+              return null;
+            }
+            return f;
+          }
+          if (typeof f === 'object' && f.url && f.url.startsWith('data:') && f.url.length > 400000) {
+            hasLocalFileFlag = true;
+            return { ...f, url: '' };
+          }
+          return f;
+        }).filter(Boolean);
+      } else if (typeof docToSave === 'string' && docToSave.startsWith('data:') && docToSave.length > 400000) {
+        docToSave = '';
+        hasLocalFileFlag = true;
       }
 
-      let invoiceCopyToSave = currentData.vendorInvoiceCopy || '';
-      if (invoiceCopyToSave.startsWith('data:') && invoiceCopyToSave.length > 400000) {
+      let invoiceCopyToSave = currentData.vendorInvoiceCopy || [];
+      if (Array.isArray(invoiceCopyToSave)) {
+        invoiceCopyToSave = invoiceCopyToSave.map((f) => {
+          if (!f) return null;
+          if (typeof f === 'string') return f.startsWith('data:') && f.length > 400000 ? null : f;
+          if (typeof f === 'object' && f.url && f.url.startsWith('data:') && f.url.length > 400000) {
+            return { ...f, url: '' };
+          }
+          return f;
+        }).filter(Boolean);
+      } else if (typeof invoiceCopyToSave === 'string' && invoiceCopyToSave.startsWith('data:') && invoiceCopyToSave.length > 400000) {
         invoiceCopyToSave = '';
       }
 
@@ -228,7 +254,7 @@ function DeliveryDialog({ row, onClose, onSaved }) {
         const fallbackPayload = {
           version: 1,
           savedAt: Date.now(),
-          data: { ...currentData, document: '', vendorInvoiceCopy: '' },
+          data: { ...currentData, document: [], vendorInvoiceCopy: [] },
           hasLocalFile: true,
         };
         localStorage.setItem(key, JSON.stringify(fallbackPayload));
@@ -670,58 +696,13 @@ function DeliveryDialog({ row, onClose, onSaved }) {
                 <label className="mb-1 block text-[13px] font-semibold">
                   LR Copy Upload
                 </label>
-                <div className="flex flex-wrap items-center gap-2">
-                  <label className="attachment-picker flex h-9 cursor-pointer items-center gap-2 rounded-md border border-linestrong bg-white px-2 py-1 text-[13px]">
-                    <span className="shrink-0 rounded bg-[#eff2f7] px-2 py-1 text-[12px]">
-                      {data.document ? 'Change' : 'Choose File'}
-                    </span>
-                    <span className="truncate text-inkmuted text-[12px]">
-                      {data.document ? (data.document.startsWith('data:image/') ? 'Image attached' : 'File attached') : 'No file chosen'}
-                    </span>
-                    <input
-                      type="file"
-                      className="hidden"
-                      onChange={handleFileSelect}
-                      accept="image/*,application/pdf"
-                    />
-                  </label>
-                  {data.document && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => setPreviewModal({ open: true, url: data.document, title: 'LR Copy Preview' })}
-                        className="attachment-action"
-                      >
-                        View
-                      </button>
-                      {data.document.startsWith('data:image/') && (
-                        <button
-                          type="button"
-                          className="attachment-action"
-                          onClick={() => {
-                            fetch(data.document)
-                              .then((r) => r.blob())
-                              .then((blob) => {
-                                const file = new File([blob], 'lr-copy.jpg', { type: blob.type });
-                                setSelectedImageFile(file);
-                                setCropTargetField('document');
-                                setShowCropModal(true);
-                              });
-                          }}
-                        >
-                          Crop
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        className="attachment-action attachment-action-danger"
-                        onClick={() => set('document', '')}
-                      >
-                        Remove
-                      </button>
-                    </>
-                  )}
-                </div>
+                <MultiFileUpload
+                  value={data.document}
+                  onChange={(files) => set('document', files)}
+                  placeholder="Choose LR Copy (Images / PDFs)"
+                  title="LR Copy Preview"
+                  accept="image/*,.pdf,application/pdf"
+                />
                 {errors.document && (
                   <div className="mt-1 text-[12px] text-red-600">{errors.document}</div>
                 )}
@@ -856,64 +837,17 @@ function DeliveryDialog({ row, onClose, onSaved }) {
                 
                 {/* Vendor Invoice Copy - Show link if from GRC, or allow upload */}
                 {data.supplierId && (
-                  <div>
+                  <div className="mb-3">
                     <label className="mb-1 block text-[13px] font-semibold">
                       Vendor Invoice Copy
                     </label>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <label className="attachment-picker flex h-9 cursor-pointer items-center gap-2 rounded-md border border-linestrong bg-white px-2 py-1 text-[13px]">
-                        <span className="shrink-0 rounded bg-[#eff2f7] px-2 py-1 text-[12px]">
-                          {data.vendorInvoiceCopy ? 'Change' : 'Choose File'}
-                        </span>
-                        <span className="truncate text-inkmuted text-[12px]">
-                          {data.vendorInvoiceCopy
-                            ? (data.vendorInvoiceCopy.startsWith('data:image/') ? 'Image attached' : 'File attached')
-                            : 'No file chosen'}
-                        </span>
-                        <input
-                          type="file"
-                          className="hidden"
-                          onChange={(e) => handleFileSelect(e, 'vendorInvoiceCopy')}
-                          accept="image/*,application/pdf,.doc,.docx"
-                        />
-                      </label>
-                      {data.vendorInvoiceCopy && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => setPreviewModal({ open: true, url: data.vendorInvoiceCopy, title: 'Vendor Invoice Copy' })}
-                            className="attachment-action"
-                          >
-                            View
-                          </button>
-                          {data.vendorInvoiceCopy.startsWith('data:image/') && (
-                            <button
-                              type="button"
-                              className="attachment-action"
-                              onClick={() => {
-                                fetch(data.vendorInvoiceCopy)
-                                  .then((r) => r.blob())
-                                  .then((blob) => {
-                                    const file = new File([blob], 'vendor-invoice.jpg', { type: blob.type });
-                                    setSelectedImageFile(file);
-                                    setCropTargetField('vendorInvoiceCopy');
-                                    setShowCropModal(true);
-                                  });
-                              }}
-                            >
-                              Crop
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            className="attachment-action attachment-action-danger"
-                            onClick={() => set('vendorInvoiceCopy', '')}
-                          >
-                            Remove
-                          </button>
-                        </>
-                      )}
-                    </div>
+                    <MultiFileUpload
+                      value={data.vendorInvoiceCopy}
+                      onChange={(files) => set('vendorInvoiceCopy', files)}
+                      placeholder="Choose Vendor Invoice Copy (Images / PDFs)"
+                      title="Vendor Invoice Copy Preview"
+                      accept="image/*,.pdf,application/pdf"
+                    />
                   </div>
                 )}
                 
@@ -1064,8 +998,11 @@ function Line({ label, value, badge, badgeTone = 'blue', strong }) {
 }
 
 function ViewDialog({ row, labels, onClose }) {
+  const [previewModal, setPreviewModal] = useState({ open: false, url: '', title: '' });
   const transporter = labels[String(row.transporterId)] || '';
   const supplier = labels[String(row.supplierId)] || '';
+  const lrFiles = normalizeFiles(row.document);
+  const invoiceFiles = normalizeFiles(row.vendorInvoiceCopy);
 
   return (
     <div
@@ -1112,11 +1049,69 @@ function ViewDialog({ row, labels, onClose }) {
             <Line label="Tips" value={money(row.tips)} />
           </Section>
 
+          {(lrFiles.length > 0 || invoiceFiles.length > 0) && (
+            <Section title="Attachments">
+              <div className="space-y-3">
+                {lrFiles.length > 0 && (
+                  <div>
+                    <span className="text-[12.5px] font-semibold text-slate-700 block mb-1.5">
+                      LR Copy Attachments ({lrFiles.length}):
+                    </span>
+                    <div className="flex flex-wrap gap-2">
+                      {lrFiles.map((f, i) => (
+                        <button
+                          key={f._id || i}
+                          type="button"
+                          onClick={() => setPreviewModal({ open: true, url: f.url, title: f.name || 'LR Copy' })}
+                          className="attachment-action flex items-center gap-1.5"
+                          title="Click to view"
+                        >
+                          <Icon name="file" size={12} />
+                          <span className="truncate max-w-[200px]">{f.name || `LR Copy ${i + 1}`}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {invoiceFiles.length > 0 && (
+                  <div>
+                    <span className="text-[12.5px] font-semibold text-slate-700 block mb-1.5">
+                      Vendor Invoice Copy Attachments ({invoiceFiles.length}):
+                    </span>
+                    <div className="flex flex-wrap gap-2">
+                      {invoiceFiles.map((f, i) => (
+                        <button
+                          key={f._id || i}
+                          type="button"
+                          onClick={() => setPreviewModal({ open: true, url: f.url, title: f.name || 'Invoice Copy' })}
+                          className="attachment-action flex items-center gap-1.5"
+                          title="Click to view"
+                        >
+                          <Icon name="file" size={12} />
+                          <span className="truncate max-w-[200px]">{f.name || `Invoice Copy ${i + 1}`}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </Section>
+          )}
+
           <div className="flex justify-end">
             <button type="button" className="btn" onClick={onClose}>Close</button>
           </div>
         </div>
       </div>
+
+      {previewModal.open && (
+        <DocumentPreviewModal
+          open={previewModal.open}
+          url={previewModal.url}
+          title={previewModal.title}
+          onClose={() => setPreviewModal({ open: false, url: '', title: '' })}
+        />
+      )}
     </div>
   );
 }

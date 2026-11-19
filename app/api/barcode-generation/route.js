@@ -1054,6 +1054,9 @@ import { purchasePriceError, normalisePurchasePrice } from '@/lib/purchasePrice'
 import { saveBatchTypeOf } from '@/lib/barcodeUnits';
 import { grcTotals } from '@/lib/grcMoney';
 import { trySyncGrcPosting, reverseGrcJournal } from '@/lib/accounting/posting';
+import {
+  masterIndex, normaliseItemCode, rowItemIssues, itemValidationSummary, itemValidationMessage,
+} from '@/lib/itemMasterValidation';
 
 /* /api/barcode-generation
 
@@ -1285,6 +1288,54 @@ export const POST = handler(async (req) => {
      a string. Unmatched codes are not an error - the operator may be
      receiving something not yet in the item master. */
   const itemByCode = await resolveItems(rows, business);
+
+  /* ---- Item Master, price and discount rules ----------------------------
+
+     The sheet warns while the operator types; the SAME rules run here again
+     (lib/itemMasterValidation.js), because a request that never went through
+     the screen must not be able to store an item code the master does not
+     know, a non-numeric price or an out-of-range discount.
+
+     Only rows this save CREATES, or whose item code it CHANGES, are judged.
+     A barcode already on the GRC keeps whatever legacy values it was saved
+     with, so opening an old GRC and correcting an unrelated cell does not make
+     it unsavable. A business whose Item Master is empty skips the existence
+     check, exactly as the screen does - there is nothing to compare against.
+
+     Retail Price differing from the master is a WARNING, not a refusal: the
+     operator may legitimately price a batch differently, and the sheet never
+     overwrites a price that was typed. Everything here is checked before the
+     transaction, so a refused save changes nothing. */
+  let itemBusiness = business;
+  if (!isValidObjectId(String(itemBusiness || '')) && grcId && isValidObjectId(String(grcId))) {
+    itemBusiness = (await Grc.findById(grcId).select('businessId').lean())?.businessId || '';
+  }
+  const keptUnits = grcId && isValidObjectId(String(grcId))
+    ? (await BarcodeLabel.find({ grcId: String(grcId) })
+      .select('_id itemCode barcodeNo barcodeGenerated clientRowId')
+      .lean()).filter((unit) => !deleteIds.includes(String(unit._id)))
+    : [];
+  const storedForRow = new Map(matchRowsToUnits(rows, keptUnits).matched.map(({ row, unit }) => [row, unit]));
+  const itemCheckIndexes = rows
+    .map((row, index) => ({ row, index }))
+    .filter(({ row }) => {
+      const unit = storedForRow.get(row);
+      /* unchanged item code -> the row is exactly what was already saved */
+      return !unit || normaliseItemCode(row?.itemCode) !== normaliseItemCode(unit.itemCode);
+    })
+    .map(({ index }) => index);
+  const itemSummary = itemCheckIndexes.length
+    ? await itemChecksOf(rows, itemCheckIndexes, itemBusiness)
+    : null;
+
+  if (itemSummary?.errors?.length) {
+    throw new InventoryError('ITEM_VALIDATION', itemValidationMessage(itemSummary), {
+      status: 400,
+      errors: itemSummary.errors,
+      summary: itemSummary,
+      warnings: itemSummary.warnings,
+    });
+  }
 
   const result = await withTransaction(async (dbSession) => {
     /* ---------------------------------------------- editing an existing --
@@ -1652,7 +1703,15 @@ export const POST = handler(async (req) => {
      posting failure is stored on the GRC for retry. */
   await trySyncGrcPosting(result.grcId, { actor: session });
 
-  return json({ ok: true, ...result });
+  /* accepted price differences are returned so the screen can keep its amber
+     note visible after a successful save; nothing about them blocks */
+  return json({
+    ok: true,
+    ...result,
+    ...(itemSummary?.warnings?.length
+      ? { warnings: itemSummary.warnings, itemValidation: itemSummary }
+      : {}),
+  });
 });
 
 /* ================================================================ delete === */
@@ -2112,6 +2171,46 @@ async function resolveItems(rows, businessId) {
   }).select('_id name itemCode').lean();
 
   return new Map(items.map((i) => [String(i.itemCode), i]));
+}
+
+/* The Item Master side of a save: exact (case-insensitive) item-code lookup
+   plus the shared row rules, for the rows the save creates or changes.
+
+   `indexes` are positions in `rows`. The returned summary carries every
+   error and warning with its rowIndex/rowId, so the screen can open the right
+   row on a refusal - the same shape /api/item/validate and the sheet use. */
+async function itemChecksOf(rows, indexes, businessId) {
+  const scope = isValidObjectId(String(businessId || '')) ? String(businessId) : '';
+  const checked = indexes.map((index) => ({ index, row: rows[index] }));
+  const codes = [...new Set(
+    checked.map(({ row }) => String(row?.itemCode || '').trim()).filter(Boolean)
+  )];
+
+  const clauses = codes.flatMap((code) => {
+    const rx = { $regex: `^${escapeRegex(code)}$`, $options: 'i' };
+    return [{ itemCode: rx }, { name: rx }];
+  });
+
+  const [masterRows, anyMaster] = await Promise.all([
+    codes.length
+      ? Item.find({ ...(scope ? { businessId: scope } : {}), $or: clauses })
+        .select('_id itemCode name description rsp wsp rspOfferPercent markupRSP markupWSP markupDP hsnId')
+        .limit(500)
+        .lean()
+      : [],
+    Item.exists(scope ? { businessId: scope } : {}),
+  ]);
+
+  const byCode = masterIndex(masterRows);
+  const issues = new Map();
+  checked.forEach(({ index, row }) => {
+    const master = byCode.get(normaliseItemCode(row?.itemCode)) || null;
+    issues.set(index, rowItemIssues(row, master, {
+      checkMaster: true,
+      businessHasItems: !!anyMaster,
+    }));
+  });
+  return itemValidationSummary(rows, issues);
 }
 
 

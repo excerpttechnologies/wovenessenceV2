@@ -28,48 +28,61 @@ export async function POST(req) {
     return json({ error: 'Expected a multipart form upload.' }, 400);
   }
 
-  const file = form.get('file');
-  if (!file || typeof file.arrayBuffer !== 'function') {
+  const rawFiles = form.getAll('files').concat(form.getAll('file'));
+  const validFiles = rawFiles.filter((f) => f && typeof f.arrayBuffer === 'function');
+
+  if (!validFiles.length) {
     return json({ error: 'No file received.' }, 400);
   }
 
-  if (!file.size) {
-    return json({ error: 'That file is empty.' }, 400);
-  }
-  /* Resolved the same way /api/attachments resolves it, so the two routes
-     cannot disagree about what a given file is: the browser's type when it is
-     useful, the extension when it says octet-stream or nothing. */
-  const type = resolveUploadMime(file.type, file.name);
-  if (!isAllowedMime(type)) {
-    return json({
-      error: 'That file type is not allowed. Accepted: '
-        + ALLOWED_MIME.map(extForMime).join(', ') + '.',
-    }, 415);
-  }
+  const savedFiles = [];
 
-  if (file.size > MAX_UPLOAD_BYTES) {
-    return json({
-      error: 'File is too large. The limit is '
-        + Math.round(MAX_UPLOAD_BYTES / (1024 * 1024)) + ' MB.',
-    }, 413);
-  }
+  for (const file of validFiles) {
+    if (!file.size) continue;
 
-  try {
-    const buffer = Buffer.from(await file.arrayBuffer());
-    /* size is re-checked against what actually arrived rather than trusting
-       the declared size on the part header */
-    if (buffer.length > MAX_UPLOAD_BYTES) {
-      return json({ error: 'File is too large.' }, 413);
+    const type = resolveUploadMime(file.type, file.name);
+    if (!isAllowedMime(type)) {
+      return json({
+        error: `File "${file.name || 'unnamed'}" has an unsupported format. Accepted: `
+          + ALLOWED_MIME.map(extForMime).join(', ') + '.',
+      }, 415);
     }
 
-    const saved = await saveBuffer(buffer, type);
-    return json({
-      url: saved.url,
-      name: file.name || '',
-      size: saved.bytes,
-      type,
-    });
-  } catch (e) {
-    return json({ error: 'Could not store that file.' }, 500);
+    if (file.size > MAX_UPLOAD_BYTES) {
+      return json({
+        error: `File "${file.name || 'unnamed'}" exceeds the ${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))} MB limit.`,
+      }, 413);
+    }
+
+    try {
+      const buffer = Buffer.from(await file.arrayBuffer());
+      if (buffer.length > MAX_UPLOAD_BYTES) {
+        return json({ error: `File "${file.name || 'unnamed'}" is too large.` }, 413);
+      }
+
+      const saved = await saveBuffer(buffer, type);
+      savedFiles.push({
+        url: saved.url,
+        name: file.name || '',
+        size: saved.bytes,
+        type,
+      });
+    } catch (e) {
+      console.error('File storage error:', e);
+      return json({ error: `Could not store "${file.name || 'file'}".` }, 500);
+    }
   }
+
+  if (!savedFiles.length) {
+    return json({ error: 'No valid non-empty files received.' }, 400);
+  }
+
+  const first = savedFiles[0];
+  return json({
+    url: first.url,
+    name: first.name,
+    size: first.size,
+    type: first.type,
+    files: savedFiles,
+  });
 }
