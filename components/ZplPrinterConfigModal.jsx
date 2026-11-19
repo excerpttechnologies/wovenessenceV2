@@ -17,12 +17,32 @@ export default function ZplPrinterConfigModal({ open, onClose, onSave }) {
   const [cfg, setCfg] = useState(DEFAULT_ZPL_CONFIG);
   const [testStatus, setTestStatus] = useState('');
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [installedPrinters, setInstalledPrinters] = useState([]);
+  const [loadingPrinters, setLoadingPrinters] = useState(false);
 
   useEffect(() => {
     if (open) {
       setCfg(loadZplConfig());
       setTestStatus('');
       setSavedSuccess(false);
+
+      // Query installed Windows printers
+      setLoadingPrinters(true);
+      fetch('/api/zpl/printers')
+        .then((r) => r.json())
+        .then((d) => {
+          if (Array.isArray(d.printers)) {
+            setInstalledPrinters(d.printers);
+            // If current model is generic or not set, default to detected printer
+            if (!cfg.printerModel || cfg.printerModel.includes('Zebra Thermal')) {
+              if (d.recommended) {
+                setCfg((prev) => ({ ...prev, printerModel: d.recommended }));
+              }
+            }
+          }
+        })
+        .catch(() => {})
+        .finally(() => setLoadingPrinters(false));
     }
   }, [open]);
 
@@ -306,15 +326,32 @@ export default function ZplPrinterConfigModal({ open, onClose, onSave }) {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-[11.5px] font-medium text-slate-600 mb-1">
-                  Printer Model Name
+                  Target Windows Printer {loadingPrinters ? '(Detecting...)' : ''}
                 </label>
-                <input
-                  type="text"
-                  value={cfg.printerModel}
-                  onChange={(e) => handleChange('printerModel', e.target.value)}
-                  placeholder="e.g. Zebra ZD420 / ZT230"
-                  className="w-full rounded border border-slate-300 bg-white px-2.5 py-1.5"
-                />
+                {installedPrinters.length > 0 ? (
+                  <select
+                    value={cfg.printerModel}
+                    onChange={(e) => handleChange('printerModel', e.target.value)}
+                    className="w-full rounded border border-slate-300 bg-white px-2.5 py-1.5 font-semibold text-slate-800"
+                  >
+                    {installedPrinters.map((p) => (
+                      <option key={p.Name} value={p.Name}>
+                        {p.Name} {p.PortName ? `(${p.PortName})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={cfg.printerModel}
+                    onChange={(e) => handleChange('printerModel', e.target.value)}
+                    placeholder="e.g. BOXP BP 4304e (300 dpi) - ZPL"
+                    className="w-full rounded border border-slate-300 bg-white px-2.5 py-1.5"
+                  />
+                )}
+                <div className="mt-1 text-[11px] text-slate-500">
+                  Detected USB Printer: <span className="font-semibold text-brand">BOXP BP 4304e (300 dpi) - ZPL</span> on USB004
+                </div>
               </div>
               <div>
                 <label className="block text-[11.5px] font-medium text-slate-600 mb-1">
@@ -325,8 +362,8 @@ export default function ZplPrinterConfigModal({ open, onClose, onSave }) {
                   onChange={(e) => handleChange('connectionMode', e.target.value)}
                   className="w-full rounded border border-slate-300 bg-white px-2.5 py-1.5 font-medium text-slate-800"
                 >
-                  <option value="download_prn">Download .PRN File (Universal USB / Spooler)</option>
-                  <option value="browser_print">Direct Zebra Browser Print (Port 9100)</option>
+                  <option value="browser_print">Direct Print to USB Spooler (Recommended)</option>
+                  <option value="download_prn">Download .PRN File</option>
                   <option value="visual_print">Visual 90×68 mm High-Res PDF Print</option>
                 </select>
               </div>
