@@ -65,8 +65,11 @@ const PurchaseInvoiceSchema = new mongoose.Schema(
     purchaseTermId: { type: mongoose.Schema.Types.ObjectId, ref: 'purchaseTerm', default: null },
     agentId: { type: mongoose.Schema.Types.ObjectId, ref: 'agent', default: null },
     logisticId: { type: mongoose.Schema.Types.ObjectId, ref: 'logistic', default: null },
-    vendorInvoiceCopy: { type: String, default: '' },
-    vendorWaybill: { type: String, default: '' },
+    /* File fields arrive as arrays of { _id, url, name, size, type } but
+       older records stored plain strings (some very large base64) - Mixed
+       accepts both shapes so no migration is needed. */
+    vendorInvoiceCopy: { type: mongoose.Schema.Types.Mixed, default: '' },
+    vendorWaybill: { type: mongoose.Schema.Types.Mixed, default: '' },
     purchaseInvoiceNo: { type: String, default: '' },
     purchaseDate: { type: Date, default: null },
     /* totals block, computed on the form and stored so the list and the

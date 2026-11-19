@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 // "use client";
 
 // import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -4407,6 +4407,15 @@ import {
   formDefaultsFromSetup, unmappedSetupFields, setupStatusMessage, setupIdentity, formatSetupValue,
 } from "@/lib/supplierPriceSetup";
 import BatchLabelCountDialog from "./BatchLabelCountDialog";
+import GrcZplLabelPreview from "./GrcZplLabelPreview";
+import ZplPrinterConfigModal from "./ZplPrinterConfigModal";
+import {
+  generateBatchZpl90x68,
+  downloadPrnFile,
+  sendToZebraBrowserPrint,
+  loadZplConfig,
+  DEFAULT_ZPL_CONFIG,
+} from "@/lib/zpl90x68";
 import * as XLSX from "xlsx";
 
 /* money(), sameValue() and finalRateOf() live in lib/itemsSheet.js, shared
@@ -7154,6 +7163,47 @@ function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
   const [formatName, setFormatName] = useState('');
   const [paper, setPaper] = useState('a4');
 
+  /* 90x68 mm ZPL Printer Integration */
+  const [printerMode, setPrinterMode] = useState('browser'); // 'browser' | 'zpl_90x68'
+  const [zplConfig, setZplConfig] = useState(DEFAULT_ZPL_CONFIG);
+  const [showZplConfigModal, setShowZplConfigModal] = useState(false);
+  const [zplNotice, setZplNotice] = useState('');
+  const [zplPreviewIndex, setZplPreviewIndex] = useState(0);
+
+  useEffect(() => {
+    if (open) {
+      setZplConfig(loadZplConfig());
+      setZplNotice('');
+      setZplPreviewIndex(0);
+    }
+  }, [open]);
+
+  const handleDownloadZplPrn = () => {
+    if (!selectedRows.length) {
+      setZplNotice('No labels selected to print.');
+      return;
+    }
+    const zpl = generateBatchZpl90x68(selectedRows, zplConfig);
+    downloadPrnFile(zpl, `grc_labels_90x68_${Date.now()}.prn`);
+    setZplNotice(`Downloaded 90×68 mm .PRN file with ${selectedRows.length} label(s). Ready to send to Zebra printer!`);
+  };
+
+  const handleDirectZplPrint = async () => {
+    if (!selectedRows.length) {
+      setZplNotice('No labels selected to print.');
+      return;
+    }
+    setZplNotice('Connecting to Zebra Thermal Printer...');
+    const zpl = generateBatchZpl90x68(selectedRows, zplConfig);
+    const result = await sendToZebraBrowserPrint(zpl);
+    if (result.success) {
+      setZplNotice(`Printed ${selectedRows.length} label(s) directly to "${result.printerName}"!`);
+    } else {
+      setZplNotice(`Direct print not available (${result.error}). Downloading .PRN file instead...`);
+      downloadPrnFile(zpl, `grc_labels_90x68_${Date.now()}.prn`);
+    }
+  };
+
   /* the print run: mounted -> measured -> dialog. See runPrint below. */
   const [printing, setPrinting] = useState(false);
   const [printError, setPrintError] = useState('');
@@ -7632,10 +7682,17 @@ function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
               even if the rest had worked. */}
           <div className="rounded border border-gray-200 bg-gray-50 p-4">
             <div className="mb-3 flex items-baseline justify-between text-sm font-semibold">
-              <span>Preview</span>
+              <div className="flex items-center gap-2">
+                <span>Preview</span>
+                {printerMode === 'zpl_90x68' && (
+                  <span className="rounded bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-800 uppercase tracking-wide">
+                    90×68 mm ZPL Mode
+                  </span>
+                )}
+              </div>
               <span className="text-[11px] font-normal text-gray-500">
                 {expectedLabels} label{expectedLabels === 1 ? '' : 's'}
-                {format?.labelSize ? ' · ' + format.labelSize : ''}
+                {printerMode === 'zpl_90x68' ? ' · 90 × 68 mm' : (format?.labelSize ? ' · ' + format.labelSize : '')}
               </span>
             </div>
             {chosen.length === 0 ? (
@@ -7646,6 +7703,37 @@ function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
                   ? 'Set the number of labels for the batch barcode' + (pendingBatch.length === 1 ? '' : 's')
                     + ' to preview ' + (pendingBatch.length === 1 ? 'it' : 'them') + ' - Print will ask.'
                   : 'Nothing to print.'}
+              </div>
+            ) : printerMode === 'zpl_90x68' ? (
+              <div className="flex flex-col items-center">
+                {selectedRows.length > 1 && (
+                  <div className="mb-2.5 flex items-center justify-between w-full text-xs text-slate-600 px-1">
+                    <span>
+                      Showing label <strong>{zplPreviewIndex + 1}</strong> of <strong>{selectedRows.length}</strong>
+                    </span>
+                    <div className="flex gap-1.5">
+                      <button
+                        type="button"
+                        disabled={zplPreviewIndex <= 0}
+                        onClick={() => setZplPreviewIndex((p) => Math.max(0, p - 1))}
+                        className="rounded border border-slate-300 bg-white px-2 py-0.5 font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                      >
+                        &larr; Prev
+                      </button>
+                      <button
+                        type="button"
+                        disabled={zplPreviewIndex >= selectedRows.length - 1}
+                        onClick={() => setZplPreviewIndex((p) => Math.min(selectedRows.length - 1, p + 1))}
+                        className="rounded border border-slate-300 bg-white px-2 py-0.5 font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                      >
+                        Next &rarr;
+                      </button>
+                    </div>
+                  </div>
+                )}
+                <div className="p-3 bg-slate-200/60 rounded-lg border border-slate-300 overflow-auto max-w-full">
+                  <GrcZplLabelPreview row={selectedRows[zplPreviewIndex] || selectedRows[0]} config={zplConfig} />
+                </div>
               </div>
             ) : (
               <>
@@ -7667,45 +7755,134 @@ function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
           </div>
         </div>
 
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-gray-200 px-4 py-3">
-          {printError && (
-            <span className="mr-auto text-sm font-medium text-red-700">{printError}</span>
-          )}
-
-          <label className="flex items-center gap-1 text-xs text-gray-600">
-            Label
-            <select
-              value={formatName}
-              onChange={(event) => setFormatName(event.target.value)}
-              className="rounded border border-gray-300 px-2 py-1 text-xs"
+        {zplNotice && (
+          <div className="mx-4 mb-2 flex items-center justify-between rounded-md border border-brand/30 bg-brand/5 px-3 py-2 text-[12.5px] text-brand">
+            <span>{zplNotice}</span>
+            <button
+              type="button"
+              onClick={() => setZplNotice('')}
+              className="font-bold ml-2 text-slate-400 hover:text-slate-600"
             >
-              {formats.length === 0 && <option value="">Default 50 x 40 mm</option>}
-              {formats.map((f) => <option key={f.name} value={f.name}>{f.name}</option>)}
-            </select>
-          </label>
+              ×
+            </button>
+          </div>
+        )}
 
-          <label className="flex items-center gap-1 text-xs text-gray-600">
-            Paper
-            <select
-              value={paper}
-              onChange={(event) => setPaper(event.target.value)}
-              className="rounded border border-gray-300 px-2 py-1 text-xs"
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-gray-200 px-4 py-3 bg-slate-50/50">
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-800">
+              Printer:
+              <select
+                value={printerMode}
+                onChange={(e) => {
+                  setPrinterMode(e.target.value);
+                  setZplNotice('');
+                }}
+                className="rounded border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-800 shadow-2xs"
+              >
+                <option value="browser">Standard Browser Printer (HTML/PDF)</option>
+                <option value="zpl_90x68">Zebra / ZPL Thermal Printer (90×68 mm)</option>
+              </select>
+            </label>
+
+            {printerMode === 'zpl_90x68' && (
+              <button
+                type="button"
+                onClick={() => setShowZplConfigModal(true)}
+                className="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-2xs"
+                title="Configure 90×68 mm ZPL Printer Settings"
+              >
+                <Icon name="printer" size={13} />
+                <span>⚙ Settings</span>
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            {printError && (
+              <span className="text-xs font-medium text-red-700 mr-2">{printError}</span>
+            )}
+
+            {printerMode === 'browser' ? (
+              <>
+                <label className="flex items-center gap-1 text-xs text-gray-600">
+                  Label
+                  <select
+                    value={formatName}
+                    onChange={(event) => setFormatName(event.target.value)}
+                    className="rounded border border-gray-300 px-2 py-1 text-xs"
+                  >
+                    {formats.length === 0 && <option value="">Default 50 x 40 mm</option>}
+                    {formats.map((f) => <option key={f.name} value={f.name}>{f.name}</option>)}
+                  </select>
+                </label>
+
+                <label className="flex items-center gap-1 text-xs text-gray-600">
+                  Paper
+                  <select
+                    value={paper}
+                    onChange={(event) => setPaper(event.target.value)}
+                    className="rounded border border-gray-300 px-2 py-1 text-xs"
+                  >
+                    <option value="a4">A4 sheet</option>
+                    <option value="stock" disabled={!stockSize}>
+                      {stockSize ? 'Label stock ' + format.pageSize : 'Label stock (no size set)'}
+                    </option>
+                  </select>
+                </label>
+
+                <button
+                  type="button"
+                  disabled={printing}
+                  onClick={(event) => { if (event.detail > 1) return; runPrint(); }}
+                  className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 disabled:opacity-60"
+                >
+                  {printing ? 'Preparing...' : 'Print'}
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={handleDownloadZplPrn}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-xs"
+                  title="Download .PRN / .ZPL file to send directly to your Zebra printer"
+                >
+                  <Icon name="download" size={14} />
+                  <span>Download .PRN File</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleDirectZplPrint}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-4 py-2 text-xs font-bold text-white shadow-xs hover:bg-brand-dark"
+                  title="Print directly to connected Zebra thermal printer"
+                >
+                  <Icon name="printer" size={14} />
+                  <span>Direct Print (Zebra)</span>
+                </button>
+              </>
+            )}
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-slate-50"
             >
-              <option value="a4">A4 sheet</option>
-              <option value="stock" disabled={!stockSize}>
-                {stockSize ? 'Label stock ' + format.pageSize : 'Label stock (no size set)'}
-              </option>
-            </select>
-          </label>
-
-          {/* event.detail > 1 is the second click of a double click. The lock
-              cannot stop it on its own: the real window.print() blocks while
-              the print dialog is open, the lock is released when it returns,
-              and a second click queued behind the dialog would then open it
-              again. A single click is detail 1 and the keyboard detail 0. */}
-          <button type="button" disabled={printing} onClick={(event) => { if (event.detail > 1) return; runPrint(); }} className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 disabled:opacity-60">{printing ? 'Preparing...' : 'Print'}</button>
-          <button type="button" onClick={onClose} className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700">Close</button>
+              Close
+            </button>
+          </div>
         </div>
+
+        {/* 90x68 ZPL Printer Configuration Modal */}
+        <ZplPrinterConfigModal
+          open={showZplConfigModal}
+          onClose={() => setShowZplConfigModal(false)}
+          onSave={(newCfg) => {
+            setZplConfig(newCfg);
+            setZplNotice('Printer configuration updated!');
+          }}
+        />
       </div>
     </div>
   );
@@ -8270,7 +8447,10 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
           setShowSaveConfirm(false);
           setSavingProgress({ show: false, stage: '', completed: 0, total: 0 });
           setActiveTab("items");
-          setSheetFocus({ rowId: firstRow?.id, key: first.field, at: Date.now() });
+          /* the sheet's Purchase Rate column is keyed 'rate'; everything else
+             already uses the row's own field name */
+          const focusKey = first.field === "purchaseRate" ? "rate" : first.field;
+          setSheetFocus({ rowId: firstRow?.id, key: focusKey, at: Date.now() });
           setSaveError(itemValidationMessage(summary));
           return false;
         }
@@ -8384,7 +8564,7 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
         if (data.code === "ITEM_VALIDATION" && Array.isArray(data.errors) && data.errors.length) {
           const first = data.errors[0];
           setActiveTab("items");
-          setSheetFocus({ rowId: first.rowId, key: first.field, at: Date.now() });
+          setSheetFocus({ rowId: first.rowId, key: first.field === "purchaseRate" ? "rate" : first.field, at: Date.now() });
         }
         setSaveError(data.error || `Save failed (HTTP ${response.status})`);
         return false;

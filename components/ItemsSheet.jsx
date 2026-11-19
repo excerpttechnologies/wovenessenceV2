@@ -1259,8 +1259,6 @@ export default function ItemsSheet({
   const [picking, setPicking] = useState(null);
   const suggestRef = useRef(null);
   suggestRef.current = suggest;
-  const checksRef = useRef({});
-  checksRef.current = checks;
   const editorElRef = useRef(null);
   const itemCacheRef = useRef(new Map());
   const itemSeqRef = useRef(0);
@@ -1717,7 +1715,7 @@ export default function ItemsSheet({
     /* the open item drop-down owns Up / Down / Enter / Esc while it is shown,
        exactly as an Excel autocomplete does */
     const sug = suggestRef.current;
-    const open = sug && sug.rowId === ed.rowId && sug.c === ed.c && sug.items.length > 0;
+    const open = sug && sug.rowId === ed.rowId && sug.c === ed.c && !sug.loading && sug.items.length > 0;
     if (open && (key === "ArrowDown" || key === "ArrowUp")) {
       event.preventDefault();
       event.stopPropagation();

@@ -62,7 +62,10 @@ const ItemSchema = new mongoose.Schema(
     rsp: { type: Number, default: null },
     wsp: { type: Number, default: null },
     rspOfferPercent: { type: Number, default: null },
-    image: { type: String, default: '' },
+    /* The item form's file field can arrive as an array of file objects
+       while older records (and image pickers) store a plain URL string -
+       Mixed accepts both shapes. */
+    image: { type: mongoose.Schema.Types.Mixed, default: '' },
     description: { type: String, default: '' },
     attributeAddonIds: { type: [mongoose.Schema.Types.ObjectId], default: [] },
     itemType: { type: String, default: "Simple" },

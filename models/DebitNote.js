@@ -14,8 +14,11 @@ const DebitNoteSchema = new mongoose.Schema(
     vendorGstNo: { type: String, default: '' },
     agentId: { type: mongoose.Schema.Types.ObjectId, ref: 'agent', default: null },
     logisticId: { type: mongoose.Schema.Types.ObjectId, ref: 'logistic', default: null },
-    vendorInvoiceCopy: { type: String, default: '' },
-    vendorWaybill: { type: String, default: '' },
+    /* File fields arrive as arrays of { _id, url, name, size, type } but
+       older records stored plain strings (some very large base64) - Mixed
+       accepts both shapes so no migration is needed. */
+    vendorInvoiceCopy: { type: mongoose.Schema.Types.Mixed, default: '' },
+    vendorWaybill: { type: mongoose.Schema.Types.Mixed, default: '' },
     debitNoteNo: { type: String, default: '' },
     debitCreadted: { type: Date, default: null },
     supplierId: { type: mongoose.Schema.Types.ObjectId, default: null },

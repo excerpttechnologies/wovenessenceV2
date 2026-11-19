@@ -22,7 +22,9 @@ const DeliveryChallanSchema = new mongoose.Schema(
     salesPersonId: { type: mongoose.Schema.Types.ObjectId, ref: 'agent', default: null },
     salesLedgerId: { type: mongoose.Schema.Types.ObjectId, ref: 'ledger', default: null },
     agentId: { type: mongoose.Schema.Types.ObjectId, ref: 'agent', default: null },
-    customerWaybill: { type: String, default: '' },
+    /* File field arrives as an array of { _id, url, name, size, type } but
+       older records stored a plain string - Mixed accepts both shapes. */
+    customerWaybill: { type: mongoose.Schema.Types.Mixed, default: '' },
     taxableValue: { type: Number, default: null },
     discountPercent: { type: Number, default: 0 },
     roundOffDiscountAmt: { type: Number, default: 0 },

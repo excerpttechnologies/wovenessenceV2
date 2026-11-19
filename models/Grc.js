@@ -26,8 +26,11 @@ const GrcSchema = new mongoose.Schema(
       logisticId: { type: mongoose.Schema.Types.ObjectId, ref: 'logistic', default: null },
       stockPointId: { type: mongoose.Schema.Types.ObjectId, ref: 'stockPoint', default: null },
       stockPointName: { type: String, default: 'Warehouse' },
-      lrCopy: { type: String, default: '' },
-      vendorInvoiceCopy: { type: String, default: '' },
+      /* File fields arrive as arrays of { _id, url, name, size, type } but
+         older records stored plain strings (some very large base64) - Mixed
+         accepts both shapes so no migration is needed. */
+      lrCopy: { type: mongoose.Schema.Types.Mixed, default: '' },
+      vendorInvoiceCopy: { type: mongoose.Schema.Types.Mixed, default: '' },
       vendorWaybill: { type: String, default: '' },
       hsnCode: { type: String, default: '' },
       invoiceQty: { type: Number, default: null },

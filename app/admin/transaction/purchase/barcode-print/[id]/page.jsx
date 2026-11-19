@@ -99,6 +99,15 @@ import {
   labelKey,
   toLabelData,
 } from '@/lib/barcodeLabelPrint';
+import GrcZplLabelPreview from '@/components/GrcZplLabelPreview';
+import ZplPrinterConfigModal from '@/components/ZplPrinterConfigModal';
+import {
+  generateBatchZpl90x68,
+  downloadPrnFile,
+  sendToZebraBrowserPrint,
+  loadZplConfig,
+  DEFAULT_ZPL_CONFIG,
+} from '@/lib/zpl90x68';
 
 /* Label rendering (BarcodeSvg, Label, labelFor, GrcBarcodeLabelSheet) lives
    in components/GrcBarcodeLabel.jsx - the single source of truth shared with
@@ -138,6 +147,43 @@ export default function GrcBarcodePrintPage() {
      available for desktop printers where labels are cut manually. */
   const { formats, format, formatName, setFormatName } = useBarcodeLabelFormat(true);
   const [paper, setPaper] = useState('stock');
+
+  /* 90x68 mm ZPL Printer Integration */
+  const [printerMode, setPrinterMode] = useState('browser'); // 'browser' | 'zpl_90x68'
+  const [zplConfig, setZplConfig] = useState(DEFAULT_ZPL_CONFIG);
+  const [showZplConfigModal, setShowZplConfigModal] = useState(false);
+  const [zplNotice, setZplNotice] = useState('');
+  const [zplPreviewIndex, setZplPreviewIndex] = useState(0);
+
+  useEffect(() => {
+    setZplConfig(loadZplConfig());
+  }, []);
+
+  const handleDownloadZplPrn = () => {
+    if (!counted.length) {
+      setZplNotice('No labels available to print.');
+      return;
+    }
+    const zpl = generateBatchZpl90x68(counted, zplConfig);
+    downloadPrnFile(zpl, `grc_${data?.grc?.grcNumber || 'labels'}_90x68.prn`);
+    setZplNotice(`Downloaded 90×68 mm .PRN file with ${counted.length} label(s).`);
+  };
+
+  const handleDirectZplPrint = async () => {
+    if (!counted.length) {
+      setZplNotice('No labels available to print.');
+      return;
+    }
+    setZplNotice('Connecting to Zebra Thermal Printer...');
+    const zpl = generateBatchZpl90x68(counted, zplConfig);
+    const result = await sendToZebraBrowserPrint(zpl);
+    if (result.success) {
+      setZplNotice(`Printed ${counted.length} label(s) directly to "${result.printerName}"!`);
+    } else {
+      setZplNotice(`Direct print not available (${result.error}). Downloading .PRN file instead...`);
+      downloadPrnFile(zpl, `grc_${data?.grc?.grcNumber || 'labels'}_90x68.prn`);
+    }
+  };
 
   /* PRINTING HAPPENS EXACTLY ONCE PER USER ACTION, AND ONLY WHEN THE SHEET IS
      REALLY THERE.
@@ -493,52 +539,108 @@ export default function GrcBarcodePrintPage() {
       {/* Not printed, so the GRC number may stay here as a reminder of which
           GRC is on screen. The supplier code is gone: it has no place on this
           page now that no label carries it. */}
-      <div className="no-print mb-4 flex flex-wrap items-center justify-between gap-3">
-        <span className="text-xs text-slate-500">
-          {totalLabels} label(s) &middot; GRC {data.grc?.grcNumber}
-          {pendingCount > 0
-            ? ` · ${pendingCount} batch barcode${pendingCount === 1 ? '' : 's'} awaiting a label count`
-            : ''}
-        </span>
+      <div className="no-print mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-xs">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-xs font-semibold text-slate-700">
+            {totalLabels} label(s) &middot; GRC {data.grc?.grcNumber}
+            {pendingCount > 0
+              ? ` · ${pendingCount} batch barcode${pendingCount === 1 ? '' : 's'} awaiting count`
+              : ''}
+          </span>
+
+          <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-800 ml-2">
+            Printer:
+            <select
+              value={printerMode}
+              onChange={(e) => {
+                setPrinterMode(e.target.value);
+                setZplNotice('');
+              }}
+              className="rounded border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-800 shadow-2xs"
+            >
+              <option value="browser">Standard Browser Printer (HTML/PDF)</option>
+              <option value="zpl_90x68">Zebra / ZPL Thermal Printer (90×68 mm)</option>
+            </select>
+          </label>
+
+          {printerMode === 'zpl_90x68' && (
+            <button
+              type="button"
+              onClick={() => setShowZplConfigModal(true)}
+              className="inline-flex items-center gap-1 rounded border border-slate-300 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+              title="Configure 90×68 mm ZPL Printer Settings"
+            >
+              <Icon name="printer" size={13} />
+              <span>⚙ Settings</span>
+            </button>
+          )}
+        </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* The same two choices the Barcode Generation picker offers, read
-              from the same catalog, so one GRC prints the same physical label
-              from either screen. */}
-          <label className="flex items-center gap-1 text-xs text-slate-600">
-            Label
-            <select
-              value={formatName}
-              onChange={(event) => setFormatName(event.target.value)}
-              className="rounded border border-slate-300 px-2 py-1 text-xs"
-            >
-              {formats.length === 0 && <option value="">Default 50 x 40 mm</option>}
-              {formats.map((f) => <option key={f.name} value={f.name}>{f.name}</option>)}
-            </select>
-          </label>
+          {printerMode === 'browser' ? (
+            <>
+              {/* The same two choices the Barcode Generation picker offers, read
+                  from the same catalog, so one GRC prints the same physical label
+                  from either screen. */}
+              <label className="flex items-center gap-1 text-xs text-slate-600">
+                Label
+                <select
+                  value={formatName}
+                  onChange={(event) => setFormatName(event.target.value)}
+                  className="rounded border border-slate-300 px-2 py-1 text-xs"
+                >
+                  {formats.length === 0 && <option value="">Default 50 x 40 mm</option>}
+                  {formats.map((f) => <option key={f.name} value={f.name}>{f.name}</option>)}
+                </select>
+              </label>
 
-          <label className="flex items-center gap-1 text-xs text-slate-600">
-            Paper
-            <select
-              value={paper}
-              onChange={(event) => setPaper(event.target.value)}
-              className="rounded border border-slate-300 px-2 py-1 text-xs"
-            >
-              <option value="stock">
-                {stockSize ? 'Label stock ' + format.pageSize : 'Label stock'}
-              </option>
-              <option value="a4">A4 sheet</option>
-            </select>
-          </label>
+              <label className="flex items-center gap-1 text-xs text-slate-600">
+                Paper
+                <select
+                  value={paper}
+                  onChange={(event) => setPaper(event.target.value)}
+                  className="rounded border border-slate-300 px-2 py-1 text-xs"
+                >
+                  <option value="stock">
+                    {stockSize ? 'Label stock ' + format.pageSize : 'Label stock'}
+                  </option>
+                  <option value="a4">A4 sheet</option>
+                </select>
+              </label>
 
-          <button
-            type="button"
-            disabled={printing}
-            onClick={startPrint}
-            className="rounded bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:opacity-60"
-          >
-            {printing ? 'Preparing...' : 'Print Labels'}
-          </button>
+              <button
+                type="button"
+                disabled={printing}
+                onClick={startPrint}
+                className="rounded bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:opacity-60"
+              >
+                {printing ? 'Preparing...' : 'Print Labels'}
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={handleDownloadZplPrn}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-xs"
+                title="Download .PRN / .ZPL file to send directly to your Zebra printer"
+              >
+                <Icon name="download" size={14} />
+                <span>Download .PRN File</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleDirectZplPrint}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-4 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-brand-dark"
+                title="Print directly to connected Zebra thermal printer"
+              >
+                <Icon name="printer" size={14} />
+                <span>Direct Print (Zebra)</span>
+              </button>
+            </>
+          )}
+
           {/* Close (21-10-2026): back to the GRC list - screen only, the
               whole toolbar is no-print */}
           <button
@@ -552,6 +654,13 @@ export default function GrcBarcodePrintPage() {
           </button>
         </div>
       </div>
+
+      {zplNotice && (
+        <div className="no-print mb-4 flex items-center justify-between rounded-md border border-brand/30 bg-brand/5 p-3 text-xs text-brand font-medium">
+          <span>{zplNotice}</span>
+          <button type="button" onClick={() => setZplNotice('')} className="font-bold ml-2 text-slate-400">×</button>
+        </div>
+      )}
 
       {notice && (
         <p className="no-print mb-4 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
@@ -606,6 +715,37 @@ export default function GrcBarcodePrintPage() {
             ? 'No labels on the sheet yet - set a label quantity for the batch barcodes above.'
             : 'Nothing to print for this GRC.'}
         </p>
+      ) : printerMode === 'zpl_90x68' ? (
+        <div className="flex flex-col items-center">
+          {counted.length > 1 && (
+            <div className="mb-3 flex items-center justify-between w-full max-w-[90mm] text-xs text-slate-600 px-1">
+              <span>
+                Label <strong>{zplPreviewIndex + 1}</strong> of <strong>{counted.length}</strong>
+              </span>
+              <div className="flex gap-1.5">
+                <button
+                  type="button"
+                  disabled={zplPreviewIndex <= 0}
+                  onClick={() => setZplPreviewIndex((p) => Math.max(0, p - 1))}
+                  className="rounded border border-slate-300 bg-white px-2 py-0.5 font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                >
+                  &larr; Prev
+                </button>
+                <button
+                  type="button"
+                  disabled={zplPreviewIndex >= counted.length - 1}
+                  onClick={() => setZplPreviewIndex((p) => Math.min(counted.length - 1, p + 1))}
+                  className="rounded border border-slate-300 bg-white px-2 py-0.5 font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                >
+                  Next &rarr;
+                </button>
+              </div>
+            </div>
+          )}
+          <div className="p-4 bg-slate-100 rounded-lg border border-slate-300 overflow-auto max-w-full">
+            <GrcZplLabelPreview row={counted[zplPreviewIndex] || counted[0]} config={zplConfig} />
+          </div>
+        </div>
       ) : (
         /* WHAT IS ON SCREEN IS WHAT IS PRINTED: the same component, the same
            rows, the same format and the same gutter as the print surface
@@ -625,6 +765,15 @@ export default function GrcBarcodePrintPage() {
         initialValue={prompt ? batchCounts[prompt.key] ?? '' : ''}
         onCancel={cancelPrompt}
         onConfirm={confirmPrompt}
+      />
+
+      <ZplPrinterConfigModal
+        open={showZplConfigModal}
+        onClose={() => setShowZplConfigModal(false)}
+        onSave={(newCfg) => {
+          setZplConfig(newCfg);
+          setZplNotice('Printer configuration updated!');
+        }}
       />
     </div>
   );

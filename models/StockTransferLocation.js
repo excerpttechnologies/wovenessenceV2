@@ -27,7 +27,9 @@ const StockTransferLocationSchema = new mongoose.Schema(
        form, even though it is the STL's own number, not a packet's */
     packetNo: { type: String, default: '', index: true },
     stlDate: { type: Date, default: null },
-    stockTransferWaybill: { type: String, default: '' },
+    /* File field arrives as an array of { _id, url, name, size, type } but
+       older records stored a plain string - Mixed accepts both shapes. */
+    stockTransferWaybill: { type: mongoose.Schema.Types.Mixed, default: '' },
 
     /* transfer from */
     fromLocationId: { type: mongoose.Schema.Types.ObjectId, ref: 'companyLocation', default: null, index: true },
