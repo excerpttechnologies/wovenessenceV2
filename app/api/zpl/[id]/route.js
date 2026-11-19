@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import dbConnect from '@/lib/db';
 import Grc from '@/models/Grc';
-import BarcodeLabel from '@/models/BarcodeLabel';
+import BarcodeLabel from '@/lib/barcodeLabel';
 import { generateBatchZpl90x68, generateTestPrn, DEFAULT_ZPL_CONFIG } from '@/lib/zpl90x68';
 
 export async function GET(req, { params }) {
