@@ -285,6 +285,7 @@ try {
   const seedRows = Array.from({ length: 40 }, (_, i) => ({
     id: 'seed-' + i, itemCode: '10-PLNBTM', itemName: '10-PLNBTM', hsn: '520811', gst: '0', uom: 'MTR', qty: String(i === 7 ? 30 : 20),
     purchaseRate: '74', finalPrice: '70.3', retailPrice: '150', uniqueBarcode: 'Yes', mode: 'unique', barcodeNo: '', billSlNo: String(i + 1),
+    sm: '0', p_m_f: '20',
     supplierDescription: '10-PLNBTM', printDescription: '10-PLNBTM', discountType: 'Percentage', discount: '5', groupId: 'mtr-' + (i + 1),
   }));
   const seeded = await api('/api/barcode-generation', { method: 'POST', body: JSON.stringify({ rows: seedRows, grcId: String(grcId), business: String(business), location: String(location), finYear, supplierId: null }) });

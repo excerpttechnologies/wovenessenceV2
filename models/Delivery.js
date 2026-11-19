@@ -74,7 +74,10 @@ const DeliverySchema = new mongoose.Schema(
       finYear: { type: String, default: '', index: true },
 
       transactionNo: { type: String, default: '', index: true },
-      document: { type: String, default: '' },
+      /* File fields arrive as arrays of { _id, url, name, size, type } but
+         older records stored plain strings (some very large base64) - Mixed
+         accepts both shapes so no migration is needed. */
+      document: { type: mongoose.Schema.Types.Mixed, default: '' },
       invoiceCopy: { type: String, default: '' },
       transactionDate: { type: Date, default: null },
       transporterId: { type: mongoose.Schema.Types.ObjectId, ref: 'transporter', default: null, index: true },
@@ -91,7 +94,7 @@ const DeliverySchema = new mongoose.Schema(
       grcNumber: { type: String, default: '' },
       vendorInvoiceNo: { type: String, default: '' },
       vendorInvoiceDate: { type: Date, default: null },
-      vendorInvoiceCopy: { type: String, default: '' },
+      vendorInvoiceCopy: { type: mongoose.Schema.Types.Mixed, default: '' },
       vendorWaybill: { type: String, default: '' },
 
       parcelQty: { type: Number, default: null },

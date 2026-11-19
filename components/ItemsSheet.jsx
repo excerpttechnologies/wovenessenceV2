@@ -1063,6 +1063,11 @@ const SheetRow = memo(function SheetRow({
   const accent = status === "CHANGED"
     ? "border-l-4 border-l-red-500"
     : status === "NEW" ? "border-l-4 border-l-green-500" : "border-l border-l-gray-300";
+  /* the Item Master check left no complaint on this row - the green marker */
+  const checkedOk = Boolean(checks
+    && !Object.keys(checks.errors || {}).length
+    && !Object.keys(checks.warnings || {}).length
+    && String(row?.itemCode ?? "").trim());
 
   return (
     <tr data-row={r} className={tint}>
@@ -1154,6 +1159,10 @@ const SheetRow = memo(function SheetRow({
                   <span aria-hidden="true" className="pointer-events-none absolute right-0 top-0 h-0 w-0 border-l-[7px] border-t-[7px] border-l-transparent border-t-red-600" />
                 ) : warning ? (
                   <span aria-label={warning} title={warning} className="pointer-events-none absolute right-0 top-0 flex h-3.5 w-3.5 items-center justify-center rounded-bl bg-amber-500 text-[9px] font-bold leading-none text-white">!</span>
+                ) : checkedOk && col.key === "itemCode" ? (
+                  /* green: this row's item was checked and agrees with the
+                     Item Master (no error, no price difference) */
+                  <span aria-label="Matches the Item Master" title="Matches the Item Master" className="pointer-events-none absolute right-0 top-0 flex h-3.5 w-3.5 items-center justify-center rounded-bl bg-green-600 text-[9px] font-bold leading-none text-white">✓</span>
                 ) : null}
               </>
             )}
