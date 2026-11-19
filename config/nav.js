@@ -63,6 +63,7 @@ import {
   LuRoute,
   LuSend,
   LuPackageCheck,
+   LuImage,
   LuPackageMinus,
   LuArchive,
   LuSparkles,
@@ -630,10 +631,18 @@ export const NAV = [
         href: '/admin/reports/receipt-voucher-report' },
       { label: 'Payment Voucher Report', icon: LuWalletCards,
         href: '/admin/reports/payment-voucher-report' },
+          { label: 'Journal Voucher Report', icon: LuBookMarked,
+        href: '/admin/reports/journal-voucher-report' },
       { label: 'Sales Analysis', icon: LuChartNoAxesColumn,
         href: '/admin/reports/sales-analysis' },
       { label: 'Sales Report', icon: LuFileText,
         href: '/admin/reports/sales-report' },
+
+        { label: 'Sales Image', icon: LuImage,
+        href: '/admin/reports/sales-image-report' },
+      { label: 'Performance Log Report', icon: LuClipboardList,
+        href: '/admin/reports/performance-log-report' },
+
 
         { label: 'GST Report', icon: LuPercent,
         href: '/admin/reports/gst-report' },
@@ -650,6 +659,8 @@ export const NAV = [
         href: '/admin/reports/pos-report' },
       { label: 'POS Credit Note', icon: LuFileMinus,
         href: '/admin/reports/pos-credit-note' },
+         { label: 'Day End Report', icon: LuFileText,
+        href: '/admin/reports/day-end-report' },
       { label: 'Item Stock', icon: LuWarehouse,
         href: '/admin/reports/item-stock' },
         { label: 'Stock Summary Report', icon: LuWarehouse,
@@ -675,6 +686,9 @@ export const NAV = [
         href: '/admin/reports/transaction-summary-report' },
         ],
       },
+
+       { label: 'Master Report', icon: LuFileText,
+        href: '/admin/reports/master-report' },
       /* Supplier stock reports - Summary -> Bill-wise -> Batch-wise, and the
          visual gallery. The two supplier reports above are the money side
          (what a bill is, what is still owed); these are the stock side. */
@@ -686,6 +700,10 @@ export const NAV = [
         href: '/admin/reports/supplier-summary-report/batch-wise' },
       { label: 'Stock Gallery View', icon: LuWarehouse,
         href: '/admin/reports/stock-gallery-view' },
+         { label: 'Stock Image', icon: LuImage,
+        href: '/admin/reports/stock-image' },
+      { label: 'Get Item Barcode', icon: LuBarcode,
+        href: '/admin/reports/item-barcode' },
     ],
   },
 

@@ -101,11 +101,15 @@ export async function GET(req) {
 
   const scope = scopeOf(sp);
   const { page, perPage } = pageOf(sp);
+  
+   const reportScreen = sp.get('screen') === 'stock-image'
+    ? SCREENS.STOCK_IMAGE_REPORT
+    : SCREENS.STOCK_GALLERY_VIEW;
 
   const denied = await screenDenial({
     session,
-    screen: SCREENS.STOCK_GALLERY_VIEW,
-    label: 'the stock gallery',
+    screen: reportScreen,
+    label: sp.get('screen') === 'stock-image' ? 'the stock image report' : 'the stock gallery',
     action: PERM.READ,
     businessId: scope.businessId,
   });
@@ -158,6 +162,21 @@ export async function GET(req) {
     const groupIds = [...new Set([...groupPicks, ...kids.map((k) => String(k._id))])]
       .map((v) => new Types.ObjectId(v));
     const items = await Item.find({ subGroupId: { $in: groupIds } }).select('itemCode name').lean();
+    const keys = [...new Set(items.flatMap((i) => [s(i.itemCode), s(i.name)]).filter(Boolean))];
+    and.push(keys.length
+      ? { $or: [
+        { itemId: { $in: items.map((i) => i._id) } },
+        { itemCode: { $in: keys } },
+        { itemName: { $in: keys } },
+      ] }
+      : { _id: null });
+  }
+
+
+  const subGroupPicks = many(sp, 'subGroupId').filter((v) => isValidObjectId(v));
+  if (subGroupPicks.length) {
+    const items = await Item.find({ subGroupId: { $in: subGroupPicks } })
+      .select('itemCode name').lean();
     const keys = [...new Set(items.flatMap((i) => [s(i.itemCode), s(i.name)]).filter(Boolean))];
     and.push(keys.length
       ? { $or: [
