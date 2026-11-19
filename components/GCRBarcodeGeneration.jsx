@@ -4376,7 +4376,7 @@ import GrcBarcodeLabelSheet, { Label, labelFor } from "./GrcBarcodeLabel";
 /* One geometry module for the sticker stock - the same one the label
    renderer lays a label out with and the GRC Barcode Print page prints
    from, so the preview here cannot be measured differently. */
-import { labelRun, parseSize, parsePageSize, labelGeometry } from "@/lib/barcodeLabelGeometry";
+import { labelRun, parsePageSize, labelGeometry } from "@/lib/barcodeLabelGeometry";
 import { useOptions } from "./useOptions";
 import { exportRowsData, formatFileSize } from "@/lib/format";
 import { useBarcodeLookup } from "./useScanner";
@@ -7267,11 +7267,18 @@ function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
   const { gap, stockSize } = run;
 
   /* Parse paper and label dimensions for iframe printing */
-  const paperDims = paper === 'stock' && format ? parsePageSize(format) : null;
-  const labelDims = format ? parseSize(format.labelSize) : { w: 50, h: 40 };
+  const isStock = paper === 'stock';
+  const paperDims = isStock && format ? parsePageSize(format) : null;
   const paperW = paperDims ? paperDims.w : (paper === 'a4' ? 210 : 100);
   const paperH = paperDims ? paperDims.h : (paper === 'a4' ? 297 : 40);
-  const labelsPerSheet = Math.max(1, Math.floor(paperW / labelDims.w));
+  /* Labels per page come from the SAME geometry the sheet is drawn with
+     (run.perRow / run.size), not from dividing the raw page width by the
+     catalog label width - the fitted label is narrower than the catalog
+     size on stock. On die-cut stock one page is exactly one row of
+     stickers; on A4 a page holds as many rows of the 2-up grid as fit. */
+  const labelsPerSheet = isStock
+    ? run.perRow
+    : run.perRow * Math.max(1, Math.floor((paperH - 10) / Math.max(1, run.size.h)));
 
   /* Build labels array for iframe printing */
   const labelsForPrint = selectedRows.flatMap((row, ri) => {
@@ -7373,20 +7380,24 @@ function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
         /* Copy the rendered HTML (with drawn barcodes) to iframe */
         const doc = iframe.contentDocument || iframe.contentWindow.document;
         doc.open();
+        /* Sheet CSS differs by paper: die-cut stock is one fixed page per
+           row of stickers (labels centred, 2mm kept clear at the gripper
+           edges); A4 flows the same 2-up grid across letter pages. The
+           labels carry their exact mm size inline - nothing resizes them. */
+        const sheetCss = isStock
+          ? `.sheet { width:${paperW}mm; height:${paperH}mm; display:flex; align-items:center; justify-content:flex-start; padding:0 2mm; box-sizing:border-box; overflow:hidden; }`
+          : `.sheet { display:grid; grid-template-columns:repeat(${run.perRow}, ${run.size.w}mm); grid-auto-rows:${run.size.h}mm; column-gap:${run.gapMm}mm; row-gap:${run.gapMm}mm; justify-content:center; align-content:start; width:${paperW - 10}mm; margin:0 auto; overflow:hidden; }`;
         doc.write(`<!DOCTYPE html>
 <html>
 <head>
   <style>
-    @page { size: ${paperW}mm ${paperH}mm; margin: 0; }
-    html, body { margin:0; padding:0; width:${paperW}mm; print-color-adjust: exact; -webkit-print-color-adjust: exact; font-family: Arial, Helvetica, sans-serif; }
-    .sheet { width:${paperW}mm; height:${paperH}mm; display:flex; overflow:hidden; break-after:page; page-break-after:always; }
+    @page { size: ${isStock ? paperW + 'mm ' + paperH + 'mm' : 'A4'}; margin: ${isStock ? '0' : '5mm'}; }
+    html, body { margin:0; padding:0; background:#fff; print-color-adjust: exact; -webkit-print-color-adjust: exact; font-family: Arial, Helvetica, sans-serif; }
+    .sheet { overflow:hidden; break-after:page; page-break-after:always; }
     .sheet:last-child { break-after:auto; page-break-after:auto; }
-    .label { width:${labelDims.w}mm; height:${paperH}mm; box-sizing:border-box; overflow:hidden; padding:1.5mm 2mm; display:flex; flex-direction:column; justify-content:space-between; }
-    .label, .label * { border: none !important; outline: none !important; }
-    svg[data-barcode], img[data-barcode], canvas[data-barcode] { display:block; margin:0 auto; width:80%; max-width:40mm; height:9mm; object-fit:contain; }
-    .barcode-label { display:flex; flex-direction:column; justify-content:space-between; height:100%; }
-    .barcode-label > div { margin: 0.5mm 0; }
-    .barcode-label span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    ${sheetCss}
+    .barcode-label { border:none !important; outline:none !important; break-inside:avoid; page-break-inside:avoid; }
+    svg[data-barcode] { display:block; width:100%; height:100%; }
   </style>
 </head>
 <body>
