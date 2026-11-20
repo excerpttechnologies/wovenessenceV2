@@ -621,7 +621,7 @@ const DISCLAIMER = 'No exchange, no guarantee, No Return';
    Label — one complete printable sticker.
 
               [ machine-readable barcode ]
-     barcodeNo  <-10mm->  barcodeGenerated
+     barcodeNo (left edge)      barcodeGenerated (right edge)
      description (up to 3 lines)
      HSN   item code   qty + unit      (compact: each column as wide as
      encoded PR        ₹offer/-         its values, 3mm apart)
@@ -696,13 +696,13 @@ export function Label({ label, geometry }) {
   const noFont = idFont;
   const secondaryFont = idFont;
 
-  /* THE PRODUCT BLOCK takes only the width its values need. Each of its
-     three columns is as wide as the longer of its two values, and BOTH rows
-     use those same widths, so the columns stay lined up under each other;
-     PRODUCT_GAP_MM sits between them and the block is centred on the
-     sticker. Widths come from the same character estimate
-     fitType sizes type with, and when the values are too long for the
-     sticker the whole block is set smaller together rather than cut. */
+  /* THE PRODUCT BLOCK spans the sticker the way the ERP reference does: each
+     column is as wide as the longer of its two values, BOTH rows use those
+     same widths so the columns stay lined up under each other, and the
+     tracks are spread edge to edge - first value left, middle centred, last
+     right. Widths come from the same character estimate fitType sizes type
+     with, and when the values are too long for the sticker the whole block
+     is set smaller together rather than cut. */
   const allChars = [0, 1, 2].map((i) => Math.max(String(detailRow1[i] ?? '').length, String(detailRow2[i] ?? '').length));
   /* a column empty on both rows takes no place (and no gap) at all */
   const productCols = [0, 1, 2].filter((i) => allChars[i] > 0);
@@ -715,14 +715,18 @@ export function Label({ label, geometry }) {
     ? Math.max(PRODUCT_GAP_MM, (g.usableW * PRODUCT_BLOCK_SHARE - productWidths.reduce((sum, w) => sum + w, 0)) / gapCount)
     : 0;
   const productColumns = productWidths.map((w) => mm(w)).join(' ');
+  /* column alignment by POSITION, like the reference: outer columns hug the
+     sticker's sides, any middle column centres between them */
+  const columnAlign = (pos, total) =>
+    total <= 1 || pos === 0 ? 'left' : pos === total - 1 ? 'right' : 'center';
   const threeUp = (key, cells, style = {}) => (
     <div
       style={{
         display: 'grid',
         gridTemplateColumns: productColumns,
-        /* the block is centred on the sticker, like the number row above -
-           both rows share productColumns and productGap, so they line up */
-        justifyContent: 'center',
+        /* the tracks spread across the usable width - both rows share
+           productColumns and productGap, so they line up */
+        justifyContent: 'space-between',
         alignItems: 'center',
         columnGap: mm(productGap),
         height: band(key),
@@ -731,8 +735,8 @@ export function Label({ label, geometry }) {
         ...style,
       }}
     >
-      {productCols.map((i) => (
-        <span key={i} style={{ ...ONE_LINE, textAlign: 'left' }}>
+      {productCols.map((i, pos) => (
+        <span key={i} style={{ ...ONE_LINE, textAlign: columnAlign(pos, productCols.length) }}>
           {cells[i]}
         </span>
       ))}
@@ -802,14 +806,15 @@ export function Label({ label, geometry }) {
         </div>
       </div>
 
-      {/* 2 — barcodeNo then barcodeGenerated, ID_GAP_MM apart, the
-          pair CENTRED under the bars. textTransform none: globals.css
-          uppercases body text and a barcode value is case-sensitive. */}
+      {/* 2 — barcodeNo on the LEFT edge, the generated reference on the RIGHT
+          edge, one line, the pair spread to the sticker's sides like the ERP
+          reference label. textTransform none: globals.css uppercases body
+          text and a barcode value is case-sensitive. */}
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'center',
+          justifyContent: 'space-between',
           gap: mm(hasNo && hasSecondary ? ID_GAP_MM : 0),
           height: band('identifier'),
           fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
@@ -818,8 +823,8 @@ export function Label({ label, geometry }) {
           textTransform: 'none',
         }}
       >
-        {/* the unit's own number, larger and heavier than the composed value
-            - each span carries the size it was fitted to above */}
+        {/* both values bold, each span carrying the size it was fitted to
+            above - barcodeNo flush left, the reference flush right */}
         {hasNo && <span style={{ ...ONE_LINE_FULL, fontSize: mm(noFont), fontWeight: 700 }}>{barcodeNo}</span>}
         {hasSecondary && <span style={{ ...ONE_LINE_FULL, fontSize: mm(secondaryFont), fontWeight: 700 }}>{secondary}</span>}
       </div>
