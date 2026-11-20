@@ -688,13 +688,13 @@ export function Label({ label, geometry }) {
   const hasNo = Boolean(barcodeNo);
   const hasSecondary = Boolean(secondary);
   const idAvail = g.usableW - (hasNo && hasSecondary ? ID_GAP_MM : 0);
-  const NO_WIDTH_SHARE = 0.42;
-  const noFont = hasNo
-    ? fitType(barcodeNo, hasSecondary ? idAvail * NO_WIDTH_SHARE : idAvail, idCap, MONO_CHAR_W)
-    : 0;
-  const secondaryFont = hasSecondary
-    ? fitType(secondary, hasNo ? idAvail * (1 - NO_WIDTH_SHARE) : idAvail, idCap, MONO_CHAR_W)
-    : 0;
+  /* Both identifier values now use the SAME font size - the size that fits
+     the larger of the two values within the full identifier width. This
+     matches the user's request for equal font sizes. */
+  const idText = hasNo && hasSecondary ? barcodeNo + ' ' + secondary : (hasNo ? barcodeNo : secondary);
+  const idFont = idText ? fitType(idText, idAvail, idCap, MONO_CHAR_W) : 0;
+  const noFont = idFont;
+  const secondaryFont = idFont;
 
   /* THE PRODUCT BLOCK takes only the width its values need. Each of its
      three columns is as wide as the longer of its two values, and BOTH rows

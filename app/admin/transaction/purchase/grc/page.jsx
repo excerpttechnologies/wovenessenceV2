@@ -4,6 +4,7 @@ import ListView from '@/components/ListView';
 import { useToast } from '@/components/ToastContext';
 import GrcCancelModal from '@/components/GrcCancelModal';
 import GrcTransferBlockModal from '@/components/GrcTransferBlockModal';
+import { PrintLabelPicker } from '@/components/GCRBarcodeGeneration';
 
 /* Goods Receipt Challans - list. Columns declared here, not fetched from a registry. */
 
@@ -19,6 +20,28 @@ export default function TransactionPurchaseGrcListPage() {
   const [blockTransfers, setBlockTransfers] = useState([]);
   const [processing, setProcessing] = useState(false);
   const [modalError, setModalError] = useState('');
+
+  /* Print Label Picker - the SAME modal the Barcode Generation and Barcode
+     Print screens open, fed with this GRC's barcode records. rows are loaded
+     from /api/grc/<id> - the identical endpoint barcode-print/[id] uses - so
+     the picker sees exactly the records that page would print. */
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerRows, setPickerRows] = useState([]);
+
+  async function openBarcodePicker(row) {
+    try {
+      const res = await fetch(`/api/grc/${row._id}`);
+      const d = await res.json();
+      if (!res.ok || d.error) {
+        showToast(d.error || 'Failed to load barcode data', 'error');
+        return;
+      }
+      setPickerRows(d.rows || []);
+      setPickerOpen(true);
+    } catch (err) {
+      showToast('Failed to load barcode data: ' + err.message, 'error');
+    }
+  }
 
   /**
    * Step 1: Check stock transfer dependencies
@@ -132,7 +155,7 @@ export default function TransactionPurchaseGrcListPage() {
     /* Action menu with conditional DELETE/CANCEL buttons using show property */
     actionMenu: [
       { label: 'Edit', icon: 'pencil', to: (r) => '/admin/transaction/purchase/grc/' + r._id, need: 'update' },
-      { label: 'Barcode Print', icon: 'barcode', to: (r) => '/admin/transaction/purchase/barcode-print/' + r._id },
+      { label: 'Barcode Print', icon: 'barcode', onClick: openBarcodePicker },
       { label: 'GRC Print', icon: 'printer', to: (r) => '/admin/transaction/purchase/grc/print/' + r._id },
       /* DELETE button - only for latest GRC */
       { label: 'Delete', icon: 'trash', action: 'delete', need: 'delete', show: (r) => r.isLatest === true },
@@ -190,6 +213,14 @@ export default function TransactionPurchaseGrcListPage() {
         grc={selectedGrc}
         transfers={blockTransfers}
         onClose={closeBlockModal}
+      />
+
+      {/* The shared picker - selection, batch counts, label/paper/barcode
+          profile, preview and the whole print run live inside it. */}
+      <PrintLabelPicker
+        rows={pickerRows}
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
       />
     </>
   );
