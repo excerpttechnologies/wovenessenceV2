@@ -108,6 +108,7 @@ import {
   loadZplConfig,
   DEFAULT_ZPL_CONFIG,
 } from '@/lib/zpl90x68';
+import { print90x68LabelsDirect } from '@/lib/zplDirectPrint';
 
 /* Label rendering (BarcodeSvg, Label, labelFor, GrcBarcodeLabelSheet) lives
    in components/GrcBarcodeLabel.jsx - the single source of truth shared with
@@ -174,14 +175,27 @@ export default function GrcBarcodePrintPage() {
       setZplNotice('No labels available to print.');
       return;
     }
-    setZplNotice('Connecting to Zebra Thermal Printer...');
-    const zpl = generateBatchZpl90x68(counted, zplConfig);
-    const result = await sendToZebraBrowserPrint(zpl);
-    if (result.success) {
-      setZplNotice(`Printed ${counted.length} label(s) directly to "${result.printerName}"!`);
-    } else {
-      setZplNotice(`Direct print not available (${result.error}). Downloading .PRN file instead...`);
-      downloadPrnFile(zpl, `grc_${data?.grc?.grcNumber || 'labels'}_90x68.prn`);
+    setZplNotice('Preparing 90×68 mm labels for direct printing...');
+
+    // 1. If on local machine with Windows spooler API active, try raw spooler
+    try {
+      const zpl = generateBatchZpl90x68(counted, zplConfig);
+      const result = await sendToZebraBrowserPrint(zpl);
+      if (result && result.success) {
+        setZplNotice(`Printed ${counted.length} label(s) directly to "${result.printerName}"!`);
+        return;
+      }
+    } catch {
+      // Fall through directly to browser print without throwing or downloading files
+    }
+
+    // 2. Direct browser print targeting 90×68 mm media (works directly from https://erp.wovenessence.in)
+    try {
+      await print90x68LabelsDirect(counted, zplConfig);
+      setZplNotice(`Opened print window for ${counted.length} label(s) on 90×68 mm printer.`);
+    } catch (err) {
+      console.error('Direct print error:', err);
+      setZplNotice('Direct print error: ' + (err.message || 'Could not print labels'));
     }
   };
 
@@ -633,10 +647,10 @@ export default function GrcBarcodePrintPage() {
                 type="button"
                 onClick={handleDirectZplPrint}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-4 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-brand-dark"
-                title="Print directly to connected Zebra thermal printer"
+                title="Print directly to your connected USB / Thermal Printer"
               >
                 <Icon name="printer" size={14} />
-                <span>Direct Print (Zebra)</span>
+                <span>Direct Print (90×68 mm)</span>
               </button>
             </>
           )}

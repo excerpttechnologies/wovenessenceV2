@@ -6,12 +6,19 @@ import { formatLabelPrice, toLabelData } from '@/lib/barcodeLabelPrint';
  * Visual Preview of the 90 × 68 MM ZPL Label.
  * Accurately replicates the physical layout and fonts of 90x68 PRN FILE.prn.
  */
-export default function GrcZplLabelPreview({ row, config = {} }) {
+export default function GrcZplLabelPreview({ row, config = {}, isPrint = false }) {
   if (!row) return null;
   const label = toLabelData(row);
 
   const barcodeNo = label.barcodeNo || row.barcodeNo || label.barcode || '';
-  const barcodeGenerated = label.barcodeGenerated || row.barcodeGenerated || barcodeNo;
+  let barcodeGenerated = label.barcodeGenerated || row.barcodeGenerated || barcodeNo;
+  if (barcodeGenerated && barcodeGenerated.includes('*')) {
+    const parts = barcodeGenerated.split('*');
+    if (parts.length === 3) {
+      const unitPart = String(row.serialNo || row.billSlNo || row.seq || '1').trim();
+      barcodeGenerated = `${parts[0]}*${parts[1]}*${parts[2]}*${unitPart}`;
+    }
+  }
 
   const description =
     row.printDescription || row.supplierDescription || row.itemName || label.description || 'ITEM';
@@ -36,7 +43,9 @@ export default function GrcZplLabelPreview({ row, config = {} }) {
 
   return (
     <div
-      className="zpl-label-preview bg-white shadow-md border border-slate-300 relative mx-auto select-none overflow-hidden"
+      className={`zpl-label-preview bg-white relative select-none overflow-hidden ${
+        isPrint ? 'border-0 shadow-none m-0' : 'border border-slate-300 shadow-md mx-auto'
+      }`}
       style={{
         width: '90mm',
         height: '68mm',
@@ -47,17 +56,20 @@ export default function GrcZplLabelPreview({ row, config = {} }) {
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'space-between',
+        background: '#fff',
       }}
     >
       {/* Top Line: Composed Barcode */}
-      <div className="flex justify-between items-center text-[10.5px] font-mono tracking-wide leading-none">
-        <span className="font-bold">{barcodeGenerated}</span>
-        <span className="text-[9px] font-semibold text-slate-400 uppercase">90×68mm ZPL</span>
+      <div className="flex justify-between items-center text-[10.5px] font-mono tracking-wide leading-none" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span className="font-bold text-[11px]">{barcodeGenerated}</span>
+        {!isPrint && (
+          <span className="text-[9px] font-semibold text-slate-400 uppercase">90×68mm ZPL</span>
+        )}
       </div>
 
       {/* Barcode Section: Code 128 + Human Readable */}
-      <div className="my-0.5">
-        <div className="h-[22mm] w-full flex items-center justify-center overflow-hidden">
+      <div className="my-0.5" style={{ margin: '2px 0' }}>
+        <div className="h-[22mm] w-full flex items-center justify-center overflow-hidden" style={{ height: '22mm', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <BarcodeSvg
             value={barcodeNo}
             height={70}
@@ -68,49 +80,49 @@ export default function GrcZplLabelPreview({ row, config = {} }) {
             className="w-full h-full"
           />
         </div>
-        <div className="text-center font-mono font-bold text-[14px] tracking-wider leading-tight">
+        <div className="text-center font-mono font-bold text-[14px] tracking-wider leading-tight" style={{ textAlign: 'center', fontWeight: 'bold', fontSize: '14px', letterSpacing: '1px' }}>
           {barcodeNo}
         </div>
       </div>
 
       {/* Product Description */}
-      <div className="text-[10px] font-bold uppercase tracking-tight truncate border-b border-dashed border-slate-300 pb-0.5">
+      <div className="text-[10px] font-bold uppercase tracking-tight truncate border-b border-dashed border-slate-300 pb-0.5" style={{ fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase', borderBottom: '1px dashed #cbd5e1', paddingBottom: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
         {description}
       </div>
 
       {/* Category */}
-      <div className="text-[9.5px] font-semibold text-slate-800 uppercase tracking-wide">
+      <div className="text-[9.5px] font-semibold text-slate-800 uppercase tracking-wide" style={{ fontSize: '9.5px', fontWeight: '600', textTransform: 'uppercase' }}>
         {category}
       </div>
 
       {/* Detail Grid (Rows 1 & 2) */}
-      <div className="text-[9px] font-mono leading-tight py-0.5">
-        <div className="flex justify-between font-bold">
-          <span className="truncate w-1/3">{hsn}</span>
-          <span className="truncate w-1/3 text-center">{itemCode}</span>
-          <span className="truncate w-1/3 text-right">{encodedCostPrice}</span>
+      <div className="text-[9px] font-mono leading-tight py-0.5" style={{ fontSize: '9px', lineHeight: 1.2, padding: '2px 0' }}>
+        <div className="flex justify-between font-bold" style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
+          <span className="truncate w-1/3" style={{ width: '33%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{hsn}</span>
+          <span className="truncate w-1/3 text-center" style={{ width: '33%', textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{itemCode}</span>
+          <span className="truncate w-1/3 text-right" style={{ width: '33%', textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{encodedCostPrice}</span>
         </div>
-        <div className="flex justify-between text-slate-700 mt-0.5">
-          <span className="truncate w-1/3">{supplierCode}</span>
-          <span className="truncate w-1/3 text-center font-bold text-black">{qtyText}</span>
-          <span className="truncate w-1/3 text-right">{serialNo}</span>
+        <div className="flex justify-between text-slate-700 mt-0.5" style={{ display: 'flex', justifyContent: 'space-between', marginTop: '2px' }}>
+          <span className="truncate w-1/3" style={{ width: '33%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{supplierCode}</span>
+          <span className="truncate w-1/3 text-center font-bold text-black" style={{ width: '33%', textAlign: 'center', fontWeight: 'bold', color: '#000', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{qtyText}</span>
+          <span className="truncate w-1/3 text-right" style={{ width: '33%', textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{serialNo}</span>
         </div>
       </div>
 
       {/* RATE Section */}
-      <div className="flex items-center justify-between border-t border-b border-black py-0.5 my-0.5">
-        <span className="text-[18px] font-black tracking-tight leading-none text-black">
+      <div className="flex items-center justify-between border-t border-b border-black py-0.5 my-0.5" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1.5px solid #000', borderBottom: '1.5px solid #000', padding: '2px 0', margin: '2px 0' }}>
+        <span className="text-[18px] font-black tracking-tight leading-none text-black" style={{ fontSize: '18px', fontWeight: '900', color: '#000', lineHeight: 1 }}>
           {rateText}
         </span>
-        <span className="text-[8px] font-bold text-slate-700 uppercase">
+        <span className="text-[8px] font-bold text-slate-700 uppercase" style={{ fontSize: '8px', fontWeight: 'bold', textTransform: 'uppercase', color: '#333' }}>
           (Inclusive all taxes)
         </span>
       </div>
 
       {/* Care Instructions & Disclaimer */}
-      <div className="flex items-center justify-between text-[8px] font-bold tracking-tight text-slate-800 leading-none">
-        <span className="uppercase text-slate-900">DRY WASH ONLY</span>
-        <span className="text-[7.5px] text-slate-600">No exchange,No Guarantee,No Return</span>
+      <div className="flex items-center justify-between text-[8px] font-bold tracking-tight text-slate-800 leading-none" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '8px', fontWeight: 'bold', lineHeight: 1 }}>
+        <span className="uppercase text-slate-900" style={{ textTransform: 'uppercase', color: '#000' }}>DRY WASH ONLY</span>
+        <span className="text-[7.5px] text-slate-600" style={{ fontSize: '7.5px', color: '#444' }}>No exchange,No Guarantee,No Return</span>
       </div>
     </div>
   );
