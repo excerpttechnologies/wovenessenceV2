@@ -942,14 +942,16 @@ export function Label({ label, geometry }) {
    globals.css overrides .print-doc back into normal flow so the sheet can
    fragment across as many pages as it needs.
 ----------------------------------------------------------------------- */
-export default function GrcBarcodeLabelSheet({ rows, format = null, gap = '1mm', page = null }) {
+export default function GrcBarcodeLabelSheet({ rows, format = null, gap = '1mm', page = null, bar = null }) {
   /* `page` says which paper this run is going on, so the labels can be fitted
      inside its printable width (lib/barcodeLabelGeometry.js fittedLabelSize).
      Defaulted to the A4 run - where a 50mm sticker has 99mm of slack and is
      not reduced at all - so a caller that does not pass it is unaffected.
-     ONE geometry for the whole sheet, so no label can come out a different
-     size from its neighbour, and the same one on screen as on paper. */
-  const geometry = labelGeometry(format, page || { onStock: false, gapMm: 1 });
+     `bar` is an optional printer bar profile (BAR_PROFILES) - null keeps the
+     standard full-size bars. ONE geometry for the whole sheet, so no label
+     can come out a different size from its neighbour, and the same one on
+     screen as on paper. */
+  const geometry = labelGeometry(format, page || { onStock: false, gapMm: 1 }, bar);
   const perRow = labelsPerRow(format);  /* already enforces Math.max(2, ...) */
 
   const labels = (rows || []).flatMap((row, ri) => {

@@ -4377,7 +4377,7 @@ import useBarcodeLabelFormat from "./useBarcodeLabelFormat";
 /* One geometry module for the sticker stock - the same one the label
    renderer lays a label out with and the GRC Barcode Print page prints
    from, so the preview here cannot be measured differently. */
-import { labelRun, parsePageSize, labelGeometry } from "@/lib/barcodeLabelGeometry";
+import { labelRun, parsePageSize, labelGeometry, BAR_PROFILES } from "@/lib/barcodeLabelGeometry";
 import { useOptions } from "./useOptions";
 import { exportRowsData, formatFileSize } from "@/lib/format";
 import { useBarcodeLookup } from "./useScanner";
@@ -4410,11 +4410,9 @@ import {
 import BatchLabelCountDialog from "./BatchLabelCountDialog";
 import GrcZplLabelPreview from "./GrcZplLabelPreview";
 import ZplPrinterConfigModal from "./ZplPrinterConfigModal";
-import { print90x68LabelsDirect } from "@/lib/zplDirectPrint";
 import {
   generateBatchZpl90x68,
   downloadPrnFile,
-  sendToZebraBrowserPrint,
   loadZplConfig,
   DEFAULT_ZPL_CONFIG,
 } from "@/lib/zpl90x68";
@@ -7165,6 +7163,13 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
      the same physical size. */
   const { formats, format, formatName, setFormatName } = useBarcodeLabelFormat(open);
   const [paper, setPaper] = useState('a4');
+  /* Printer bar profile: 'standard' draws the bars at the full readable size;
+     'tsc_te310' is the compact profile for the TSC TE310 (203dpi) - narrower
+     symbol, shorter bars, module still at the scannable floor. The SAME
+     profile drives the preview sheet and the hidden print render, so what is
+     on screen is what comes off the printer. */
+  const [barProfile, setBarProfile] = useState('standard');
+  const bar = BAR_PROFILES[barProfile] || null;
 
   /* 90x68 mm ZPL Printer Integration */
   const [printerMode, setPrinterMode] = useState('browser'); // 'browser' | 'zpl_90x68'
@@ -7191,33 +7196,13 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
     setZplNotice(`Downloaded 90×68 mm .PRN file with ${selectedRows.length} label(s). Ready to send to Zebra printer!`);
   };
 
-  const handleDirectZplPrint = async () => {
+  const handleDirectZplPrint = () => {
     if (!selectedRows.length) {
       setZplNotice('No labels selected to print.');
       return;
     }
-    setZplNotice('Preparing 90×68 mm labels for direct printing...');
-
-    // 1. If on local machine with Windows spooler API active, try raw spooler
-    try {
-      const zpl = generateBatchZpl90x68(selectedRows, zplConfig);
-      const result = await sendToZebraBrowserPrint(zpl);
-      if (result && result.success) {
-        setZplNotice(`Printed ${selectedRows.length} label(s) directly to "${result.printerName}"!`);
-        return;
-      }
-    } catch {
-      // Fall through directly to browser print without throwing or downloading files
-    }
-
-    // 2. Direct browser print targeting 90×68 mm media (works directly from https://erp.wovenessence.in)
-    try {
-      await print90x68LabelsDirect(selectedRows, zplConfig);
-      setZplNotice(`Opened print window for ${selectedRows.length} label(s) on 90×68 mm printer.`);
-    } catch (err) {
-      console.error('Direct print error:', err);
-      setZplNotice('Direct print error: ' + (err.message || 'Could not print labels'));
-    }
+    setZplNotice('');
+    runPrint();
   };
 
   /* the print run: mounted -> measured -> dialog. See runPrint below. */
@@ -7334,10 +7319,18 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
   });
 
   /* Group labels into sheets */
-  const sheets = [];
-  for (let i = 0; i < labelsForPrint.length; i += labelsPerSheet) {
-    sheets.push(labelsForPrint.slice(i, i + labelsPerSheet));
-  }
+  const isZpl90x68 = printerMode === 'zpl90x68';
+
+  const sheets = useMemo(() => {
+    if (isZpl90x68) {
+      return labelsForPrint.map((item) => [item]);
+    }
+    const s = [];
+    for (let i = 0; i < labelsForPrint.length; i += labelsPerSheet) {
+      s.push(labelsForPrint.slice(i, i + labelsPerSheet));
+    }
+    return s;
+  }, [isZpl90x68, labelsForPrint, labelsPerSheet]);
 
   /* ---------------------------------------------------------------- print --
      Render labels in a hidden container first, wait for barcodes to draw,
@@ -7377,8 +7370,17 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
         const { createRoot } = await import('react-dom/client');
         const root = createRoot(hiddenContainer);
 
-        const geometry = labelGeometry(format, run.page);
+        const geometry = labelGeometry(format, run.page, bar);
         const sheetsHTML = sheets.map((sheetLabels) => {
+          if (isZpl90x68) {
+            const item = sheetLabels[0];
+            return (
+              <div key={item.key} className="sheet" style={{ width: '90mm', height: '68mm', boxSizing: 'border-box', overflow: 'hidden' }}>
+                <GrcZplLabelPreview row={item.row} config={zplConfig} isPrint={true} />
+              </div>
+            );
+          }
+
           const sheetContent = sheetLabels.map(({ key, row }) => {
             const labelData = labelFor(row);
             return <Label key={key} label={labelData} geometry={geometry} />;
@@ -7412,6 +7414,7 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
             '. Nothing was sent to the printer.'
           );
           setPrinting(false);
+          printLockRef.current = false;
           if (hiddenContainer.parentNode) {
             hiddenContainer.parentNode.removeChild(hiddenContainer);
           }
@@ -7424,24 +7427,80 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
         /* Copy the rendered HTML (with drawn barcodes) to iframe */
         const doc = iframe.contentDocument || iframe.contentWindow.document;
         doc.open();
-        /* Sheet CSS differs by paper: die-cut stock is one fixed page per
-           row of stickers (labels centred, 2mm kept clear at the gripper
-           edges); A4 flows the same 2-up grid across letter pages. The
-           labels carry their exact mm size inline - nothing resizes them. */
-        const sheetCss = isStock
-          ? `.sheet { width:${paperW}mm; height:${paperH}mm; display:flex; align-items:center; justify-content:flex-start; padding:0 2mm; box-sizing:border-box; overflow:hidden; }`
-          : `.sheet { display:grid; grid-template-columns:repeat(${run.perRow}, ${run.size.w}mm); grid-auto-rows:${run.size.h}mm; column-gap:${run.gapMm}mm; row-gap:${run.gapMm}mm; justify-content:center; align-content:start; width:${paperW - 10}mm; margin:0 auto; overflow:hidden; }`;
+
+        let pageRule = '';
+        let sheetCss = '';
+
+        if (isZpl90x68) {
+          pageRule = '@page { size: 90mm 68mm; margin: 0; }';
+          sheetCss = `
+            .sheet {
+              width: 90mm;
+              height: 68mm;
+              box-sizing: border-box;
+              overflow: hidden;
+              page-break-after: always;
+              break-after: page;
+              margin: 0;
+              padding: 0;
+            }
+            .sheet:last-child {
+              page-break-after: auto;
+              break-after: auto;
+            }
+            .zpl-label-preview {
+              border: none !important;
+              box-shadow: none !important;
+              width: 90mm !important;
+              height: 68mm !important;
+              margin: 0 !important;
+              box-sizing: border-box !important;
+            }
+          `;
+        } else {
+          pageRule = `@page { size: ${isStock ? paperW + 'mm ' + paperH + 'mm' : 'A4'}; margin: ${isStock ? '0' : '5mm'}; }`;
+          sheetCss = isStock
+            ? `.sheet { width:${paperW}mm; height:${paperH}mm; display:flex; align-items:center; justify-content:flex-start; padding:0 2mm; box-sizing:border-box; overflow:hidden; }`
+            : `.sheet { display:grid; grid-template-columns:repeat(${run.perRow}, ${run.size.w}mm); grid-auto-rows:${run.size.h}mm; column-gap:${run.gapMm}mm; row-gap:${run.gapMm}mm; justify-content:center; align-content:start; width:${paperW - 10}mm; margin:0 auto; overflow:hidden; }`;
+        }
+
         doc.write(`<!DOCTYPE html>
 <html>
 <head>
+  <meta charset="utf-8" />
+  <title>Barcode Print</title>
   <style>
-    @page { size: ${isStock ? paperW + 'mm ' + paperH + 'mm' : 'A4'}; margin: ${isStock ? '0' : '5mm'}; }
-    html, body { margin:0; padding:0; background:#fff; print-color-adjust: exact; -webkit-print-color-adjust: exact; font-family: Arial, Helvetica, sans-serif; }
-    .sheet { overflow:hidden; break-after:page; page-break-after:always; }
-    .sheet:last-child { break-after:auto; page-break-after:auto; }
+    ${pageRule}
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #fff;
+      print-color-adjust: exact;
+      -webkit-print-color-adjust: exact;
+      font-family: Arial, Helvetica, sans-serif;
+      ${isZpl90x68 ? 'width: 90mm;' : ''}
+    }
+    .sheet {
+      overflow: hidden;
+      break-after: page;
+      page-break-after: always;
+    }
+    .sheet:last-child {
+      break-after: auto;
+      page-break-after: auto;
+    }
     ${sheetCss}
-    .barcode-label { border:none !important; outline:none !important; break-inside:avoid; page-break-inside:avoid; }
-    svg[data-barcode] { display:block; width:100%; height:100%; }
+    .barcode-label {
+      border: none !important;
+      outline: none !important;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    svg[data-barcode] {
+      display: block !important;
+      width: 100% !important;
+      height: 100% !important;
+    }
   </style>
 </head>
 <body>
@@ -7459,7 +7518,10 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
 
         /* Wait for afterprint event */
         await new Promise((resolve) => requestAnimationFrame(resolve));
-        if (!cancelled) setPrinting(false);
+        if (!cancelled) {
+          setPrinting(false);
+          printLockRef.current = false;
+        }
       } catch (error) {
         console.error('Barcode label print failed', error);
         setPrintError('Printing stopped: the label sheet could not be prepared. Nothing was sent to the printer.');
@@ -7741,6 +7803,17 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
                     </option>
                   </select>
                 </label>
+                <label className="flex items-center gap-1 text-xs text-gray-600">
+                  Barcode
+                  <select
+                    value={barProfile}
+                    onChange={(event) => setBarProfile(event.target.value)}
+                    className="rounded border border-gray-300 px-2 py-1 text-xs"
+                  >
+                    <option value="standard">Standard (full size)</option>
+                    <option value="tsc_te310">TSC TE310 (compact)</option>
+                  </select>
+                </label>
               </div>
             )}
             {chosen.length === 0 ? (
@@ -7796,7 +7869,7 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
                 <div className="overflow-auto rounded border border-gray-300 bg-white p-2">
                   {/* GrcBarcodeLabelSheet is the same component the
                       barcode-print page renders, so Preview = Print exactly. */}
-                  <GrcBarcodeLabelSheet rows={selectedRows} format={format} gap={gap} page={run.page} />
+                  <GrcBarcodeLabelSheet rows={selectedRows} format={format} gap={gap} page={run.page} bar={bar} />
                 </div>
               </>
             )}

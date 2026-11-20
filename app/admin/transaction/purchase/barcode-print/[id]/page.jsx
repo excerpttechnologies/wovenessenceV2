@@ -89,7 +89,7 @@ import Icon from '@/components/Icon';
 import BatchLabelCountDialog from '@/components/BatchLabelCountDialog';
 import GrcBarcodeLabelSheet, { Label, labelFor } from '@/components/GrcBarcodeLabel';
 import useBarcodeLabelFormat from '@/components/useBarcodeLabelFormat';
-import { labelRun, parsePageSize, labelGeometry } from '@/lib/barcodeLabelGeometry';
+import { labelRun, parsePageSize, labelGeometry, BAR_PROFILES } from '@/lib/barcodeLabelGeometry';
 import {
   LABEL_MODE,
   resolveLabelMode,
@@ -109,7 +109,6 @@ import {
   loadZplConfig,
   DEFAULT_ZPL_CONFIG,
 } from '@/lib/zpl90x68';
-import { print90x68LabelsDirect } from '@/lib/zplDirectPrint';
 
 /* Label rendering (BarcodeSvg, Label, labelFor, GrcBarcodeLabelSheet) lives
    in components/GrcBarcodeLabel.jsx - the single source of truth shared with
@@ -149,6 +148,13 @@ export default function GrcBarcodePrintPage() {
      available for desktop printers where labels are cut manually. */
   const { formats, format, formatName, setFormatName } = useBarcodeLabelFormat(true);
   const [paper, setPaper] = useState('stock');
+  /* Printer bar profile: 'standard' draws the bars at the full readable size;
+     'tsc_te310' is the compact profile for the TSC TE310 (203dpi) - narrower
+     symbol, shorter bars, module still at the scannable floor. The SAME
+     profile drives the on-screen sheet and the hidden print render, so what
+     is previewed is what prints. */
+  const [barProfile, setBarProfile] = useState('standard');
+  const bar = BAR_PROFILES[barProfile] || null;
 
   /* 90x68 mm ZPL Printer Integration */
   const [printerMode, setPrinterMode] = useState('browser'); // 'browser' | 'zpl_90x68'
@@ -175,33 +181,13 @@ export default function GrcBarcodePrintPage() {
     setZplNotice(`Downloaded 90×68 mm .PRN file with ${counted.length} label(s).`);
   };
 
-  const handleDirectZplPrint = async () => {
-    if (!counted.length) {
+  const handleDirectZplPrint = (event) => {
+    if (!totalLabels) {
       setZplNotice('No labels available to print.');
       return;
     }
-    setZplNotice('Preparing 90×68 mm labels for direct printing...');
-
-    // 1. If on local machine with Windows spooler API active, try raw spooler
-    try {
-      const zpl = generateBatchZpl90x68(counted, zplConfig);
-      const result = await sendToZebraBrowserPrint(zpl);
-      if (result && result.success) {
-        setZplNotice(`Printed ${counted.length} label(s) directly to "${result.printerName}"!`);
-        return;
-      }
-    } catch {
-      // Fall through directly to browser print without throwing or downloading files
-    }
-
-    // 2. Direct browser print targeting 90×68 mm media (works directly from https://erp.wovenessence.in)
-    try {
-      await print90x68LabelsDirect(counted, zplConfig);
-      setZplNotice(`Opened print window for ${counted.length} label(s) on 90×68 mm printer.`);
-    } catch (err) {
-      console.error('Direct print error:', err);
-      setZplNotice('Direct print error: ' + (err.message || 'Could not print labels'));
-    }
+    setZplNotice('');
+    startPrint(event);
   };
 
   /* PRINTING HAPPENS EXACTLY ONCE PER USER ACTION, AND ONLY WHEN THE SHEET IS
@@ -299,10 +285,18 @@ export default function GrcBarcodePrintPage() {
   });
 
   /* Group labels into sheets */
-  const sheets = [];
-  for (let i = 0; i < labelsForPrint.length; i += labelsPerSheet) {
-    sheets.push(labelsForPrint.slice(i, i + labelsPerSheet));
-  }
+  const isZpl90x68 = printerMode === 'zpl_90x68';
+
+  const sheets = useMemo(() => {
+    if (isZpl90x68) {
+      return labelsForPrint.map((item) => [item]);
+    }
+    const s = [];
+    for (let i = 0; i < labelsForPrint.length; i += labelsPerSheet) {
+      s.push(labelsForPrint.slice(i, i + labelsPerSheet));
+    }
+    return s;
+  }, [isZpl90x68, labelsForPrint, labelsPerSheet]);
 
   /* THE PRINT RUN. Render labels in a hidden container first, wait for barcodes to draw,
      then copy the rendered HTML to an iframe for printing. This ensures JsBarcode effects run. */
@@ -341,8 +335,17 @@ export default function GrcBarcodePrintPage() {
         const { createRoot } = await import('react-dom/client');
         const root = createRoot(hiddenContainer);
 
-        const geometry = labelGeometry(format2up, run.page);
+        const geometry = labelGeometry(format2up, run.page, bar);
         const sheetsHTML = sheets.map((sheetLabels) => {
+          if (isZpl90x68) {
+            const item = sheetLabels[0];
+            return (
+              <div key={item.key} className="sheet" style={{ width: '90mm', height: '68mm', boxSizing: 'border-box', overflow: 'hidden' }}>
+                <GrcZplLabelPreview row={item.row} config={zplConfig} isPrint={true} />
+              </div>
+            );
+          }
+
           const sheetContent = sheetLabels.map(({ key, row }) => {
             const labelData = labelFor(row);
             return <Label key={key} label={labelData} geometry={geometry} />;
@@ -381,6 +384,7 @@ export default function GrcBarcodePrintPage() {
             '. Nothing was sent to the printer.'
           );
           setPrinting(false);
+          printInFlightRef.current = false;
           if (hiddenContainer.parentNode) {
             hiddenContainer.parentNode.removeChild(hiddenContainer);
           }
@@ -393,25 +397,80 @@ export default function GrcBarcodePrintPage() {
         /* Copy the rendered HTML (with drawn barcodes) to iframe */
         const doc = iframe.contentDocument || iframe.contentWindow.document;
         doc.open();
-        /* Sheet CSS differs by paper: die-cut stock is one fixed 100 x 40 mm
-           page per row of stickers (labels centred in it, 2mm kept clear at
-           the gripper edges); A4 flows the same 2-up grid across letter
-           pages. The labels carry their exact mm size inline - nothing here
-           resizes them. */
-        const sheetCss = isStock
-          ? `.sheet { width:${paperW}mm; height:${paperH}mm; display:flex; align-items:center; justify-content:flex-start; padding:0 2mm; box-sizing:border-box; overflow:hidden; }`
-          : `.sheet { display:grid; grid-template-columns:repeat(${run.perRow}, ${run.size.w}mm); grid-auto-rows:${run.size.h}mm; column-gap:${run.gapMm}mm; row-gap:${run.gapMm}mm; justify-content:center; align-content:start; width:${paperW - 10}mm; margin:0 auto; overflow:hidden; }`;
+
+        let pageRule = '';
+        let sheetCss = '';
+
+        if (isZpl90x68) {
+          pageRule = '@page { size: 90mm 68mm; margin: 0; }';
+          sheetCss = `
+            .sheet {
+              width: 90mm;
+              height: 68mm;
+              box-sizing: border-box;
+              overflow: hidden;
+              page-break-after: always;
+              break-after: page;
+              margin: 0;
+              padding: 0;
+            }
+            .sheet:last-child {
+              page-break-after: auto;
+              break-after: auto;
+            }
+            .zpl-label-preview {
+              border: none !important;
+              box-shadow: none !important;
+              width: 90mm !important;
+              height: 68mm !important;
+              margin: 0 !important;
+              box-sizing: border-box !important;
+            }
+          `;
+        } else {
+          pageRule = `@page { size: ${isStock ? paperW + 'mm ' + paperH + 'mm' : 'A4'}; margin: ${isStock ? '0' : '5mm'}; }`;
+          sheetCss = isStock
+            ? `.sheet { width:${paperW}mm; height:${paperH}mm; display:flex; align-items:center; justify-content:flex-start; padding:0 2mm; box-sizing:border-box; overflow:hidden; }`
+            : `.sheet { display:grid; grid-template-columns:repeat(${run.perRow}, ${run.size.w}mm); grid-auto-rows:${run.size.h}mm; column-gap:${run.gapMm}mm; row-gap:${run.gapMm}mm; justify-content:center; align-content:start; width:${paperW - 10}mm; margin:0 auto; overflow:hidden; }`;
+        }
+
         doc.write(`<!DOCTYPE html>
 <html>
 <head>
+  <meta charset="utf-8" />
+  <title>Barcode Print</title>
   <style>
-    @page { size: ${isStock ? paperW + 'mm ' + paperH + 'mm' : 'A4'}; margin: ${isStock ? '0' : '5mm'}; }
-    html, body { margin:0; padding:0; background:#fff; print-color-adjust: exact; -webkit-print-color-adjust: exact; font-family: Arial, Helvetica, sans-serif; }
-    .sheet { overflow:hidden; break-after:page; page-break-after:always; }
-    .sheet:last-child { break-after:auto; page-break-after:auto; }
+    ${pageRule}
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #fff;
+      print-color-adjust: exact;
+      -webkit-print-color-adjust: exact;
+      font-family: Arial, Helvetica, sans-serif;
+      ${isZpl90x68 ? 'width: 90mm;' : ''}
+    }
+    .sheet {
+      overflow: hidden;
+      break-after: page;
+      page-break-after: always;
+    }
+    .sheet:last-child {
+      break-after: auto;
+      page-break-after: auto;
+    }
     ${sheetCss}
-    .barcode-label { border:none !important; outline:none !important; break-inside:avoid; page-break-inside:avoid; }
-    svg[data-barcode] { display:block; width:100%; height:100%; }
+    .barcode-label {
+      border: none !important;
+      outline: none !important;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    svg[data-barcode] {
+      display: block !important;
+      width: 100% !important;
+      height: 100% !important;
+    }
   </style>
 </head>
 <body>
@@ -429,7 +488,10 @@ export default function GrcBarcodePrintPage() {
 
         /* Wait for afterprint event */
         await new Promise((resolve) => requestAnimationFrame(resolve));
-        if (!cancelled) setPrinting(false);
+        if (!cancelled) {
+          setPrinting(false);
+          printInFlightRef.current = false;
+        }
       } catch (failure) {
         /* Without this the run could end with `printing` stuck true - which
            leaves printing-labels welded to <body>, and every LATER print
@@ -627,6 +689,18 @@ export default function GrcBarcodePrintPage() {
                 </select>
               </label>
 
+              <label className="flex items-center gap-1 text-xs text-slate-600">
+                Barcode
+                <select
+                  value={barProfile}
+                  onChange={(event) => setBarProfile(event.target.value)}
+                  className="rounded border border-slate-300 px-2 py-1 text-xs"
+                >
+                  <option value="standard">Standard (full size)</option>
+                  <option value="tsc_te310">TSC TE310 (compact)</option>
+                </select>
+              </label>
+
               <button
                 type="button"
                 onClick={() => setShowPicker(true)}
@@ -781,7 +855,7 @@ export default function GrcBarcodePrintPage() {
            than a narrow window; nothing about the labels themselves changes
            with the viewport. */
         <div className="overflow-auto rounded border border-slate-200 bg-white p-3">
-          <GrcBarcodeLabelSheet rows={counted} format={format2up} gap={gap} page={run.page} />
+          <GrcBarcodeLabelSheet rows={counted} format={format2up} gap={gap} page={run.page} bar={bar} />
         </div>
       )}
 
