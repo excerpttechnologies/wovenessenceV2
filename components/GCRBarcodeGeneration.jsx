@@ -4373,6 +4373,7 @@ import { renderToString } from "react-dom/server";
 import { useRouter } from "next/navigation";
 import { useScope } from "./ScopeContext";
 import GrcBarcodeLabelSheet, { Label, labelFor } from "./GrcBarcodeLabel";
+import useBarcodeLabelFormat from "./useBarcodeLabelFormat";
 /* One geometry module for the sticker stock - the same one the label
    renderer lays a label out with and the GRC Barcode Print page prints
    from, so the preview here cannot be measured differently. */
@@ -7149,8 +7150,7 @@ function AddItemModal({ open, onClose, onSubmit, onSubmitAndPrint, barcodeFormat
    the rule, and a batch asks.
    ========================================================================== */
 
-function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
-  const scope = useScope();
+export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
   const [selected, setSelected] = useState([]);
   /* The operator's answer for each BATCH barcode, keyed by barcode number.
      UNIQUE and MTR barcodes never get an entry: their count is the rule
@@ -7159,9 +7159,11 @@ function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
   /* the open "Print Batch Labels" dialog - { key, continueToPrint } */
   const [batchPrompt, setBatchPrompt] = useState(null);
 
-  /* label geometry - the sticker stock this tenant actually buys */
-  const [formats, setFormats] = useState([]);
-  const [formatName, setFormatName] = useState('');
+  /* label geometry - the sticker stock this tenant actually buys, read from
+     the SAME hook the GRC Barcode Print page uses, so both screens offer the
+     same catalog, preselect the same Default format and lay a label out at
+     the same physical size. */
+  const { formats, format, formatName, setFormatName } = useBarcodeLabelFormat(open);
   const [paper, setPaper] = useState('a4');
 
   /* 90x68 mm ZPL Printer Integration */
@@ -7250,43 +7252,6 @@ function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
     setBatchPrompt(null);
   }, [open, rows]);
 
-  /* Label formats, loaded the same way the Inventory print screen loads them
-     (components/BarcodePrintLabel.jsx): the whole seeded catalog is offered,
-     and the format ticked as Default in Settings -> Barcode Label Settings is
-     preselected. This screen previously loaded NO geometry at all, so a label
-     had no physical size to be printed at. */
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-
-    (async () => {
-      const qs = new URLSearchParams({
-        business: scope.business || '',
-        location: scope.location || '',
-        finYear: scope.finYear || '',
-      });
-      const [chosen, catalog] = await Promise.all([
-        fetch('/api/barcode-label-setting?' + qs).then((r) => r.json()).catch(() => ({})),
-        fetch('/api/catalog?name=barcodeLabels').then((r) => r.json()).catch(() => ({})),
-      ]);
-      if (cancelled) return;
-
-      const list = catalog.rows || [];
-      setFormats(list);
-
-      const ticked = ((chosen.doc && chosen.doc.rows) || []).filter((r) => r.choice);
-      const preferred = ticked.find((t) => t.isDefault)?.name || ticked[0]?.name;
-      setFormatName(list.some((c) => c.name === preferred) ? preferred : (list[0]?.name || ''));
-    })();
-
-    return () => { cancelled = true; };
-  }, [open, scope.business, scope.location, scope.finYear]);
-
-  const format = useMemo(
-    () => formats.find((f) => f.name === formatName) || null,
-    [formats, formatName]
-  );
-
   /* every row that has a barcode to print, and the ones currently ticked */
   const printable = useMemo(() => rows.filter((row) => labelKey(row)), [rows]);
   const chosen = useMemo(
@@ -7305,6 +7270,18 @@ function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
   const countByKey = useMemo(
     () => Object.fromEntries(withLabelCounts(printable, batchCounts).map((row) => [labelKey(row), row.copies])),
     [printable, batchCounts]
+  );
+
+  /* Select All / Deselect All. Keys are de-duplicated through a Set so a row
+     whose barcodeNo repeats can never be ticked twice, and every key added is
+     one printable already offers - nothing outside the list can be selected. */
+  const allKeys = useMemo(
+    () => [...new Set(printable.map(labelKey).filter(Boolean))],
+    [printable]
+  );
+  const selectedCount = useMemo(
+    () => allKeys.filter((key) => selected.includes(key)).length,
+    [allKeys, selected]
   );
 
   /* what the printer is being asked for, counted from the same list the sheet
@@ -7630,6 +7607,29 @@ function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
         <div className="grid flex-1 gap-4 overflow-y-auto p-4 md:grid-cols-2">
           <div>
             {printable.length === 0 && <div className="rounded border border-dashed border-gray-300 p-4 text-sm text-gray-500">No barcode generated yet.</div>}
+            {printable.length > 0 && (
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded border border-gray-200 bg-gray-50 px-2 py-1.5">
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setSelected(allKeys)}
+                    className="rounded border border-gray-300 bg-white px-2 py-0.5 text-xs font-medium text-gray-700 hover:bg-gray-100"
+                  >
+                    Select All
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelected([])}
+                    className="rounded border border-gray-300 bg-white px-2 py-0.5 text-xs font-medium text-gray-700 hover:bg-gray-100"
+                  >
+                    Deselect All
+                  </button>
+                </div>
+                <span className="text-xs text-gray-600">
+                  {selectedCount} of {allKeys.length} selected &middot; {expectedLabels} label{expectedLabels === 1 ? '' : 's'}
+                </span>
+              </div>
+            )}
             {printable.map((row, index) => {
               const key = labelKey(row);
               const { mode, assumed } = resolveLabelMode(row);
@@ -7638,10 +7638,13 @@ function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
                 <div key={key || index} className="mb-3 flex items-center gap-3 rounded border border-gray-200 p-2">
                   <input type="checkbox" checked={selected.includes(key)} onChange={() => setSelected((prev) => prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key])} />
                   <div className="min-w-0 flex-1">
-                    <div className="font-medium">{row.itemCode || row.itemName || row.supplierDescription || "Item"}</div>
+                    {/* the product name is supporting text - the barcode
+                        number below it is what the operator keys in, so it
+                        carries the weight and the size */}
+                    <div className="truncate text-xs text-gray-500">{row.itemCode || row.itemName || row.supplierDescription || "Item"}</div>
                     {/* the unit's own barcodeNo only - the composed value
                         ("G1319*05183*1*1") is hidden here (user, 2026-09-17) */}
-                    <div className="font-mono text-xs text-gray-600" style={{ textTransform: "none" }}>
+                    <div className="truncate font-mono text-sm font-semibold text-gray-900" style={{ textTransform: "none" }}>
                       {row.barcodeNo}
                     </div>
                   </div>
@@ -7709,6 +7712,37 @@ function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
                 {printerMode === 'zpl_90x68' ? ' · 90 × 68 mm' : (format?.labelSize ? ' · ' + format.labelSize : '')}
               </span>
             </div>
+            {/* The same two choices the GRC Barcode Print page offers, from
+                the same catalog - picking one re-lays the preview out at that
+                stock's real size and the Print run uses it unchanged. */}
+            {printerMode === 'browser' && (
+              <div className="mb-3 flex flex-wrap items-center gap-3">
+                <label className="flex items-center gap-1 text-xs text-gray-600">
+                  Label
+                  <select
+                    value={formatName}
+                    onChange={(event) => setFormatName(event.target.value)}
+                    className="rounded border border-gray-300 px-2 py-1 text-xs"
+                  >
+                    {formats.length === 0 && <option value="">Default 50 x 40 mm</option>}
+                    {formats.map((f) => <option key={f.name} value={f.name}>{f.name}</option>)}
+                  </select>
+                </label>
+                <label className="flex items-center gap-1 text-xs text-gray-600">
+                  Paper
+                  <select
+                    value={paper}
+                    onChange={(event) => setPaper(event.target.value)}
+                    className="rounded border border-gray-300 px-2 py-1 text-xs"
+                  >
+                    <option value="a4">A4 sheet</option>
+                    <option value="stock" disabled={!stockSize}>
+                      {stockSize ? 'Label stock ' + format.pageSize : 'Label stock (no size set)'}
+                    </option>
+                  </select>
+                </label>
+              </div>
+            )}
             {chosen.length === 0 ? (
               <div className="rounded border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-500">Select a barcode to preview.</div>
             ) : expectedLabels === 0 ? (
@@ -7819,32 +7853,6 @@ function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
 
             {printerMode === 'browser' ? (
               <>
-                <label className="flex items-center gap-1 text-xs text-gray-600">
-                  Label
-                  <select
-                    value={formatName}
-                    onChange={(event) => setFormatName(event.target.value)}
-                    className="rounded border border-gray-300 px-2 py-1 text-xs"
-                  >
-                    {formats.length === 0 && <option value="">Default 50 x 40 mm</option>}
-                    {formats.map((f) => <option key={f.name} value={f.name}>{f.name}</option>)}
-                  </select>
-                </label>
-
-                <label className="flex items-center gap-1 text-xs text-gray-600">
-                  Paper
-                  <select
-                    value={paper}
-                    onChange={(event) => setPaper(event.target.value)}
-                    className="rounded border border-gray-300 px-2 py-1 text-xs"
-                  >
-                    <option value="a4">A4 sheet</option>
-                    <option value="stock" disabled={!stockSize}>
-                      {stockSize ? 'Label stock ' + format.pageSize : 'Label stock (no size set)'}
-                    </option>
-                  </select>
-                </label>
-
                 <button
                   type="button"
                   disabled={printing}

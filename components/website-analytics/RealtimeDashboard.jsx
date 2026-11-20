@@ -318,6 +318,9 @@ export default function RealtimeDashboard() {
       : { key, dir: key === 'screenName' ? 'asc' : 'desc' }));
   };
 
+  const siteUrl = data?.websiteUrl || data?.ga4?.siteUrl || 'https://wovenessence.in/';
+  const displayDomain = siteUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
+
   return (
     <div className={styles.shell}>
       <header className={styles.topbar}>
@@ -330,8 +333,8 @@ export default function RealtimeDashboard() {
             Google Analytics 4 property 561098849: active users for a chosen date range, and the realtime
             overview and pages reports.
           </p>
-          <a className={styles.siteLink} href="https://ecom.wovenessence.in/" target="_blank" rel="noopener noreferrer">
-            ecom.wovenessence.in <Glyph name="external" size={12} />
+          <a className={styles.siteLink} href={siteUrl} target="_blank" rel="noopener noreferrer">
+            {displayDomain} <Glyph name="external" size={12} />
           </a>
 
           <div className={styles.statusRow}>

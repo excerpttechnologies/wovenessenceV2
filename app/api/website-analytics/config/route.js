@@ -7,10 +7,10 @@ export const runtime = 'nodejs';
    coarse site metadata are returned; the property ID, service account, private
    key and access tokens never leave the server. */
 const DEFAULT_ORIGINS = [
-  'https://ecom.wovenessence.in',
-  'https://www.ecom.wovenessence.in',
   'https://wovenessence.in',
   'https://www.wovenessence.in',
+  'https://ecom.wovenessence.in',
+  'https://www.ecom.wovenessence.in',
   'https://wovenessence.etpl.ai',
 ];
 

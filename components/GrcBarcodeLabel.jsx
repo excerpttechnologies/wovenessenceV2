@@ -607,8 +607,8 @@ const PRODUCT_GAP_MM = 3;
    apart until it is this share of the sticker's usable width wide, so every
    label's block has the same outer edges whatever its values are */
 const PRODUCT_BLOCK_SHARE = 0.85;
-/* barcode number -> composed value: a fixed ~1cm, not pushed to the edges */
-const ID_GAP_MM = 10;
+/* barcode number -> composed value: a fixed gap, not pushed to the edges */
+const ID_GAP_MM = 6;
 /* The fixed wording printed on every sticker. Named rather than written into
    the markup so the footer's type size can be worked out from the very
    strings that are about to be drawn - the fit and the text cannot drift
@@ -677,6 +677,24 @@ export function Label({ label, geometry }) {
      right-hand side stays empty rather than showing something invented. */
   const barcodeNo = label.barcodeNo;
   const secondary = label.barcodeGenerated ? label.barcode : '';
+
+  /* THE IDENTIFIER ROW'S TWO SIZES. The barcode number is the field the
+     operator keys in, so it is set LARGER than the composed value beside it:
+     each value is fitted inside its own share of the row (fitType, so a long
+     one shrinks instead of overflowing or overlapping its neighbour), the
+     number taking the smaller share of the width because it is the shorter
+     string. When only one value exists it gets the whole row, as before. */
+  const idCap = g.type('identifier');
+  const hasNo = Boolean(barcodeNo);
+  const hasSecondary = Boolean(secondary);
+  const idAvail = g.usableW - (hasNo && hasSecondary ? ID_GAP_MM : 0);
+  const NO_WIDTH_SHARE = 0.42;
+  const noFont = hasNo
+    ? fitType(barcodeNo, hasSecondary ? idAvail * NO_WIDTH_SHARE : idAvail, idCap, MONO_CHAR_W)
+    : 0;
+  const secondaryFont = hasSecondary
+    ? fitType(secondary, hasNo ? idAvail * (1 - NO_WIDTH_SHARE) : idAvail, idCap, MONO_CHAR_W)
+    : 0;
 
   /* THE PRODUCT BLOCK takes only the width its values need. Each of its
      three columns is as wide as the longer of its two values, and BOTH rows
@@ -747,11 +765,10 @@ export function Label({ label, geometry }) {
           how many modules this symbol needs and the width it can be read at
           (TARGET_X_MM per module, capped at BAR_MAX_WIDTH_SHARE of the label,
           not below the ISO / MIN_X_MM floor); barsBox then draws it at
-          BAR_DRAW_SCALE (0.85) of that width, never thinner than
-          DRAW_MIN_X_MM, centred, bottom-anchored (lib/barcodeLabelGeometry.js).
-          On 50 x 40 a composed value comes out about 35.5 x 8.2mm at
-          ~0.16mm/module, and a counter number about 31 x 8.2mm at 0.28mm; at
-          the old 0.5 the composed value was ~0.095mm and did not scan.
+          BAR_DRAW_SCALE (1) of that width, centred, bottom-anchored
+          (lib/barcodeLabelGeometry.js). On 50 x 40 a composed value comes
+          out about 42 x 6.8mm at ~0.19mm/module, and a counter number about
+          40 x 6.8mm at ~0.33mm/module.
 
           Nothing is cropped or squeezed to achieve that: the box is modules x
           module-width, so every bar keeps its proportion to every other bar.
@@ -785,7 +802,7 @@ export function Label({ label, geometry }) {
         </div>
       </div>
 
-      {/* 2 — barcodeNo then barcodeGenerated, ID_GAP_MM (~1cm) apart, the
+      {/* 2 — barcodeNo then barcodeGenerated, ID_GAP_MM apart, the
           pair CENTRED under the bars. textTransform none: globals.css
           uppercases body text and a barcode value is case-sensitive. */}
       <div
@@ -793,32 +810,18 @@ export function Label({ label, geometry }) {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          gap: mm(secondary ? ID_GAP_MM : 0),
+          gap: mm(hasNo && hasSecondary ? ID_GAP_MM : 0),
           height: band('identifier'),
-          /* THE BARCODE NUMBER IS NEVER CUT. Both values are measured against
-             the width they have to share (the gap taken out first) and the
-             row is set at the largest size where BOTH fit whole - so a long
-             composed value shrinks the pair rather than eating into the
-             number beside it. Monospace, so the estimate is exact. */
-          fontSize: mm(fitType(
-            [barcodeNo, secondary],
-            g.usableW - (secondary ? ID_GAP_MM : 0),
-            g.type('identifier'),
-            MONO_CHAR_W,
-          )),
-          lineHeight: band('identifier'),
           fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
-          /* Semibold, by request: the barcode number and the generation
-             identifier must read clearly on a thermal label. The row is
-             larger now (LABEL_SECTIONS.identifier), so the weight no longer
-             crowds it. */
           fontWeight: 600,
           letterSpacing: '0.01em',
           textTransform: 'none',
         }}
       >
-        <span style={ONE_LINE_FULL}>{barcodeNo}</span>
-        {secondary && <span style={ONE_LINE_FULL}>{secondary}</span>}
+        {/* the unit's own number, larger and heavier than the composed value
+            - each span carries the size it was fitted to above */}
+        {hasNo && <span style={{ ...ONE_LINE_FULL, fontSize: mm(noFont), fontWeight: 700 }}>{barcodeNo}</span>}
+        {hasSecondary && <span style={{ ...ONE_LINE_FULL, fontSize: mm(secondaryFont) }}>{secondary}</span>}
       </div>
 
       {/* 3 — the print description, up to DESCRIPTION_LINES (3) lines,

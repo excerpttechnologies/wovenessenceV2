@@ -101,6 +101,7 @@ import {
 } from '@/lib/barcodeLabelPrint';
 import GrcZplLabelPreview from '@/components/GrcZplLabelPreview';
 import ZplPrinterConfigModal from '@/components/ZplPrinterConfigModal';
+import { PrintLabelPicker } from '@/components/GCRBarcodeGeneration';
 import {
   generateBatchZpl90x68,
   downloadPrnFile,
@@ -151,6 +152,10 @@ export default function GrcBarcodePrintPage() {
 
   /* 90x68 mm ZPL Printer Integration */
   const [printerMode, setPrinterMode] = useState('browser'); // 'browser' | 'zpl_90x68'
+  /* The SAME Print Label Picker the Barcode Generation screen opens -
+     selection, batch counts, format/paper choice and the print run all live
+     inside it, so this page offers it rather than growing a second one. */
+  const [showPicker, setShowPicker] = useState(false);
   const [zplConfig, setZplConfig] = useState(DEFAULT_ZPL_CONFIG);
   const [showZplConfigModal, setShowZplConfigModal] = useState(false);
   const [zplNotice, setZplNotice] = useState('');
@@ -624,6 +629,15 @@ export default function GrcBarcodePrintPage() {
 
               <button
                 type="button"
+                onClick={() => setShowPicker(true)}
+                className="rounded border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-2xs hover:bg-slate-50"
+                title="Choose which barcodes to print, with preview"
+              >
+                Print Label Picker
+              </button>
+
+              <button
+                type="button"
                 disabled={printing}
                 onClick={startPrint}
                 className="rounded bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:opacity-60"
@@ -770,6 +784,14 @@ export default function GrcBarcodePrintPage() {
           <GrcBarcodeLabelSheet rows={counted} format={format2up} gap={gap} page={run.page} />
         </div>
       )}
+
+      {/* The picker's own rows are the same barcode records this page prints -
+          it filters to the ones carrying a barcode number itself. */}
+      <PrintLabelPicker
+        rows={data.rows}
+        open={showPicker}
+        onClose={() => setShowPicker(false)}
+      />
 
       <BatchLabelCountDialog
         open={Boolean(promptRow)}
