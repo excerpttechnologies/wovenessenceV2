@@ -7739,8 +7739,8 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
                     className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
                   />
                   <div className="min-w-0 flex-1">
-                    {/* 1. Item Code */}
-                    <div className="truncate text-xs text-gray-500">
+                    {/* 1. Item Code (bold) */}
+                    <div className="truncate text-xs font-bold text-gray-900">
                       {row.itemCode || row.itemName || row.supplierDescription || "Item"}
                     </div>
                     {/* 2. Barcode Number (bold) */}

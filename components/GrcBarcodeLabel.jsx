@@ -736,7 +736,14 @@ export function Label({ label, geometry }) {
       }}
     >
       {productCols.map((i, pos) => (
-        <span key={i} style={{ ...ONE_LINE, textAlign: columnAlign(pos, productCols.length) }}>
+        <span
+          key={i}
+          style={{
+            ...ONE_LINE,
+            textAlign: columnAlign(pos, productCols.length),
+            ...(key === 'detailRow1' && i === 1 ? { fontWeight: 700 } : {}),
+          }}
+        >
           {cells[i]}
         </span>
       ))}
