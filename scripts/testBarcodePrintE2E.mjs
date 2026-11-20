@@ -15,9 +15,9 @@
    GRC whose barcodes have no composed value) and checked to be unwritten.
 
    What it proves, for every label it can see:
-     the bars decode to exactly canonical(barcodeGenerated)
-     the right-hand text is that same string
-     the left-hand text is the unit's own barcodeNo
+     the bars decode to the unit's own barcodeNo
+     the three lines under the bars are itemCode / barcodeNo / the stored
+     generated reference (canonical barcodeGenerated), top to bottom
      nothing is clipped and the bars sit inside the label
    and that saving numbers Bill Sl No. / Serial No. by the rule, never twice.
    ========================================================================== */
@@ -230,11 +230,14 @@ const READ_LABELS = (rootExpr) => `(() => {
     const sp = l.children[1] ? [...l.children[1].querySelectorAll('span')] : [];
     const lb = l.getBoundingClientRect();
     const sb = s ? s.getBoundingClientRect() : null;
+    const cut = (el) => (el ? el.scrollWidth > el.clientWidth + 1 : false);
     return {
-      left: sp[0] ? sp[0].textContent : null,
-      right: sp[1] ? sp[1].textContent : null,
-      leftCut: sp[0] ? sp[0].scrollWidth > sp[0].clientWidth + 1 : false,
-      rightCut: sp[1] ? sp[1].scrollWidth > sp[1].clientWidth + 1 : false,
+      item: sp[0] ? sp[0].textContent : null,
+      left: sp[1] ? sp[1].textContent : null,
+      right: sp[2] ? sp[2].textContent : null,
+      itemCut: cut(sp[0]),
+      leftCut: cut(sp[1]),
+      rightCut: cut(sp[2]),
       rects: g ? [...g.querySelectorAll('rect')].map((r) => ({ x: +r.getAttribute('x'), width: +r.getAttribute('width') })) : [],
       vbW: s && s.viewBox && s.viewBox.baseVal ? s.viewBox.baseVal.width : 0,
       svgW: sb ? sb.width : 0,
@@ -255,15 +258,19 @@ function checkLabels(where, labels, rowsByNumber, { expectCount = null } = {}) {
     if (!row) { problems.push(`#${i} no record for left "${label.left}" / bars "${decoded}"`); return; }
     const composed = isComposedBarcodeValue(row.barcodeGenerated) ? canon(row.barcodeGenerated) : '';
     const expectedBars = composed || row.barcodeNo;
+    /* line 3 is the record's generated reference: the stored barcodeGenerated
+       in canonical spelling, unless it is only a copy of the unit number */
+    const storedGen = canon(row.barcodeGenerated || '');
+    const wantRight = storedGen && storedGen !== row.barcodeNo ? storedGen : '';
     if (decoded !== expectedBars) problems.push(`#${i} bars "${decoded}" != "${expectedBars}"`);
-    if (composed && label.right !== decoded) problems.push(`#${i} right "${label.right}" != bars "${decoded}"`);
-    if (!composed && label.right !== '') problems.push(`#${i} right "${label.right}" should be empty`);
+    if (label.right !== wantRight) problems.push(`#${i} right "${label.right}" != reference "${wantRight}"`);
+    if (label.item !== String(row.itemCode || '')) problems.push(`#${i} item "${label.item}" != itemCode "${row.itemCode}"`);
     if (label.left !== row.barcodeNo) problems.push(`#${i} left "${label.left}" != barcodeNo "${row.barcodeNo}"`);
-    if (label.rightCut || label.leftCut) problems.push(`#${i} text clipped`);
+    if (label.rightCut || label.leftCut || label.itemCut) problems.push(`#${i} text clipped`);
     if (!label.inside) problems.push(`#${i} bars outside the label`);
     if (label.vbW) widths.add(((label.svgW * 25.4 / 96) / (label.vbW / MODULE_UNITS)).toFixed(3));
   });
-  ok(`${where}: every label's bars = its right-hand text = canonical(barcodeGenerated), left = barcodeNo, nothing clipped`, problems.length === 0, problems.slice(0, 5).join(' | '));
+  ok(`${where}: every label's three lines = itemCode / barcodeNo / generated reference, bars = barcodeNo, nothing clipped`, problems.length === 0, problems.slice(0, 5).join(' | '));
   if (widths.size) note(`${where}: module width on screen ${[...widths].join(' / ')} mm`);
 }
 

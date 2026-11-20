@@ -4398,11 +4398,11 @@ import {
 import ItemsSheet from "./ItemsSheet";
 import {
   generateBarcodeValue, composedValueOf, unitNumberOf, parseBarcodeValue,
-  billSlNoForBarcode, highestSerialNo, serialFloorOf,
+  billSlNoForBarcode, highestSerialNo, serialFloorOf, canonicalBarcodeValue,
 } from "@/lib/barcodeValue";
 import {
   LABEL_MODE, resolveLabelMode, batchAvailableQty, withLabelCounts, pendingBatchRows, labelKey,
-  isUnprintableBatch,
+  isUnprintableBatch, toLabelData,
 } from "@/lib/barcodeLabelPrint";
 import {
   formDefaultsFromSetup, unmappedSetupFields, setupStatusMessage, setupIdentity, formatSetupValue,
@@ -4413,6 +4413,7 @@ import ZplPrinterConfigModal from "./ZplPrinterConfigModal";
 import {
   generateBatchZpl90x68,
   downloadPrnFile,
+  sendToZebraBrowserPrint,
   loadZplConfig,
   DEFAULT_ZPL_CONFIG,
 } from "@/lib/zpl90x68";
@@ -7196,7 +7197,34 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
     setZplNotice(`Downloaded 90×68 mm .PRN file with ${selectedRows.length} label(s). Ready to send to Zebra printer!`);
   };
 
-  const handleDirectZplPrint = () => {
+  const [directPrinting, setDirectPrinting] = useState(false);
+
+  const handleDirectZplPrint = async () => {
+    if (!selectedRows.length) {
+      setZplNotice('No labels selected to print.');
+      return;
+    }
+    setDirectPrinting(true);
+    setZplNotice('Sending ZPL commands directly to BOXP BP 4304e printer...');
+    try {
+      const zpl = generateBatchZpl90x68(selectedRows, zplConfig);
+      const res = await sendToZebraBrowserPrint(zpl, zplConfig.printerModel || 'BOXP BP 4304e (300 dpi) - ZPL');
+      if (res && res.success) {
+        setZplNotice(`✅ Successfully sent ${selectedRows.length} label(s) directly to ${res.printerName || 'BOXP BP 4304e'} via Windows Spooler!`);
+      } else {
+        const errMsg = res?.error || 'Spooler connection failed';
+        setZplNotice(`⚠️ Direct spooler: ${errMsg}. Opening Browser Print fallback...`);
+        runPrint();
+      }
+    } catch (err) {
+      setZplNotice(`⚠️ Direct print error: ${err.message}. Opening Browser Print fallback...`);
+      runPrint();
+    } finally {
+      setDirectPrinting(false);
+    }
+  };
+
+  const handleBrowserPrintPreview = () => {
     if (!selectedRows.length) {
       setZplNotice('No labels selected to print.');
       return;
@@ -7696,27 +7724,44 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
               const key = labelKey(row);
               const { mode, assumed } = resolveLabelMode(row);
               const count = countByKey[key] || 0;
+              const barcodeRef = canonicalBarcodeValue(
+                row.barcodeGenerated ||
+                row.barcodeReference ||
+                toLabelData(row).barcodeReference ||
+                ''
+              );
               return (
-                <div key={key || index} className="mb-3 flex items-center gap-3 rounded border border-gray-200 p-2">
-                  <input type="checkbox" checked={selected.includes(key)} onChange={() => setSelected((prev) => prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key])} />
+                <div key={key || index} className="mb-2.5 flex items-center gap-3 rounded-lg border border-gray-200 bg-white p-2.5 shadow-2xs hover:border-gray-300">
+                  <input
+                    type="checkbox"
+                    checked={selected.includes(key)}
+                    onChange={() => setSelected((prev) => prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key])}
+                    className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
+                  />
                   <div className="min-w-0 flex-1">
-                    {/* the product name is supporting text - the barcode
-                        number below it is what the operator keys in, so it
-                        carries the weight and the size */}
-                    <div className="truncate text-xs text-gray-500">{row.itemCode || row.itemName || row.supplierDescription || "Item"}</div>
-                    {/* the unit's own barcodeNo only - the composed value
-                        ("G1319*05183*1*1") is hidden here (user, 2026-09-17) */}
-                    <div className="truncate font-mono text-sm font-semibold text-gray-900" style={{ textTransform: "none" }}>
+                    {/* 1. Item Code */}
+                    <div className="truncate text-xs text-gray-500">
+                      {row.itemCode || row.itemName || row.supplierDescription || "Item"}
+                    </div>
+                    {/* 2. Barcode Number (bold) */}
+                    <div className="truncate font-mono text-sm font-bold text-gray-900" style={{ textTransform: "none" }}>
                       {row.barcodeNo}
                     </div>
+                    {/* 3. Barcode Reference (bold) */}
+                    {barcodeRef && (
+                      <div className="truncate font-mono text-xs font-bold text-gray-900" style={{ textTransform: "none" }}>
+                        {barcodeRef}
+                      </div>
+                    )}
                   </div>
                   {/* The count is the rule's, not an input: an MTR barcode
                       is always two stickers and a unique one always one. Only
                       a batch is the operator's to decide, through the same
                       dialog Print opens. */}
                   <div className="shrink-0 text-right text-xs">
-                    <div className="font-semibold text-gray-700">
-                      {mode === LABEL_MODE.METER ? 'Meter' : mode === LABEL_MODE.BATCH ? 'Batch' : 'Unique'}
+                    {/* 4. Barcode Type (UNIQUE / BATCH / METER) */}
+                    <div className="font-semibold text-gray-700 uppercase">
+                      {mode === LABEL_MODE.METER ? 'METER' : mode === LABEL_MODE.BATCH ? 'BATCH' : 'UNIQUE'}
                     </div>
                     {mode === LABEL_MODE.BATCH && isUnprintableBatch(row) ? (
                       /* No whole quantity recorded, so no count can ever be
@@ -7726,8 +7771,8 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
                       <div className="text-red-700">No quantity recorded - cannot print</div>
                     ) : mode === LABEL_MODE.BATCH ? (
                       <>
-                        <div className={count ? 'text-gray-600' : 'text-amber-700'}>
-                          {count ? count + ' label' + (count === 1 ? '' : 's') : 'Quantity not set'}
+                        <div className={count ? 'font-medium text-gray-600 uppercase' : 'text-amber-700'}>
+                          {count ? count + ' LABEL' + (count === 1 ? '' : 'S') : 'Quantity not set'}
                         </div>
                         <button
                           type="button"
@@ -7739,10 +7784,13 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
                         </button>
                       </>
                     ) : (
-                      <div className="text-gray-600">{count} label{count === 1 ? '' : 's'}</div>
+                      /* 5. Number of Labels */
+                      <div className="font-medium text-gray-600 uppercase">
+                        {count} LABEL{count === 1 ? '' : 'S'}
+                      </div>
                     )}
                     {assumed && (
-                      <div className="text-amber-700" title="No Unique / Batch type is recorded for this barcode, so it prints as one label.">
+                      <div className="text-amber-700 text-[11px]" title="No Unique / Batch type is recorded for this barcode, so it prints as one label.">
                         Type not recorded
                       </div>
                     )}
@@ -7941,7 +7989,7 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
                   type="button"
                   onClick={handleDownloadZplPrn}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-xs"
-                  title="Download .PRN / .ZPL file to send directly to your Zebra printer"
+                  title="Download .PRN / .ZPL file to send directly to your Zebra / Boxp printer"
                 >
                   <Icon name="download" size={14} />
                   <span>Download .PRN File</span>
@@ -7949,12 +7997,24 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
 
                 <button
                   type="button"
-                  onClick={handleDirectZplPrint}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-4 py-2 text-xs font-bold text-white shadow-xs hover:bg-brand-dark"
-                  title="Print directly to your connected USB / Thermal Printer"
+                  onClick={handleBrowserPrintPreview}
+                  disabled={printing}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-xs"
+                  title="Preview in Browser Print Dialog (Chrome window.print)"
                 >
                   <Icon name="printer" size={14} />
-                  <span>Direct Print (90×68 mm)</span>
+                  <span>{printing ? 'Preparing...' : 'Browser Preview'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={directPrinting}
+                  onClick={handleDirectZplPrint}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-4 py-2 text-xs font-bold text-white shadow-xs hover:bg-brand-dark disabled:opacity-60"
+                  title="Print directly to connected Boxp BP 4304e printer via Windows Spooler"
+                >
+                  <Icon name="printer" size={14} />
+                  <span>{directPrinting ? 'Sending to Boxp...' : 'Direct Print (90×68 mm)'}</span>
                 </button>
               </>
             )}

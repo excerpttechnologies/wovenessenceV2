@@ -257,17 +257,20 @@ export default function ZplPrinterConfigModal({ open, onClose, onSave }) {
               </div>
               <div>
                 <label className="block text-[11.5px] font-medium text-slate-600 mb-1">
-                  Orientation
+                  Layout &amp; Orientation
                 </label>
                 <select
-                  value={cfg.barcodeOrientation}
-                  onChange={(e) => handleChange('barcodeOrientation', e.target.value)}
+                  value={cfg.layoutMode || 'preview_match'}
+                  onChange={(e) => {
+                    const mode = e.target.value;
+                    const barcodeOrientation = mode === 'preview_match' ? 'N' : 'R';
+                    setCfg((prev) => ({ ...prev, layoutMode: mode, barcodeOrientation }));
+                  }}
                   className="w-full rounded border border-slate-300 bg-white px-2.5 py-1.5 font-medium text-slate-800"
                 >
-                  <option value="R">90° Rotated (R) - Standard</option>
-                  <option value="N">Normal (N)</option>
-                  <option value="I">Inverted 180° (I)</option>
-                  <option value="B">Bottom-up 270° (B)</option>
+                  <option value="preview_match">Horizontal (Matches Preview 1:1) - Recommended</option>
+                  <option value="rotated_full">90° Rotated (Distributed Full Width)</option>
+                  <option value="exact_prn">Exact PRN Baseline (Unscaled)</option>
                 </select>
               </div>
 

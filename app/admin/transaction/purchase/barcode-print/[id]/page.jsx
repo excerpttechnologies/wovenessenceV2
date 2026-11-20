@@ -171,6 +171,8 @@ export default function GrcBarcodePrintPage() {
     setZplConfig(loadZplConfig());
   }, []);
 
+  const [directPrinting, setDirectPrinting] = useState(false);
+
   const handleDownloadZplPrn = () => {
     if (!counted.length) {
       setZplNotice('No labels available to print.');
@@ -181,7 +183,32 @@ export default function GrcBarcodePrintPage() {
     setZplNotice(`Downloaded 90×68 mm .PRN file with ${counted.length} label(s).`);
   };
 
-  const handleDirectZplPrint = (event) => {
+  const handleDirectZplPrint = async (event) => {
+    if (!totalLabels) {
+      setZplNotice('No labels available to print.');
+      return;
+    }
+    setDirectPrinting(true);
+    setZplNotice('Connecting to BOXP BP 4304e (USB Spooler)...');
+    try {
+      const zpl = generateBatchZpl90x68(counted, zplConfig);
+      const res = await sendToZebraBrowserPrint(zpl, zplConfig.printerModel || 'BOXP BP 4304e (300 dpi) - ZPL');
+      if (res && res.success) {
+        setZplNotice(`✅ Successfully sent ${totalLabels} label(s) directly to ${res.printerName || 'BOXP BP 4304e'} via Windows Spooler!`);
+      } else {
+        const errMsg = res?.error || 'Spooler connection failed';
+        setZplNotice(`⚠️ Direct spooler: ${errMsg}. Opening Browser Print fallback...`);
+        startPrint(event);
+      }
+    } catch (err) {
+      setZplNotice(`⚠️ Direct print error: ${err.message}. Opening Browser Print fallback...`);
+      startPrint(event);
+    } finally {
+      setDirectPrinting(false);
+    }
+  };
+
+  const handleBrowserPrintPreview = (event) => {
     if (!totalLabels) {
       setZplNotice('No labels available to print.');
       return;
@@ -725,7 +752,7 @@ export default function GrcBarcodePrintPage() {
                 type="button"
                 onClick={handleDownloadZplPrn}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-xs"
-                title="Download .PRN / .ZPL file to send directly to your Zebra printer"
+                title="Download .PRN / .ZPL file to send directly to your Zebra / Boxp printer"
               >
                 <Icon name="download" size={14} />
                 <span>Download .PRN File</span>
@@ -733,12 +760,24 @@ export default function GrcBarcodePrintPage() {
 
               <button
                 type="button"
-                onClick={handleDirectZplPrint}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-4 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-brand-dark"
-                title="Print directly to your connected USB / Thermal Printer"
+                onClick={handleBrowserPrintPreview}
+                disabled={printing}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-xs"
+                title="Preview in Browser Print Dialog (Chrome window.print)"
               >
                 <Icon name="printer" size={14} />
-                <span>Direct Print (90×68 mm)</span>
+                <span>{printing ? 'Preparing...' : 'Browser Preview'}</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={directPrinting}
+                onClick={handleDirectZplPrint}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-4 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-brand-dark disabled:opacity-60"
+                title="Print directly to connected Boxp BP 4304e printer via Windows Spooler"
+              >
+                <Icon name="printer" size={14} />
+                <span>{directPrinting ? 'Sending to Boxp...' : 'Direct Print (90×68 mm)'}</span>
               </button>
             </>
           )}

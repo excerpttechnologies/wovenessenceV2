@@ -676,7 +676,7 @@ export function Label({ label, geometry }) {
      its own number, which is what the left-hand side already prints, and the
      right-hand side stays empty rather than showing something invented. */
   const barcodeNo = label.barcodeNo;
-  const secondary = label.barcodeGenerated ? label.barcode : '';
+  const secondary = label.barcodeReference || (label.barcodeGenerated ? label.barcodeGenerated : '');
 
   /* THE IDENTIFIER ROW'S TWO SIZES. The barcode number is the field the
      operator keys in, so it is set LARGER than the composed value beside it:
@@ -821,7 +821,7 @@ export function Label({ label, geometry }) {
         {/* the unit's own number, larger and heavier than the composed value
             - each span carries the size it was fitted to above */}
         {hasNo && <span style={{ ...ONE_LINE_FULL, fontSize: mm(noFont), fontWeight: 700 }}>{barcodeNo}</span>}
-        {hasSecondary && <span style={{ ...ONE_LINE_FULL, fontSize: mm(secondaryFont) }}>{secondary}</span>}
+        {hasSecondary && <span style={{ ...ONE_LINE_FULL, fontSize: mm(secondaryFont), fontWeight: 700 }}>{secondary}</span>}
       </div>
 
       {/* 3 — the print description, up to DESCRIPTION_LINES (3) lines,
