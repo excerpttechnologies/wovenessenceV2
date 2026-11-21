@@ -9,10 +9,8 @@ export const LABEL_FIELD = 'documentName';
 const DocSetupSchema = new mongoose.Schema(
   {
     businessId: { type: mongoose.Schema.Types.ObjectId, ref: 'business', default: null, index: true },
-    /* finYear was declared TWICE in this schema. The second declaration -
-       without the index - is the one Mongoose kept, so the field silently
-       lost its index and every Doc Setup lookup scanned the collection.
-       Declared once now. */
+    companyId: { type: mongoose.Schema.Types.ObjectId, ref: 'business', default: null, index: true },
+    locationId: { type: mongoose.Schema.Types.ObjectId, ref: 'companyLocation', default: null, index: true },
     finYear: { type: String, default: '', index: true },
 
     documentName: { type: String, default: '' },
@@ -24,9 +22,7 @@ const DocSetupSchema = new mongoose.Schema(
     startFrom: { type: Number, default: null },
 
     /* Computed on save from prefix + zero-padded startFrom + suffix, never
-       typed. It was a required free-text field, which is how a setup with
-       prefix "htfdvbg" ended up showing a sample of "grcccr" - a preview
-       that bears no relation to the number the system will actually issue. */
+       typed. */
     sample: { type: String, default: '' },
 
     /* Never | Daily | Monthly | Yearly - how often the running number
@@ -41,16 +37,10 @@ const DocSetupSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-/* One configuration per business + document type + financial year.
-
-   Without this, two setups for the same type made the numbering service's
-   findOne() pick whichever the database returned first - so the prefix a
-   document got depended on collection order. */
+/* One configuration per business + location + document type + financial year.
+   Maintains independent document setup series across locations of a company. */
 DocSetupSchema.index(
-  { businessId: 1, documentType: 1, finYear: 1 },
-  /* $gt: '' rather than $ne: '' - a partial index only supports $exists,
-     $type, $eq and the range operators, so $ne is rejected outright. $gt: ''
-     excludes both a missing type and an empty one, which is what is meant. */
+  { businessId: 1, locationId: 1, documentType: 1, finYear: 1 },
   { unique: true, partialFilterExpression: { documentType: { $gt: '' } } }
 );
 

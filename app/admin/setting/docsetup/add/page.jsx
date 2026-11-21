@@ -13,7 +13,7 @@ export default function AddDocsetupPage() {
         basePath: '/admin/setting/',
         slugPath: "docsetup",
         endpoint: '/api/doc-setup',
-        scope: ["business","finYear"],
+        scope: ["business", "location", "finYear"],
         fields: FIELDS,
         note: NOTE,
       }}

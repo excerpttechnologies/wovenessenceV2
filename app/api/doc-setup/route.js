@@ -36,20 +36,43 @@ export async function GET(req) {
   const perPage = Math.min(500, Number(sp.get('perPage') || PER_PAGE));
   const search = (sp.get('search') || '').trim();
 
+  const businessParam = sp.get('business') || sp.get('companyId');
+  const locationParam = sp.get('location') || sp.get('locationId');
+
   /* Only refuses when this role has a saved permission matrix that
      withholds it - see lib/screenPermission.js. */
   const denied = await screenDenial({
-    session, ...DOC_SETUP, action: PERM.READ, businessId: sp.get('business'),
+    session, ...DOC_SETUP, action: PERM.READ, businessId: businessParam,
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const filter = {};
-  const b = sp.get('business'); if (b && isValidObjectId(b)) filter.businessId = b;
-  const y = sp.get('finYear'); if (y) filter.finYear = y;
+  if (businessParam && isValidObjectId(businessParam)) {
+    filter.$or = [{ businessId: businessParam }, { companyId: businessParam }];
+  }
+  if (locationParam && isValidObjectId(locationParam)) {
+    filter.locationId = locationParam;
+  }
+  const y = sp.get('finYear');
+  if (y) filter.finYear = y;
 
   if (search) {
     const rx = { $regex: escapeRegex(search), $options: 'i' };
-    filter.$or = [{ documentName: rx }, { description: rx }, { prefix: rx }, { suffix: rx }, { sample: rx }, { finYear: rx }];
+    const searchConditions = [
+      { documentName: rx },
+      { documentType: rx },
+      { description: rx },
+      { prefix: rx },
+      { suffix: rx },
+      { sample: rx },
+      { finYear: rx },
+    ];
+    if (filter.$or) {
+      filter.$and = [{ $or: filter.$or }, { $or: searchConditions }];
+      delete filter.$or;
+    } else {
+      filter.$or = searchConditions;
+    }
   }
 
   const total = await DocSetup.countDocuments(filter);
@@ -69,7 +92,13 @@ export async function GET(req) {
   const labels = {};
 
   return json({
-    rows: rows.map((r) => ({ ...r, _id: String(r._id) })),
+    rows: rows.map((r) => ({
+      ...r,
+      _id: String(r._id),
+      businessId: r.businessId ? String(r.businessId) : '',
+      companyId: r.companyId ? String(r.companyId) : (r.businessId ? String(r.businessId) : ''),
+      locationId: r.locationId ? String(r.locationId) : '',
+    })),
     labels,
     total,
     page,
@@ -85,31 +114,46 @@ export async function POST(req) {
   const body = await req.json();
   await dbConnect();
 
-  /* Ahead of validate() and of the one-per-type clash check, so a refused
+  const businessParam = body.business || body.businessId || body.companyId;
+  const locationParam = body.location || body.locationId;
+
+  /* Ahead of validate() and of the clash check, so a refused
      setup reads as 403 "not allowed" rather than as a complaint about the
      form or about a series that is already configured. */
   const denied = await screenDenial({
-    session, ...DOC_SETUP, action: PERM.CREATE, businessId: body.business,
+    session, ...DOC_SETUP, action: PERM.CREATE, businessId: businessParam,
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const { errors, doc, ok } = validate(FIELDS, body.data || {});
   if (!ok) return json({ errors }, 422);
-  if (body.business && isValidObjectId(body.business)) doc.businessId = body.business;
+
+  if (businessParam && isValidObjectId(businessParam)) {
+    doc.businessId = businessParam;
+    doc.companyId = businessParam;
+  }
+  if (locationParam && isValidObjectId(locationParam)) {
+    doc.locationId = locationParam;
+  }
   if (body.finYear) doc.finYear = body.finYear;
 
   const bad = validateSetup(doc);
   if (bad) return json({ errors: bad }, 422);
 
-  /* One setup per business + type + year. The unique index enforces it, but
-     catching it here produces a message naming the clash instead of a raw
-     duplicate-key error. */
-  const clash = await DocSetup.findOne({
-    businessId: doc.businessId, documentType: doc.documentType, finYear: doc.finYear,
-  }).select('documentName').lean();
+  /* One setup per business + location + type + year.
+     Prevents duplicates within the same location. */
+  const clashFilter = {
+    documentType: doc.documentType,
+    ...(doc.businessId ? { $or: [{ businessId: doc.businessId }, { companyId: doc.businessId }] } : {}),
+    ...(doc.locationId ? { locationId: doc.locationId } : { locationId: null }),
+    ...(doc.finYear ? { finYear: doc.finYear } : {}),
+  };
+  const clash = await DocSetup.findOne(clashFilter).select('documentName').lean();
   if (clash) {
     return json({
-      errors: { documentType: `"${doc.documentType}" is already configured for this business and year (${clash.documentName}).` },
+      errors: {
+        documentType: `"${doc.documentType}" is already configured for this location and year (${clash.documentName}).`,
+      },
     }, 422);
   }
 

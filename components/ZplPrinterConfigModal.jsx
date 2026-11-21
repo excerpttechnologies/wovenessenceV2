@@ -260,7 +260,7 @@ export default function ZplPrinterConfigModal({ open, onClose, onSave }) {
                   Layout &amp; Orientation
                 </label>
                 <select
-                  value={cfg.layoutMode || 'preview_match'}
+                  value={cfg.layoutMode || 'exact_prn'}
                   onChange={(e) => {
                     const mode = e.target.value;
                     const barcodeOrientation = mode === 'preview_match' ? 'N' : 'R';
@@ -268,9 +268,9 @@ export default function ZplPrinterConfigModal({ open, onClose, onSave }) {
                   }}
                   className="w-full rounded border border-slate-300 bg-white px-2.5 py-1.5 font-medium text-slate-800"
                 >
-                  <option value="preview_match">Horizontal (Matches Preview 1:1) - Recommended</option>
+                  <option value="exact_prn">Exact PRN Baseline (Matches PRN File Output) - Recommended</option>
                   <option value="rotated_full">90° Rotated (Distributed Full Width)</option>
-                  <option value="exact_prn">Exact PRN Baseline (Unscaled)</option>
+                  <option value="preview_match">Horizontal (0° Orientation)</option>
                 </select>
               </div>
 

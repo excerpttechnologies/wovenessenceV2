@@ -7173,7 +7173,7 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
   const bar = BAR_PROFILES[barProfile] || null;
 
   /* 90x68 mm ZPL Printer Integration */
-  const [printerMode, setPrinterMode] = useState('browser'); // 'browser' | 'zpl_90x68'
+  const [printerMode, setPrinterMode] = useState('boxb_4304e'); // 'boxb_4304e' | 'zpl_90x68' | 'tsc_te310' | 'browser'
   const [zplConfig, setZplConfig] = useState(DEFAULT_ZPL_CONFIG);
   const [showZplConfigModal, setShowZplConfigModal] = useState(false);
   const [zplNotice, setZplNotice] = useState('');
@@ -7196,7 +7196,7 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
     }
     const zpl = generateBatchZpl90x68(selectedRows, zplConfig);
     downloadPrnFile(zpl, `grc_labels_90x68_${Date.now()}.prn`);
-    setZplNotice(`Downloaded 90×68 mm .PRN file with ${selectedRows.length} label(s). Ready to send to Zebra printer!`);
+    setZplNotice(`Downloaded 90×68 mm .PRN file with ${selectedRows.length} label(s). Matches BOXB BP 4304e printer output!`);
   };
 
   const [directPrinting, setDirectPrinting] = useState(false);
@@ -7206,13 +7206,17 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
       setZplNotice('No labels selected to print.');
       return;
     }
+    const targetModel = printerMode === 'boxb_4304e'
+      ? 'BOXP BP 4304e (300 dpi) - ZPL'
+      : (zplConfig.printerModel || 'BOXP BP 4304e (300 dpi) - ZPL');
+
     setDirectPrinting(true);
-    setZplNotice('Sending ZPL commands directly to BOXP BP 4304e printer...');
+    setZplNotice(`Sending ZPL commands directly to ${targetModel}...`);
     try {
       const zpl = generateBatchZpl90x68(selectedRows, zplConfig);
-      const res = await sendToZebraBrowserPrint(zpl, zplConfig.printerModel || 'BOXP BP 4304e (300 dpi) - ZPL');
+      const res = await sendToZebraBrowserPrint(zpl, targetModel);
       if (res && res.success) {
-        setZplNotice(`✅ Successfully sent ${selectedRows.length} label(s) directly to ${res.printerName || 'BOXP BP 4304e'}!`);
+        setZplNotice(`✅ Successfully sent ${selectedRows.length} label(s) directly to ${res.printerName || targetModel} via Windows Spooler!`);
       } else {
         const errMsg = res?.error || 'Printer is not connected or offline.';
         setZplNotice(`❌ Cannot print: ${errMsg}`);
@@ -7353,7 +7357,7 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
   });
 
   /* Group labels into sheets */
-  const isZpl90x68 = printerMode === 'zpl_90x68' || printerMode === 'zpl90x68';
+  const isZpl90x68 = printerMode === 'boxb_4304e' || printerMode === 'zpl_90x68' || printerMode === 'zpl90x68';
 
   const sheets = useMemo(() => {
     if (isZpl90x68) {
@@ -7896,7 +7900,7 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
             <div className="mb-3 flex items-baseline justify-between text-sm font-semibold">
               <div className="flex items-center gap-2">
                 <span>Preview</span>
-                {printerMode === 'zpl_90x68' && (
+                {isZpl90x68 && (
                   <span className="rounded bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-800 uppercase tracking-wide">
                     90×68 mm ZPL Mode
                   </span>
@@ -7904,13 +7908,13 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
               </div>
               <span className="text-[11px] font-normal text-gray-500">
                 {expectedLabels} label{expectedLabels === 1 ? '' : 's'}
-                {printerMode === 'zpl_90x68' ? ' · 90 × 68 mm' : (format?.labelSize ? ' · ' + format.labelSize : '')}
+                {isZpl90x68 ? ' · 90 × 68 mm' : (format?.labelSize ? ' · ' + format.labelSize : '')}
               </span>
             </div>
             {/* The same two choices the GRC Barcode Print page offers, from
                 the same catalog - picking one re-lays the preview out at that
                 stock's real size and the Print run uses it unchanged. */}
-            {printerMode === 'browser' && (
+            {!isZpl90x68 && (
               <div className="mb-3 flex flex-wrap items-center gap-3">
                 <label className="flex items-center gap-1 text-xs text-gray-600">
                   Label
@@ -7958,7 +7962,7 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
                     + ' to preview ' + (pendingBatch.length === 1 ? 'it' : 'them') + ' - Print will ask.'
                   : 'Nothing to print.'}
               </div>
-            ) : printerMode === 'zpl_90x68' ? (
+            ) : isZpl90x68 ? (
               <div className="flex flex-col items-center">
                 {selectedRows.length > 1 && (
                   <div className="mb-2.5 flex items-center justify-between w-full text-xs text-slate-600 px-1">
@@ -8033,17 +8037,26 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
               <select
                 value={printerMode}
                 onChange={(e) => {
-                  setPrinterMode(e.target.value);
+                  const val = e.target.value;
+                  setPrinterMode(val);
                   setZplNotice('');
+                  if (val === 'tsc_te310') {
+                    setBarProfile('tsc_te310');
+                    setPaper('stock');
+                  } else if (val === 'browser') {
+                    setBarProfile('standard');
+                  }
                 }}
                 className="rounded border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-800 shadow-2xs"
               >
-                <option value="browser">Standard Browser Printer (HTML/PDF)</option>
+                <option value="boxb_4304e">BOXB BP 4304e (300 DPI) [90×68 MM ZPL]</option>
                 <option value="zpl_90x68">Zebra / ZPL Thermal Printer (90×68 mm)</option>
+                <option value="tsc_te310">TSC TE310 (Browser / HTML 100×40 MM)</option>
+                <option value="browser">Standard Browser Printer (HTML/PDF)</option>
               </select>
             </label>
 
-            {printerMode === 'zpl_90x68' && (
+            {isZpl90x68 && (
               <button
                 type="button"
                 onClick={() => setShowZplConfigModal(true)}
@@ -8061,7 +8074,7 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
               <span className="text-xs font-medium text-red-700 mr-2">{printError}</span>
             )}
 
-            {printerMode === 'browser' ? (
+            {!isZpl90x68 ? (
               <>
                 <button
                   type="button"
@@ -8078,7 +8091,7 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
                   type="button"
                   onClick={handleDownloadZplPrn}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-xs"
-                  title="Download .PRN / .ZPL file to send directly to your Zebra / Boxp printer"
+                  title="Download .PRN / .ZPL file (identical to Direct Print)"
                 >
                   <Icon name="download" size={14} />
                   <span>Download .PRN File</span>
@@ -8100,10 +8113,10 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
                   disabled={directPrinting}
                   onClick={handleDirectZplPrint}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-4 py-2 text-xs font-bold text-white shadow-xs hover:bg-brand-dark disabled:opacity-60"
-                  title="Print directly to connected Boxp BP 4304e printer via Windows Spooler"
+                  title="Print directly to connected BOXB BP 4304e printer via Windows Spooler RAW ZPL"
                 >
                   <Icon name="printer" size={14} />
-                  <span>{directPrinting ? 'Sending to Boxp...' : 'Direct Print (90×68 mm)'}</span>
+                  <span>{directPrinting ? 'Sending to Printer...' : 'Direct Print (90×68 mm)'}</span>
                 </button>
               </>
             )}

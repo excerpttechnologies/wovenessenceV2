@@ -14,29 +14,40 @@ if (-not (Test-Path $FilePath)) {
 # 1. Verify printer is installed in Windows
 $printer = Get-Printer -Name $PrinterName -ErrorAction SilentlyContinue
 if (-not $printer) {
+    # Match flexibly by name/driver (e.g. "BOXB" vs "BOXP", missing "- ZPL", etc.)
+    $alt = $PrinterName -replace 'BOXB', 'BOXP' -replace '\s*-\s*ZPL', ''
+    $printer = Get-Printer -ErrorAction SilentlyContinue | Where-Object {
+        $_.Name -eq $alt -or
+        $_.Name -like "*$alt*" -or
+        $_.DriverName -like "*$alt*" -or
+        $_.Name -like "*$PrinterName*" -or
+        $_.DriverName -like "*$PrinterName*"
+    } | Select-Object -First 1
+}
+if (-not $printer) {
     Write-Error "FAILED: Printer '$PrinterName' is not installed on this system."
     exit 1
 }
 
 # 2. Verify printer is not Offline
 if ($printer.PrinterStatus -eq 'Offline' -or $printer.WorkOffline) {
-    Write-Error "FAILED: Printer '$PrinterName' is Offline. Please turn ON the printer and check connection."
+    Write-Error "FAILED: Printer '$($printer.Name)' is Offline. Please turn ON the printer and check connection."
     exit 1
 }
 
 # 3. For USB printer, verify physical connection
 if ($printer.PortName -like 'USB*') {
     $pnpPrinter = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { 
-        $_.FriendlyName -eq $PrinterName -or $_.InstanceId -like "*$($printer.PortName)*"
+        $_.FriendlyName -eq $printer.Name -or $_.FriendlyName -eq $printer.DriverName -or $_.InstanceId -like "*$($printer.PortName)*"
     }
     if (-not $pnpPrinter) {
-        $shortName = ($PrinterName -split '\s+')[0]
+        $shortName = ($printer.Name -split '\s+')[0]
         $pnpByKeyword = if ($shortName -and $shortName.Length -gt 2) {
             Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.FriendlyName -like "*$shortName*" }
         } else { $null }
 
         if (-not $pnpByKeyword) {
-            Write-Error "FAILED: Printer '$PrinterName' is not physically connected. Please connect the USB cable and turn the printer ON."
+            Write-Error "FAILED: Printer '$($printer.Name)' is not physically connected. Please connect the USB cable and turn the printer ON."
             exit 1
         }
     }
@@ -118,13 +129,13 @@ try {
         Add-Type -TypeDefinition $rawPrinterCode
     }
     $resolvedPath = (Resolve-Path $FilePath).Path
-    $result = [RawPrinterHelper]::SendFileToPrinter($PrinterName, $resolvedPath)
+    $result = [RawPrinterHelper]::SendFileToPrinter($printer.Name, $resolvedPath)
     if ($result) {
-        Write-Output "SUCCESS: Sent $resolvedPath to $PrinterName"
+        Write-Output "SUCCESS: Sent $resolvedPath to $($printer.Name)"
         exit 0
     } else {
         $lastError = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
-        Write-Error "FAILED: Could not write to printer $PrinterName. Win32 Error: $lastError"
+        Write-Error "FAILED: Could not write to printer $($printer.Name). Win32 Error: $lastError"
         exit 1
     }
 } catch {

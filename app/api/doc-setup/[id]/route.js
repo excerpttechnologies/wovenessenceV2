@@ -1,3 +1,4 @@
+import { isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
 import DocSetup from '@/models/DocSetup';
 import { requireSession } from '@/lib/session';
@@ -29,7 +30,15 @@ export async function GET(req, { params }) {
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
-  return json({ doc: { ...doc, _id: String(doc._id) } });
+  return json({
+    doc: {
+      ...doc,
+      _id: String(doc._id),
+      businessId: doc.businessId ? String(doc.businessId) : '',
+      companyId: doc.companyId ? String(doc.companyId) : (doc.businessId ? String(doc.businessId) : ''),
+      locationId: doc.locationId ? String(doc.locationId) : '',
+    },
+  });
 }
 
 export async function PUT(req, { params }) {
@@ -43,7 +52,7 @@ export async function PUT(req, { params }) {
   /* Before validate() and before the clash check, and scoped on the STORED
      row rather than on the body - otherwise the caller could name a business
      it may edit and save over a series it may not. */
-  const target = await DocSetup.findById(id).select('businessId').lean();
+  const target = await DocSetup.findById(id).select('businessId companyId locationId').lean();
   if (!target) return json({ error: 'Not found' }, 404);
 
   const denied = await screenDenial({
@@ -54,23 +63,44 @@ export async function PUT(req, { params }) {
   const { errors, doc, ok } = validate(FIELDS, body.data || {});
   if (!ok) return json({ errors }, 422);
 
+  const businessParam = body.business || body.businessId || body.companyId;
+  const locationParam = body.location || body.locationId;
+
+  if (businessParam && isValidObjectId(businessParam)) {
+    doc.businessId = businessParam;
+    doc.companyId = businessParam;
+  } else if (target.businessId) {
+    doc.businessId = target.businessId;
+    doc.companyId = target.companyId || target.businessId;
+  }
+
+  if (locationParam && isValidObjectId(locationParam)) {
+    doc.locationId = locationParam;
+  } else if (target.locationId) {
+    doc.locationId = target.locationId;
+  }
+
   const bad = validateSetup(doc);
   if (bad) return json({ errors: bad }, 422);
 
-  /* the same one-per-business-type-year rule as create, excluding this row */
-  const clash = await DocSetup.findOne({
+  /* The same one-per-location-type-year rule as create, excluding this row */
+  const clashFilter = {
     _id: { $ne: id },
-    businessId: doc.businessId ?? undefined,
     documentType: doc.documentType,
-    finYear: doc.finYear,
-  }).select('documentName').lean();
+    ...(doc.businessId ? { $or: [{ businessId: doc.businessId }, { companyId: doc.businessId }] } : {}),
+    ...(doc.locationId ? { locationId: doc.locationId } : { locationId: null }),
+    ...(doc.finYear ? { finYear: doc.finYear } : {}),
+  };
+  const clash = await DocSetup.findOne(clashFilter).select('documentName').lean();
   if (clash) {
     return json({
-      errors: { documentType: `"${doc.documentType}" is already configured for this business and year (${clash.documentName}).` },
+      errors: {
+        documentType: `"${doc.documentType}" is already configured for this location and year (${clash.documentName}).`,
+      },
     }, 422);
   }
 
-  /* recomputed on every save - see buildSample in ../route.js */
+  /* Recomputed on every save */
   doc.sample = buildSample(doc);
 
   const updated = await DocSetup.findByIdAndUpdate(id, doc, { new: true, runValidators: true });
@@ -86,7 +116,7 @@ export async function DELETE(req, { params }) {
   const { id } = await params;
   await dbConnect();
 
-  const target = await DocSetup.findById(id).select('businessId').lean();
+  const target = await DocSetup.findById(id).select('businessId locationId').lean();
   if (!target) return json({ ok: true });
 
   const denied = await screenDenial({
@@ -94,6 +124,7 @@ export async function DELETE(req, { params }) {
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
+  /* Deletes only the selected location's record */
   await DocSetup.findByIdAndDelete(id);
   return json({ ok: true });
 }

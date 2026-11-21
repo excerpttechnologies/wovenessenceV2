@@ -170,16 +170,16 @@ if (!nextDocNumber) {
   ok('suffix is appended to the issued number', suf === 'ZZTEST/0001/X', suf);
 }
 
-console.log('\n--- ONE CONFIG PER BUSINESS + TYPE + YEAR ---');
+console.log('\n--- ONE CONFIG PER BUSINESS + LOCATION + TYPE + YEAR ---');
 try {
-  await setups.createIndex({ businessId: 1, documentType: 1, finYear: 1 },
+  await setups.createIndex({ businessId: 1, locationId: 1, documentType: 1, finYear: 1 },
     { unique: true, partialFilterExpression: { documentType: { $gt: '' } } });
   await setups.deleteMany({ documentType: 'ZZTEST Dup' });
-  const base = { businessId, finYear: '2026-2027', documentType: 'ZZTEST Dup', documentName: 'a', prefix: 'D/', autoNumberLength: 4, startFrom: 1, validity: 'Never', status: true };
+  const base = { businessId, locationId: null, finYear: '2026-2027', documentType: 'ZZTEST Dup', documentName: 'a', prefix: 'D/', autoNumberLength: 4, startFrom: 1, validity: 'Never', status: true };
   await setups.insertOne({ ...base, createdAt: new Date() });
   let threw = false;
   try { await setups.insertOne({ ...base, documentName: 'b', createdAt: new Date() }); } catch { threw = true; }
-  ok('a duplicate config for the same business+type+year is rejected', threw);
+  ok('a duplicate config for the same business+location+type+year is rejected', threw);
   await setups.deleteMany({ documentType: 'ZZTEST Dup' });
 } catch (e) {
   console.log('  FAIL  unique index could not be created ->', e.message);

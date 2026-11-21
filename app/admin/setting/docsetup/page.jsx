@@ -12,7 +12,7 @@ const CONFIG = {
      click (components/ListView.jsx) */
   pager: 'numbered',
   sortable: true,
-  scope: ["business","finYear"],
+  scope: ["business", "location", "finYear"],
   columns: [
     { k: "documentName", t: "Name" },
     { k: "documentType", t: "Type" },
