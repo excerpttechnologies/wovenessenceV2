@@ -2805,7 +2805,7 @@
 //   /* label geometry - the sticker stock this tenant actually buys */
 //   const [formats, setFormats] = useState([]);
 //   const [formatName, setFormatName] = useState('');
-//   const [paper, setPaper] = useState('a4');
+//   const [paper, setPaper] = useState('stock');
 
 //   /* the print run: mounted -> measured -> dialog. See runPrint below. */
 //   const [printing, setPrinting] = useState(false);
@@ -7163,7 +7163,7 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
      same catalog, preselect the same Default format and lay a label out at
      the same physical size. */
   const { formats, format, formatName, setFormatName } = useBarcodeLabelFormat(open);
-  const [paper, setPaper] = useState('a4');
+  const [paper, setPaper] = useState('stock');
   /* Printer bar profile: 'standard' draws the bars at the full readable size;
      'tsc_te310' is the compact profile for the TSC TE310 (203dpi) - narrower
      symbol, shorter bars, module still at the scannable floor. The SAME
@@ -7178,6 +7178,8 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
   const [showZplConfigModal, setShowZplConfigModal] = useState(false);
   const [zplNotice, setZplNotice] = useState('');
   const [zplPreviewIndex, setZplPreviewIndex] = useState(0);
+
+  const idSpacing = 8; // Default 8mm wide spacing between barcode number and reference, centered
 
   useEffect(() => {
     if (open) {
@@ -7210,15 +7212,13 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
       const zpl = generateBatchZpl90x68(selectedRows, zplConfig);
       const res = await sendToZebraBrowserPrint(zpl, zplConfig.printerModel || 'BOXP BP 4304e (300 dpi) - ZPL');
       if (res && res.success) {
-        setZplNotice(`✅ Successfully sent ${selectedRows.length} label(s) directly to ${res.printerName || 'BOXP BP 4304e'} via Windows Spooler!`);
+        setZplNotice(`✅ Successfully sent ${selectedRows.length} label(s) directly to ${res.printerName || 'BOXP BP 4304e'}!`);
       } else {
-        const errMsg = res?.error || 'Spooler connection failed';
-        setZplNotice(`⚠️ Direct spooler: ${errMsg}. Opening Browser Print fallback...`);
-        runPrint();
+        const errMsg = res?.error || 'Printer is not connected or offline.';
+        setZplNotice(`❌ Cannot print: ${errMsg}`);
       }
     } catch (err) {
-      setZplNotice(`⚠️ Direct print error: ${err.message}. Opening Browser Print fallback...`);
-      runPrint();
+      setZplNotice(`❌ Direct print error: ${err.message}`);
     } finally {
       setDirectPrinting(false);
     }
@@ -7315,17 +7315,23 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
      On sticker stock the sheet IS the page, so a gutter between labels would
      push the last column off the edge of the paper - hence gap 0 there, and
      a 1mm cut line on a sheet of A4 that somebody has to guillotine. */
-  /* ONE call, so this page and the Barcode Generation picker cannot arrive
-     at two different sheets from one format. labelRun fits the labels inside
-     the page's PRINTABLE width - the sheet less the unprintable edge the
-     printer's grippers take - which is what stops the leading sticker's
-     barcode number being clipped on stock. */
-  const run = labelRun(format, paper);
+  /* FORCE 2-UP LAYOUT: Ensure minimum 2 labels per row and a 100 x 40 mm
+     stock page. The label keeps its REAL catalog size so the 2 stickers print
+     side by side (2-up) across the physical 100mm stock sheet. */
+  const format2up = useMemo(() => {
+    if (!format) return null;
+    const perRow = Math.max(2, Number(format.stickerInRow) || 2);
+    const pageSize = '100 x 40 mm';
+    if (perRow === Number(format.stickerInRow) && format.pageSize === pageSize) return format;
+    return { ...format, stickerInRow: perRow, pageSize };
+  }, [format]);
+
+  const run = labelRun(format2up, paper);
   const { gap, stockSize } = run;
 
   /* Parse paper and label dimensions for iframe printing */
   const isStock = paper === 'stock';
-  const paperDims = isStock && format ? parsePageSize(format) : null;
+  const paperDims = isStock && format2up ? parsePageSize(format2up) : null;
   const paperW = paperDims ? paperDims.w : (paper === 'a4' ? 210 : 100);
   const paperH = paperDims ? paperDims.h : (paper === 'a4' ? 297 : 40);
   /* Labels per page come from the SAME geometry the sheet is drawn with
@@ -7347,7 +7353,7 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
   });
 
   /* Group labels into sheets */
-  const isZpl90x68 = printerMode === 'zpl90x68';
+  const isZpl90x68 = printerMode === 'zpl_90x68' || printerMode === 'zpl90x68';
 
   const sheets = useMemo(() => {
     if (isZpl90x68) {
@@ -7368,11 +7374,11 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
     let cancelled = false;
 
     const hiddenContainer = document.createElement('div');
-    hiddenContainer.style.cssText = 'position:fixed; left:-9999px; top:0; width:100%; height:100%; visibility:hidden; pointer-events:none;';
+    hiddenContainer.style.cssText = 'position:fixed; left:-9999px; top:0; width:100%; height:100%; opacity:0; pointer-events:none;';
     document.body.appendChild(hiddenContainer);
 
     const iframe = document.createElement('iframe');
-    iframe.style.cssText = 'position:fixed; left:-9999px; top:0; width:100%; height:100%; visibility:hidden; pointer-events:none;';
+    iframe.style.cssText = 'position:fixed; left:-9999px; top:0; width:100%; height:100%; opacity:0; pointer-events:none;';
     document.body.appendChild(iframe);
 
     const done = () => {
@@ -7398,7 +7404,7 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
         const { createRoot } = await import('react-dom/client');
         const root = createRoot(hiddenContainer);
 
-        const geometry = labelGeometry(format, run.page, bar);
+        const geometry = labelGeometry(format2up, run.page, bar);
         const sheetsHTML = sheets.map((sheetLabels) => {
           if (isZpl90x68) {
             const item = sheetLabels[0];
@@ -7411,17 +7417,13 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
 
           const sheetContent = sheetLabels.map(({ key, row }) => {
             const labelData = labelFor(row);
-            return <Label key={key} label={labelData} geometry={geometry} />;
+            return <Label key={key} label={labelData} geometry={geometry} idSpacing={idSpacing} />;
           });
 
           return <div key={sheetLabels[0]?.key || 'sheet'} className="sheet">{sheetContent}</div>;
         });
 
-        root.render(
-          <div>
-            {sheetsHTML}
-          </div>
-        );
+        root.render(<>{sheetsHTML}</>);
 
         /* Wait for React to mount and JsBarcode to draw */
         await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -7462,34 +7464,97 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
         if (isZpl90x68) {
           pageRule = '@page { size: 90mm 68mm; margin: 0; }';
           sheetCss = `
-            .sheet {
-              width: 90mm;
-              height: 68mm;
-              box-sizing: border-box;
-              overflow: hidden;
-              page-break-after: always;
-              break-after: page;
+            @page {
+              size: 90mm 68mm;
               margin: 0;
-              padding: 0;
+            }
+            .sheet {
+              width: 90mm !important;
+              height: 68mm !important;
+              max-width: 90mm !important;
+              max-height: 68mm !important;
+              box-sizing: border-box !important;
+              overflow: hidden !important;
+              page-break-after: always !important;
+              break-after: page !important;
+              page-break-inside: avoid !important;
+              break-inside: avoid !important;
+              margin: 0 !important;
+              padding: 0 !important;
             }
             .sheet:last-child {
-              page-break-after: auto;
-              break-after: auto;
+              page-break-after: auto !important;
+              break-after: auto !important;
             }
             .zpl-label-preview {
               border: none !important;
               box-shadow: none !important;
               width: 90mm !important;
               height: 68mm !important;
+              max-width: 90mm !important;
+              max-height: 68mm !important;
               margin: 0 !important;
+              padding: 3mm 4mm !important;
               box-sizing: border-box !important;
+              overflow: hidden !important;
             }
           `;
         } else {
           pageRule = `@page { size: ${isStock ? paperW + 'mm ' + paperH + 'mm' : 'A4'}; margin: ${isStock ? '0' : '5mm'}; }`;
           sheetCss = isStock
-            ? `.sheet { width:${paperW}mm; height:${paperH}mm; display:flex; align-items:center; justify-content:flex-start; padding:0 2mm; box-sizing:border-box; overflow:hidden; }`
-            : `.sheet { display:grid; grid-template-columns:repeat(${run.perRow}, ${run.size.w}mm); grid-auto-rows:${run.size.h}mm; column-gap:${run.gapMm}mm; row-gap:${run.gapMm}mm; justify-content:center; align-content:start; width:${paperW - 10}mm; margin:0 auto; overflow:hidden; }`;
+            ? `
+              @page {
+                size: ${paperW}mm ${paperH}mm;
+                margin: 0;
+              }
+              .sheet {
+                width: ${paperW}mm !important;
+                height: ${paperH}mm !important;
+                max-width: ${paperW}mm !important;
+                max-height: ${paperH}mm !important;
+                display: flex !important;
+                flex-direction: row !important;
+                align-items: center !important;
+                justify-content: flex-start !important;
+                padding: 0 2mm !important;
+                box-sizing: border-box !important;
+                overflow: hidden !important;
+                page-break-after: always !important;
+                break-after: page !important;
+                page-break-inside: avoid !important;
+                break-inside: avoid !important;
+              }
+              .sheet:last-child {
+                page-break-after: auto !important;
+                break-after: auto !important;
+              }
+            `
+            : `
+              @page {
+                size: A4;
+                margin: 5mm;
+              }
+              .sheet {
+                display: grid !important;
+                grid-template-columns: repeat(${run.perRow}, ${run.size.w}mm) !important;
+                grid-auto-rows: ${run.size.h}mm !important;
+                column-gap: ${run.gapMm}mm !important;
+                row-gap: ${run.gapMm}mm !important;
+                justify-content: center !important;
+                align-content: start !important;
+                width: ${paperW - 10}mm !important;
+                margin: 0 auto !important;
+                overflow: hidden !important;
+                page-break-after: always !important;
+                break-after: page !important;
+                page-break-inside: avoid !important;
+                break-inside: avoid !important;
+              }
+              .sheet:last-child {
+                page-break-after: auto !important;
+                break-after: auto !important;
+              }
+            `;
         }
 
         doc.write(`<!DOCTYPE html>
@@ -7499,49 +7564,69 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
   <title>Barcode Print</title>
   <style>
     ${pageRule}
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
     html, body {
-      margin: 0;
-      padding: 0;
-      background: #fff;
-      print-color-adjust: exact;
-      -webkit-print-color-adjust: exact;
-      font-family: Arial, Helvetica, sans-serif;
-      ${isZpl90x68 ? 'width: 90mm;' : ''}
+      margin: 0 !important;
+      padding: 0 !important;
+      background: #fff !important;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+      font-family: Arial, Helvetica, sans-serif !important;
+      ${isZpl90x68 ? 'width: 90mm !important;' : ''}
     }
-    .sheet {
-      overflow: hidden;
-      break-after: page;
-      page-break-after: always;
-    }
-    .sheet:last-child {
-      break-after: auto;
-      page-break-after: auto;
+    @media print {
+      html, body {
+        margin: 0 !important;
+        padding: 0 !important;
+        background: #fff !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+      .print-doc, .sheet, .barcode-label, .zpl-label-preview {
+        visibility: visible !important;
+      }
+      .sheet * {
+        visibility: visible !important;
+      }
     }
     ${sheetCss}
+    .print-doc {
+      display: block !important;
+      visibility: visible !important;
+      width: 100% !important;
+    }
     .barcode-label {
       border: none !important;
       outline: none !important;
-      break-inside: avoid;
-      page-break-inside: avoid;
+      break-inside: avoid !important;
+      page-break-inside: avoid !important;
+      visibility: visible !important;
+      flex-shrink: 0 !important;
     }
     svg[data-barcode] {
       display: block !important;
       width: 100% !important;
       height: 100% !important;
+      visibility: visible !important;
     }
   </style>
 </head>
-<body>
-  ${hiddenContainer.innerHTML}
+<body class="print-doc">
+  <div class="print-doc">
+    ${hiddenContainer.innerHTML}
+  </div>
 </body>
 </html>`);
         doc.close();
 
-        /* Wait for iframe to render */
-        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        /* Wait for iframe to render and fonts/DOM to paint */
+        await new Promise((resolve) => setTimeout(resolve, 300));
         if (cancelled) return;
 
         setPrintError('');
+        iframe.contentWindow.focus();
         iframe.contentWindow.print();
 
         /* Wait for afterprint event */
@@ -7917,7 +8002,7 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
                 <div className="overflow-auto rounded border border-gray-300 bg-white p-2">
                   {/* GrcBarcodeLabelSheet is the same component the
                       barcode-print page renders, so Preview = Print exactly. */}
-                  <GrcBarcodeLabelSheet rows={selectedRows} format={format} gap={gap} page={run.page} bar={bar} />
+                  <GrcBarcodeLabelSheet rows={selectedRows} format={format2up} gap={gap} page={run.page} bar={bar} idSpacing={idSpacing} />
                 </div>
               </>
             )}
@@ -7925,7 +8010,11 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
         </div>
 
         {zplNotice && (
-          <div className="mx-4 mb-2 flex items-center justify-between rounded-md border border-brand/30 bg-brand/5 px-3 py-2 text-[12.5px] text-brand">
+          <div className={`mx-4 mb-2 flex items-center justify-between rounded-md px-3 py-2 text-[12.5px] font-medium ${
+            zplNotice.startsWith('❌') || zplNotice.startsWith('⚠️')
+              ? 'border border-red-300 bg-red-50 text-red-800'
+              : 'border border-emerald-300 bg-emerald-50 text-emerald-800'
+          }`}>
             <span>{zplNotice}</span>
             <button
               type="button"

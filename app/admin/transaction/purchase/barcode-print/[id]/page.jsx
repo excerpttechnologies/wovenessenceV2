@@ -167,6 +167,8 @@ export default function GrcBarcodePrintPage() {
   const [zplNotice, setZplNotice] = useState('');
   const [zplPreviewIndex, setZplPreviewIndex] = useState(0);
 
+  const idSpacing = 8; // Default 8mm wide spacing between barcode number and reference, centered
+
   useEffect(() => {
     setZplConfig(loadZplConfig());
   }, []);
@@ -194,15 +196,13 @@ export default function GrcBarcodePrintPage() {
       const zpl = generateBatchZpl90x68(counted, zplConfig);
       const res = await sendToZebraBrowserPrint(zpl, zplConfig.printerModel || 'BOXP BP 4304e (300 dpi) - ZPL');
       if (res && res.success) {
-        setZplNotice(`✅ Successfully sent ${totalLabels} label(s) directly to ${res.printerName || 'BOXP BP 4304e'} via Windows Spooler!`);
+        setZplNotice(`✅ Successfully sent ${totalLabels} label(s) directly to ${res.printerName || 'BOXP BP 4304e'}!`);
       } else {
-        const errMsg = res?.error || 'Spooler connection failed';
-        setZplNotice(`⚠️ Direct spooler: ${errMsg}. Opening Browser Print fallback...`);
-        startPrint(event);
+        const errMsg = res?.error || 'Printer is not connected or offline.';
+        setZplNotice(`❌ Cannot print: ${errMsg}`);
       }
     } catch (err) {
-      setZplNotice(`⚠️ Direct print error: ${err.message}. Opening Browser Print fallback...`);
-      startPrint(event);
+      setZplNotice(`❌ Direct print error: ${err.message}`);
     } finally {
       setDirectPrinting(false);
     }
@@ -312,7 +312,7 @@ export default function GrcBarcodePrintPage() {
   });
 
   /* Group labels into sheets */
-  const isZpl90x68 = printerMode === 'zpl_90x68';
+  const isZpl90x68 = printerMode === 'zpl_90x68' || printerMode === 'zpl90x68';
 
   const sheets = useMemo(() => {
     if (isZpl90x68) {
@@ -332,11 +332,11 @@ export default function GrcBarcodePrintPage() {
     let cancelled = false;
 
     const hiddenContainer = document.createElement('div');
-    hiddenContainer.style.cssText = 'position:fixed; left:-9999px; top:0; width:100%; height:100%; visibility:hidden; pointer-events:none;';
+    hiddenContainer.style.cssText = 'position:fixed; left:-9999px; top:0; width:100%; height:100%; opacity:0; pointer-events:none;';
     document.body.appendChild(hiddenContainer);
 
     const iframe = document.createElement('iframe');
-    iframe.style.cssText = 'position:fixed; left:-9999px; top:0; width:100%; height:100%; visibility:hidden; pointer-events:none;';
+    iframe.style.cssText = 'position:fixed; left:-9999px; top:0; width:100%; height:100%; opacity:0; pointer-events:none;';
     document.body.appendChild(iframe);
 
     const done = () => {
@@ -375,17 +375,13 @@ export default function GrcBarcodePrintPage() {
 
           const sheetContent = sheetLabels.map(({ key, row }) => {
             const labelData = labelFor(row);
-            return <Label key={key} label={labelData} geometry={geometry} />;
+            return <Label key={key} label={labelData} geometry={geometry} idSpacing={idSpacing} />;
           });
 
           return <div key={sheetLabels[0]?.key || 'sheet'} className="sheet">{sheetContent}</div>;
         });
 
-        root.render(
-          <div>
-            {sheetsHTML}
-          </div>
-        );
+        root.render(<>{sheetsHTML}</>);
 
         /* Wait for React to mount and JsBarcode to draw */
         await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -431,34 +427,97 @@ export default function GrcBarcodePrintPage() {
         if (isZpl90x68) {
           pageRule = '@page { size: 90mm 68mm; margin: 0; }';
           sheetCss = `
-            .sheet {
-              width: 90mm;
-              height: 68mm;
-              box-sizing: border-box;
-              overflow: hidden;
-              page-break-after: always;
-              break-after: page;
+            @page {
+              size: 90mm 68mm;
               margin: 0;
-              padding: 0;
+            }
+            .sheet {
+              width: 90mm !important;
+              height: 68mm !important;
+              max-width: 90mm !important;
+              max-height: 68mm !important;
+              box-sizing: border-box !important;
+              overflow: hidden !important;
+              page-break-after: always !important;
+              break-after: page !important;
+              page-break-inside: avoid !important;
+              break-inside: avoid !important;
+              margin: 0 !important;
+              padding: 0 !important;
             }
             .sheet:last-child {
-              page-break-after: auto;
-              break-after: auto;
+              page-break-after: auto !important;
+              break-after: auto !important;
             }
             .zpl-label-preview {
               border: none !important;
               box-shadow: none !important;
               width: 90mm !important;
               height: 68mm !important;
+              max-width: 90mm !important;
+              max-height: 68mm !important;
               margin: 0 !important;
+              padding: 3mm 4mm !important;
               box-sizing: border-box !important;
+              overflow: hidden !important;
             }
           `;
         } else {
           pageRule = `@page { size: ${isStock ? paperW + 'mm ' + paperH + 'mm' : 'A4'}; margin: ${isStock ? '0' : '5mm'}; }`;
           sheetCss = isStock
-            ? `.sheet { width:${paperW}mm; height:${paperH}mm; display:flex; align-items:center; justify-content:flex-start; padding:0 2mm; box-sizing:border-box; overflow:hidden; }`
-            : `.sheet { display:grid; grid-template-columns:repeat(${run.perRow}, ${run.size.w}mm); grid-auto-rows:${run.size.h}mm; column-gap:${run.gapMm}mm; row-gap:${run.gapMm}mm; justify-content:center; align-content:start; width:${paperW - 10}mm; margin:0 auto; overflow:hidden; }`;
+            ? `
+              @page {
+                size: ${paperW}mm ${paperH}mm;
+                margin: 0;
+              }
+              .sheet {
+                width: ${paperW}mm !important;
+                height: ${paperH}mm !important;
+                max-width: ${paperW}mm !important;
+                max-height: ${paperH}mm !important;
+                display: flex !important;
+                flex-direction: row !important;
+                align-items: center !important;
+                justify-content: flex-start !important;
+                padding: 0 2mm !important;
+                box-sizing: border-box !important;
+                overflow: hidden !important;
+                page-break-after: always !important;
+                break-after: page !important;
+                page-break-inside: avoid !important;
+                break-inside: avoid !important;
+              }
+              .sheet:last-child {
+                page-break-after: auto !important;
+                break-after: auto !important;
+              }
+            `
+            : `
+              @page {
+                size: A4;
+                margin: 5mm;
+              }
+              .sheet {
+                display: grid !important;
+                grid-template-columns: repeat(${run.perRow}, ${run.size.w}mm) !important;
+                grid-auto-rows: ${run.size.h}mm !important;
+                column-gap: ${run.gapMm}mm !important;
+                row-gap: ${run.gapMm}mm !important;
+                justify-content: center !important;
+                align-content: start !important;
+                width: ${paperW - 10}mm !important;
+                margin: 0 auto !important;
+                overflow: hidden !important;
+                page-break-after: always !important;
+                break-after: page !important;
+                page-break-inside: avoid !important;
+                break-inside: avoid !important;
+              }
+              .sheet:last-child {
+                page-break-after: auto !important;
+                break-after: auto !important;
+              }
+            `;
         }
 
         doc.write(`<!DOCTYPE html>
@@ -468,49 +527,69 @@ export default function GrcBarcodePrintPage() {
   <title>Barcode Print</title>
   <style>
     ${pageRule}
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
     html, body {
-      margin: 0;
-      padding: 0;
-      background: #fff;
-      print-color-adjust: exact;
-      -webkit-print-color-adjust: exact;
-      font-family: Arial, Helvetica, sans-serif;
-      ${isZpl90x68 ? 'width: 90mm;' : ''}
+      margin: 0 !important;
+      padding: 0 !important;
+      background: #fff !important;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+      font-family: Arial, Helvetica, sans-serif !important;
+      ${isZpl90x68 ? 'width: 90mm !important;' : ''}
     }
-    .sheet {
-      overflow: hidden;
-      break-after: page;
-      page-break-after: always;
-    }
-    .sheet:last-child {
-      break-after: auto;
-      page-break-after: auto;
+    @media print {
+      html, body {
+        margin: 0 !important;
+        padding: 0 !important;
+        background: #fff !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+      .print-doc, .sheet, .barcode-label, .zpl-label-preview {
+        visibility: visible !important;
+      }
+      .sheet * {
+        visibility: visible !important;
+      }
     }
     ${sheetCss}
+    .print-doc {
+      display: block !important;
+      visibility: visible !important;
+      width: 100% !important;
+    }
     .barcode-label {
       border: none !important;
       outline: none !important;
-      break-inside: avoid;
-      page-break-inside: avoid;
+      break-inside: avoid !important;
+      page-break-inside: avoid !important;
+      visibility: visible !important;
+      flex-shrink: 0 !important;
     }
     svg[data-barcode] {
       display: block !important;
       width: 100% !important;
       height: 100% !important;
+      visibility: visible !important;
     }
   </style>
 </head>
-<body>
-  ${hiddenContainer.innerHTML}
+<body class="print-doc">
+  <div class="print-doc">
+    ${hiddenContainer.innerHTML}
+  </div>
 </body>
 </html>`);
         doc.close();
 
-        /* Wait for iframe to render */
-        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        /* Wait for iframe to render and fonts/DOM to paint */
+        await new Promise((resolve) => setTimeout(resolve, 300));
         if (cancelled) return;
 
         setNotice('');
+        iframe.contentWindow.focus();
         iframe.contentWindow.print();
 
         /* Wait for afterprint event */
@@ -797,7 +876,11 @@ export default function GrcBarcodePrintPage() {
       </div>
 
       {zplNotice && (
-        <div className="no-print mb-4 flex items-center justify-between rounded-md border border-brand/30 bg-brand/5 p-3 text-xs text-brand font-medium">
+        <div className={`no-print mb-4 flex items-center justify-between rounded-md p-3 text-xs font-medium ${
+          zplNotice.startsWith('❌') || zplNotice.startsWith('⚠️')
+            ? 'border border-red-300 bg-red-50 text-red-800'
+            : 'border border-emerald-300 bg-emerald-50 text-emerald-800'
+        }`}>
           <span>{zplNotice}</span>
           <button type="button" onClick={() => setZplNotice('')} className="font-bold ml-2 text-slate-400">×</button>
         </div>
@@ -894,7 +977,7 @@ export default function GrcBarcodePrintPage() {
            than a narrow window; nothing about the labels themselves changes
            with the viewport. */
         <div className="overflow-auto rounded border border-slate-200 bg-white p-3">
-          <GrcBarcodeLabelSheet rows={counted} format={format2up} gap={gap} page={run.page} bar={bar} />
+          <GrcBarcodeLabelSheet rows={counted} format={format2up} gap={gap} page={run.page} bar={bar} idSpacing={idSpacing} />
         </div>
       )}
 

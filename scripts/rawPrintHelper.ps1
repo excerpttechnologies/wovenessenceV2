@@ -7,8 +7,48 @@ param(
 )
 
 if (-not (Test-Path $FilePath)) {
-    Write-Error "File not found: $FilePath"
+    Write-Error "FAILED: File not found: $FilePath"
     exit 1
+}
+
+# 1. Verify printer is installed in Windows
+$printer = Get-Printer -Name $PrinterName -ErrorAction SilentlyContinue
+if (-not $printer) {
+    Write-Error "FAILED: Printer '$PrinterName' is not installed on this system."
+    exit 1
+}
+
+# 2. Verify printer is not Offline
+if ($printer.PrinterStatus -eq 'Offline' -or $printer.WorkOffline) {
+    Write-Error "FAILED: Printer '$PrinterName' is Offline. Please turn ON the printer and check connection."
+    exit 1
+}
+
+# 3. For USB printer, verify physical connection
+if ($printer.PortName -like 'USB*') {
+    $pnpPrinter = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { 
+        $_.FriendlyName -eq $PrinterName -or $_.InstanceId -like "*$($printer.PortName)*"
+    }
+    if (-not $pnpPrinter) {
+        $shortName = ($PrinterName -split '\s+')[0]
+        $pnpByKeyword = if ($shortName -and $shortName.Length -gt 2) {
+            Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.FriendlyName -like "*$shortName*" }
+        } else { $null }
+
+        if (-not $pnpByKeyword) {
+            Write-Error "FAILED: Printer '$PrinterName' is not physically connected. Please connect the USB cable and turn the printer ON."
+            exit 1
+        }
+    }
+}
+
+# 4. For network IP printer, verify ping
+if ($printer.PortName -match '^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$') {
+    $canPing = Test-Connection -ComputerName $printer.PortName -Count 1 -Quiet -ErrorAction SilentlyContinue
+    if (-not $canPing) {
+        Write-Error "FAILED: Network printer '$PrinterName' at IP $($printer.PortName) is unreachable."
+        exit 1
+    }
 }
 
 $rawPrinterCode = @"

@@ -1,60 +1,84 @@
 import { NextResponse } from 'next/server';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 export async function POST(req) {
+  const tmpDir = os.tmpdir();
+  const tmpFile = path.join(tmpDir, `zpl_print_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.prn`);
+  let target = 'BOXP BP 4304e (300 dpi) - ZPL';
+
   try {
     const body = await req.json().catch(() => ({}));
     const { zpl, printerName } = body;
 
     if (!zpl || typeof zpl !== 'string') {
-      return NextResponse.json({ error: 'Missing zpl content' }, { status: 400 });
+      return NextResponse.json({ success: false, error: 'Missing zpl content' }, { status: 400 });
     }
 
-    // Default target printer if not specified
-    const target = printerName || 'BOXP BP 4304e (300 dpi) - ZPL';
+    if (printerName && typeof printerName === 'string') {
+      target = printerName.trim();
+    }
 
     // Write ZPL to a temporary PRN file
-    const tmpDir = os.tmpdir();
-    const tmpFile = path.join(tmpDir, `zpl_print_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.prn`);
     fs.writeFileSync(tmpFile, zpl, 'utf8');
 
     const scriptPath = path.resolve(process.cwd(), 'scripts', 'rawPrintHelper.ps1');
 
-    // Call PowerShell raw print helper
-    const cmd = `powershell -NoProfile -ExecutionPolicy Bypass -File "${scriptPath}" -PrinterName "${target}" -FilePath "${tmpFile}"`;
+    // Call PowerShell raw print helper using execFile for safe argument handling
+    const args = [
+      '-NoProfile',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-File',
+      scriptPath,
+      '-PrinterName',
+      target,
+      '-FilePath',
+      tmpFile,
+    ];
 
-    const { stdout, stderr } = await execAsync(cmd);
+    const { stdout, stderr } = await execFileAsync('powershell', args);
 
-    // Clean up temporary file
-    try {
-      if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
-    } catch {}
-
-    if (stderr && stderr.includes('FAILED')) {
+    if (stderr && stderr.includes('FAILED:')) {
+      const flat = stderr.replace(/\r?\n\s*/g, ' ');
+      const cleanErr = flat.split('FAILED:')[1]?.split('+ CategoryInfo')[0]?.trim() || stderr.trim();
       return NextResponse.json({
         success: false,
-        error: stderr.trim(),
+        error: cleanErr,
         printerName: target,
-      }, { status: 500 });
+      }, { status: 400 });
     }
 
     return NextResponse.json({
       success: true,
       message: `Print job sent to ${target}`,
       printerName: target,
-      output: stdout.trim(),
+      output: stdout ? stdout.trim() : '',
     });
-  } catch (err) {
-    console.error('Direct print error:', err);
+  } catch (cmdErr) {
+    const rawMsg = cmdErr.stderr || cmdErr.stdout || cmdErr.message || '';
+    const flat = rawMsg.replace(/\r?\n\s*/g, ' ');
+    let cleanErr = `Printer '${target}' is not connected or offline.`;
+    if (flat.includes('FAILED:')) {
+      cleanErr = flat.split('FAILED:')[1]?.split('+ CategoryInfo')[0]?.trim();
+    } else if (rawMsg) {
+      cleanErr = rawMsg.split('\n')[0].replace(/^.*Write-Error.*?:/, '').trim();
+    }
+
     return NextResponse.json({
       success: false,
-      error: err.message || 'Failed to send print job to Windows printer queue',
-    }, { status: 500 });
+      error: cleanErr || `Printer '${target}' is not connected or offline.`,
+      printerName: target,
+    }, { status: 400 });
+  } finally {
+    // Clean up temporary file
+    try {
+      if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
+    } catch {}
   }
 }

@@ -62,9 +62,9 @@ export default function GrcZplLabelPreview({ row, config = {}, isPrint = false }
       {/* Top Line: Composed Barcode */}
       <div className="flex justify-between items-center text-[10.5px] font-mono tracking-wide leading-none" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span className="font-bold text-[11px]">{barcodeGenerated}</span>
-        {!isPrint && (
-          <span className="text-[9px] font-semibold text-slate-400 uppercase">90×68mm ZPL</span>
-        )}
+        <span className="text-[9px] font-semibold text-slate-400 uppercase" style={{ fontSize: '9px', fontWeight: '600', textTransform: 'uppercase', color: '#94a3b8' }}>
+          90×68mm ZPL
+        </span>
       </div>
 
       {/* Barcode Section: Code 128 + Human Readable */}

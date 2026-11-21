@@ -608,7 +608,7 @@ const PRODUCT_GAP_MM = 3;
    label's block has the same outer edges whatever its values are */
 const PRODUCT_BLOCK_SHARE = 0.85;
 /* barcode number -> composed value: a fixed gap, not pushed to the edges */
-const ID_GAP_MM = 6;
+const ID_GAP_MM = 8;
 /* The fixed wording printed on every sticker. Named rather than written into
    the markup so the footer's type size can be worked out from the very
    strings that are about to be drawn - the fit and the text cannot drift
@@ -639,7 +639,7 @@ const DISCLAIMER = 'No exchange, no guarantee, No Return';
    Accepts the label data object (from labelFor / toLabelData), never the raw
    barcode row, so the whitelist is the only gate to paper.
 ----------------------------------------------------------------------- */
-export function Label({ label, geometry }) {
+export function Label({ label, geometry, idSpacing = null }) {
   const g = geometry;
   const band = (key) => mm(g.band(key));
   const type = (key) => mm(g.type(key));
@@ -678,19 +678,15 @@ export function Label({ label, geometry }) {
   const barcodeNo = label.barcodeNo;
   const secondary = label.barcodeReference || (label.barcodeGenerated ? label.barcodeGenerated : '');
 
-  /* THE IDENTIFIER ROW'S TWO SIZES. The barcode number is the field the
-     operator keys in, so it is set LARGER than the composed value beside it:
-     each value is fitted inside its own share of the row (fitType, so a long
-     one shrinks instead of overflowing or overlapping its neighbour), the
-     number taking the smaller share of the width because it is the shorter
-     string. When only one value exists it gets the whole row, as before. */
+  /* THE IDENTIFIER ROW'S SIZES AND 8MM SPACING.
+     Barcode number and Barcode reference are centered under the barcode.
+     Default 8mm horizontal gap keeps the pair bold, balanced, and cleanly centered without overlap. */
   const idCap = g.type('identifier');
   const hasNo = Boolean(barcodeNo);
   const hasSecondary = Boolean(secondary);
-  const idAvail = g.usableW - (hasNo && hasSecondary ? ID_GAP_MM : 0);
-  /* Both identifier values now use the SAME font size - the size that fits
-     the larger of the two values within the full identifier width. This
-     matches the user's request for equal font sizes. */
+  const effectiveSpacing = Math.max(1, Math.min(25, Number(idSpacing ?? geometry?.idSpacing ?? ID_GAP_MM)));
+  const idAvail = Math.max(10, g.usableW - (hasNo && hasSecondary ? effectiveSpacing : 0));
+  /* Both identifier values use bold font size that fits within available width. */
   const idText = hasNo && hasSecondary ? barcodeNo + ' ' + secondary : (hasNo ? barcodeNo : secondary);
   const idFont = idText ? fitType(idText, idAvail, idCap, MONO_CHAR_W) : 0;
   const noFont = idFont;
@@ -813,27 +809,52 @@ export function Label({ label, geometry }) {
         </div>
       </div>
 
-      {/* 2 — barcodeNo on the LEFT edge, the generated reference on the RIGHT
-          edge, one line, the pair spread to the sticker's sides like the ERP
-          reference label. textTransform none: globals.css uppercases body
-          text and a barcode value is case-sensitive. */}
+      {/* 2 — Barcode Number & Barcode Reference centered under the barcode with 8mm horizontal spacing */}
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: mm(hasNo && hasSecondary ? ID_GAP_MM : 0),
+          justifyContent: 'center',
+          gap: mm(hasNo && hasSecondary ? effectiveSpacing : 0),
+          width: '100%',
+          boxSizing: 'border-box',
+          padding: '0 0.5mm',
           height: band('identifier'),
           fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
-          fontWeight: 600,
+          fontWeight: 700,
           letterSpacing: '0.01em',
           textTransform: 'none',
         }}
       >
-        {/* both values bold, each span carrying the size it was fitted to
-            above - barcodeNo flush left, the reference flush right */}
-        {hasNo && <span style={{ ...ONE_LINE_FULL, fontSize: mm(noFont), fontWeight: 700 }}>{barcodeNo}</span>}
-        {hasSecondary && <span style={{ ...ONE_LINE_FULL, fontSize: mm(secondaryFont), fontWeight: 700 }}>{secondary}</span>}
+        {/* Barcode Number, bold */}
+        {hasNo && (
+          <span
+            style={{
+              ...ONE_LINE_FULL,
+              fontSize: mm(noFont),
+              fontWeight: 700,
+              textAlign: 'center',
+              flexShrink: 0,
+            }}
+          >
+            {barcodeNo}
+          </span>
+        )}
+        {/* Barcode Reference, bold */}
+        {hasSecondary && (
+          <span
+            style={{
+              ...ONE_LINE,
+              fontSize: mm(secondaryFont),
+              fontWeight: 700,
+              textAlign: 'center',
+              minWidth: 0,
+              flexShrink: 1,
+            }}
+          >
+            {secondary}
+          </span>
+        )}
       </div>
 
       {/* 3 — the print description, up to DESCRIPTION_LINES (3) lines,
@@ -954,7 +975,7 @@ export function Label({ label, geometry }) {
    globals.css overrides .print-doc back into normal flow so the sheet can
    fragment across as many pages as it needs.
 ----------------------------------------------------------------------- */
-export default function GrcBarcodeLabelSheet({ rows, format = null, gap = '1mm', page = null, bar = null }) {
+export default function GrcBarcodeLabelSheet({ rows, format = null, gap = '1mm', page = null, bar = null, idSpacing = 8 }) {
   /* `page` says which paper this run is going on, so the labels can be fitted
      inside its printable width (lib/barcodeLabelGeometry.js fittedLabelSize).
      Defaulted to the A4 run - where a 50mm sticker has 99mm of slack and is
@@ -998,7 +1019,7 @@ export default function GrcBarcodeLabelSheet({ rows, format = null, gap = '1mm',
       }}
     >
       {labels.map(({ key, label }) => (
-        <Label key={key} label={label} geometry={geometry} />
+        <Label key={key} label={label} geometry={geometry} idSpacing={idSpacing} />
       ))}
     </div>
   );
