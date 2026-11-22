@@ -5,25 +5,27 @@ import { resolveStored, mimeForStoredName } from '@/lib/uploads';
 
 /* GET /api/files/<prefix>/<hash>.<ext>
 
-   Serves a stored upload. Session-gated like the rest of the app - an
-   <img src> is a same-origin request, so the cookie rides along and this is
-   invisible in normal use, but the files are not world-readable.
-
-   The content type comes from the stored extension, which was chosen by the
-   server from an allowlist at upload time. Content-Disposition is set to
-   inline to permit in-browser viewing for PDFs and images without forcing downloads. */
+   Serves a stored upload.
+   Images (product photos) are world-readable with CORS so the storefront can display them.
+   Documents (PDFs, Excel, Word, etc.) require an active ERP admin session. */
 
 const json = (d, s = 200) => Response.json(d, { status: s });
 
 export async function GET(req, { params }) {
-  const session = await requireSession();
-  if (!session) return json({ error: 'Unauthorized' }, 401);
-
   const { path: segments } = await params;
   const abs = resolveStored(segments);
   /* null means it tried to climb out of the upload root - answer the same
      404 as a genuinely missing file rather than confirming the difference */
   if (!abs) return json({ error: 'Not found' }, 404);
+
+  const mime = mimeForStoredName(abs);
+
+  // Require session for non-image documents (PDFs, Excel, etc.)
+  // Images (product photos) are public-facing for the storefront
+  if (!mime.startsWith('image/')) {
+    const session = await requireSession();
+    if (!session) return json({ error: 'Unauthorized' }, 401);
+  }
 
   let data;
   try {
@@ -32,15 +34,15 @@ export async function GET(req, { params }) {
     return json({ error: 'Not found' }, 404);
   }
 
-  const mime = mimeForStoredName(abs);
   const filename = path.basename(abs);
 
   const headers = {
     'Content-Type': mime,
     'Content-Length': String(data.length),
     'Content-Disposition': `inline; filename="${filename}"`,
-    'Cache-Control': 'private, max-age=31536000, immutable',
+    'Cache-Control': 'public, max-age=31536000, immutable',
     'X-Content-Type-Options': 'nosniff',
+    'Access-Control-Allow-Origin': '*',
   };
 
   /* For PDFs, allow inline browser preview inside iframes and tabs */
