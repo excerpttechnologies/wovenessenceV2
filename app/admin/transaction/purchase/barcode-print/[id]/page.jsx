@@ -296,8 +296,8 @@ export default function GrcBarcodePrintPage() {
      fitted label is narrower than the catalog size on stock. */
   const isStock = paper === 'stock';
   const paperDims = isStock && format2up ? parsePageSize(format2up) : null;
-  const paperW = paperDims ? paperDims.w : (paper === 'a4' ? 210 : 100);
-  const paperH = paperDims ? paperDims.h : (paper === 'a4' ? 297 : 40);
+  const paperW = paperDims ? paperDims.w : (paper === 'a4' ? 210 : (paper === 'stock_90x68' ? 90 : 100));
+  const paperH = paperDims ? paperDims.h : (paper === 'a4' ? 297 : (paper === 'stock_90x68' ? 68 : 40));
   const labelsPerSheet = isStock
     ? run.perRow
     : run.perRow * Math.max(1, Math.floor((paperH - 10) / Math.max(1, run.size.h)));
@@ -311,11 +311,13 @@ export default function GrcBarcodePrintPage() {
     }));
   });
 
-  /* Group labels into sheets */
-  const isZpl90x68 = printerMode === 'zpl_90x68' || printerMode === 'zpl90x68';
+  /* Group labels into sheets - BOXP and 90x68 print exactly ONE label per page */
+  const isBoxp = printerMode === 'boxb_4304e' || printerMode === 'boxp';
+  const isZplMode = printerMode === 'zpl_90x68' || printerMode === 'zpl90x68';
+  const is90x68 = isBoxp || isZplMode || paper === 'stock_90x68';
 
   const sheets = useMemo(() => {
-    if (isZpl90x68) {
+    if (isBoxp || is90x68) {
       return labelsForPrint.map((item) => [item]);
     }
     const s = [];
@@ -323,7 +325,7 @@ export default function GrcBarcodePrintPage() {
       s.push(labelsForPrint.slice(i, i + labelsPerSheet));
     }
     return s;
-  }, [isZpl90x68, labelsForPrint, labelsPerSheet]);
+  }, [isBoxp, is90x68, labelsForPrint, labelsPerSheet]);
 
   /* THE PRINT RUN. Render labels in a hidden container first, wait for barcodes to draw,
      then copy the rendered HTML to an iframe for printing. This ensures JsBarcode effects run. */
@@ -363,11 +365,28 @@ export default function GrcBarcodePrintPage() {
         const root = createRoot(hiddenContainer);
 
         const geometry = labelGeometry(format2up, run.page, bar);
-        const sheetsHTML = sheets.map((sheetLabels) => {
-          if (isZpl90x68) {
+        const sheetsHTML = sheets.map((sheetLabels, idx) => {
+          if (isBoxp || is90x68) {
             const item = sheetLabels[0];
             return (
-              <div key={item.key} className="sheet" style={{ width: '90mm', height: '68mm', boxSizing: 'border-box', overflow: 'hidden' }}>
+              <div
+                key={item.key || idx}
+                className="boxp-print-page sheet"
+                style={{
+                  width: '90mm',
+                  height: '68mm',
+                  maxWidth: '90mm',
+                  maxHeight: '68mm',
+                  boxSizing: 'border-box',
+                  overflow: 'hidden',
+                  pageBreakAfter: idx === sheets.length - 1 ? 'auto' : 'always',
+                  breakAfter: idx === sheets.length - 1 ? 'auto' : 'page',
+                  pageBreakInside: 'avoid',
+                  breakInside: 'avoid',
+                  margin: 0,
+                  padding: 0,
+                }}
+              >
                 <GrcZplLabelPreview row={item.row} config={zplConfig} isPrint={true} />
               </div>
             );
@@ -424,14 +443,40 @@ export default function GrcBarcodePrintPage() {
         let pageRule = '';
         let sheetCss = '';
 
-        if (isZpl90x68) {
+        if (isBoxp || is90x68) {
           pageRule = '@page { size: 90mm 68mm; margin: 0; }';
           sheetCss = `
             @page {
               size: 90mm 68mm;
               margin: 0;
             }
-            .sheet {
+            @media print {
+              html, body {
+                width: 90mm !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                background: #fff !important;
+              }
+              .boxp-print-page, .sheet {
+                width: 90mm !important;
+                height: 68mm !important;
+                max-width: 90mm !important;
+                max-height: 68mm !important;
+                box-sizing: border-box !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                overflow: hidden !important;
+                page-break-after: always !important;
+                break-after: page !important;
+                page-break-inside: avoid !important;
+                break-inside: avoid !important;
+              }
+              .boxp-print-page:last-child, .sheet:last-child {
+                page-break-after: auto !important;
+                break-after: auto !important;
+              }
+            }
+            .boxp-print-page, .sheet {
               width: 90mm !important;
               height: 68mm !important;
               max-width: 90mm !important;
@@ -445,7 +490,7 @@ export default function GrcBarcodePrintPage() {
               margin: 0 !important;
               padding: 0 !important;
             }
-            .sheet:last-child {
+            .boxp-print-page:last-child, .sheet:last-child {
               page-break-after: auto !important;
               break-after: auto !important;
             }
@@ -537,7 +582,7 @@ export default function GrcBarcodePrintPage() {
       -webkit-print-color-adjust: exact !important;
       print-color-adjust: exact !important;
       font-family: Arial, Helvetica, sans-serif !important;
-      ${isZpl90x68 ? 'width: 90mm !important;' : ''}
+      ${(isBoxp || is90x68) ? 'width: 90mm !important;' : ''}
     }
     @media print {
       html, body {
@@ -740,17 +785,22 @@ export default function GrcBarcodePrintPage() {
             <select
               value={printerMode}
               onChange={(e) => {
-                setPrinterMode(e.target.value);
+                const val = e.target.value;
+                setPrinterMode(val);
                 setZplNotice('');
+                if (val === 'boxb_4304e' || val === 'boxp' || val === 'zpl_90x68') {
+                  setPaper('stock_90x68');
+                }
               }}
               className="rounded border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-800 shadow-2xs"
             >
               <option value="browser">Standard Browser Printer (HTML/PDF)</option>
+              <option value="boxb_4304e">BOXP BP 4304e (300 DPI) [90×68 MM]</option>
               <option value="zpl_90x68">Zebra / ZPL Thermal Printer (90×68 mm)</option>
             </select>
           </label>
 
-          {printerMode === 'zpl_90x68' && (
+          {(printerMode === 'zpl_90x68' || printerMode === 'boxb_4304e') && (
             <button
               type="button"
               onClick={() => setShowZplConfigModal(true)}
@@ -786,12 +836,11 @@ export default function GrcBarcodePrintPage() {
                 <select
                   value={paper}
                   onChange={(event) => setPaper(event.target.value)}
-                  className="rounded border border-slate-300 px-2 py-1 text-xs"
+                  className="rounded border border-slate-300 px-2 py-1 text-xs font-medium"
                 >
-                  <option value="stock">
-                    {stockSize ? 'Label stock ' + format.pageSize : 'Label stock'}
-                  </option>
-                  <option value="a4">A4 sheet</option>
+                  <option value="a4">A4 SHEET</option>
+                  <option value="stock">LABEL STOCK 100 × 40 MM</option>
+                  <option value="stock_90x68">LABEL STOCK 90 × 68 MM</option>
                 </select>
               </label>
 
@@ -939,7 +988,7 @@ export default function GrcBarcodePrintPage() {
             ? 'No labels on the sheet yet - set a label quantity for the batch barcodes above.'
             : 'Nothing to print for this GRC.'}
         </p>
-      ) : printerMode === 'zpl_90x68' ? (
+      ) : (isBoxp || isZplMode || paper === 'stock_90x68') ? (
         <div className="flex flex-col items-center">
           {counted.length > 1 && (
             <div className="mb-3 flex items-center justify-between w-full max-w-[90mm] text-xs text-slate-600 px-1">

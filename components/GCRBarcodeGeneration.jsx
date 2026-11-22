@@ -7163,7 +7163,7 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
      same catalog, preselect the same Default format and lay a label out at
      the same physical size. */
   const { formats, format, formatName, setFormatName } = useBarcodeLabelFormat(open);
-  const [paper, setPaper] = useState('stock');
+  const [paper, setPaper] = useState('stock_90x68');
   /* Printer bar profile: 'standard' draws the bars at the full readable size;
      'tsc_te310' is the compact profile for the TSC TE310 (203dpi) - narrower
      symbol, shorter bars, module still at the scannable floor. The SAME
@@ -7186,8 +7186,11 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
       setZplConfig(loadZplConfig());
       setZplNotice('');
       setZplPreviewIndex(0);
+      if (printerMode === 'boxb_4304e' || printerMode === 'boxp' || printerMode === 'zpl_90x68') {
+        setPaper('stock_90x68');
+      }
     }
-  }, [open]);
+  }, [open, printerMode]);
 
   const handleDownloadZplPrn = () => {
     if (!selectedRows.length) {
@@ -7336,8 +7339,8 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
   /* Parse paper and label dimensions for iframe printing */
   const isStock = paper === 'stock';
   const paperDims = isStock && format2up ? parsePageSize(format2up) : null;
-  const paperW = paperDims ? paperDims.w : (paper === 'a4' ? 210 : 100);
-  const paperH = paperDims ? paperDims.h : (paper === 'a4' ? 297 : 40);
+  const paperW = paperDims ? paperDims.w : (paper === 'a4' ? 210 : (paper === 'stock_90x68' ? 90 : 100));
+  const paperH = paperDims ? paperDims.h : (paper === 'a4' ? 297 : (paper === 'stock_90x68' ? 68 : 40));
   /* Labels per page come from the SAME geometry the sheet is drawn with
      (run.perRow / run.size), not from dividing the raw page width by the
      catalog label width - the fitted label is narrower than the catalog
@@ -7356,11 +7359,14 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
     }));
   });
 
-  /* Group labels into sheets */
-  const isZpl90x68 = printerMode === 'boxb_4304e' || printerMode === 'zpl_90x68' || printerMode === 'zpl90x68';
+  /* Group labels into sheets - BOXP and 90x68 print exactly ONE label per physical page */
+  const isBoxp = printerMode === 'boxb_4304e' || printerMode === 'boxp';
+  const isZplMode = printerMode === 'zpl_90x68' || printerMode === 'zpl90x68';
+  const is90x68 = isBoxp || isZplMode || paper === 'stock_90x68';
 
   const sheets = useMemo(() => {
-    if (isZpl90x68) {
+    if (isBoxp || is90x68) {
+      // Exactly ONE label per sheet / physical page
       return labelsForPrint.map((item) => [item]);
     }
     const s = [];
@@ -7368,7 +7374,7 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
       s.push(labelsForPrint.slice(i, i + labelsPerSheet));
     }
     return s;
-  }, [isZpl90x68, labelsForPrint, labelsPerSheet]);
+  }, [isBoxp, is90x68, labelsForPrint, labelsPerSheet]);
 
   /* ---------------------------------------------------------------- print --
      Render labels in a hidden container first, wait for barcodes to draw,
@@ -7409,11 +7415,28 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
         const root = createRoot(hiddenContainer);
 
         const geometry = labelGeometry(format2up, run.page, bar);
-        const sheetsHTML = sheets.map((sheetLabels) => {
-          if (isZpl90x68) {
+        const sheetsHTML = sheets.map((sheetLabels, idx) => {
+          if (isBoxp || is90x68) {
             const item = sheetLabels[0];
             return (
-              <div key={item.key} className="sheet" style={{ width: '90mm', height: '68mm', boxSizing: 'border-box', overflow: 'hidden' }}>
+              <div
+                key={item.key || idx}
+                className="boxp-print-page sheet"
+                style={{
+                  width: '90mm',
+                  height: '68mm',
+                  maxWidth: '90mm',
+                  maxHeight: '68mm',
+                  boxSizing: 'border-box',
+                  overflow: 'hidden',
+                  pageBreakAfter: idx === sheets.length - 1 ? 'auto' : 'always',
+                  breakAfter: idx === sheets.length - 1 ? 'auto' : 'page',
+                  pageBreakInside: 'avoid',
+                  breakInside: 'avoid',
+                  margin: 0,
+                  padding: 0,
+                }}
+              >
                 <GrcZplLabelPreview row={item.row} config={zplConfig} isPrint={true} />
               </div>
             );
@@ -7465,14 +7488,40 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
         let pageRule = '';
         let sheetCss = '';
 
-        if (isZpl90x68) {
+        if (isBoxp || is90x68) {
           pageRule = '@page { size: 90mm 68mm; margin: 0; }';
           sheetCss = `
             @page {
               size: 90mm 68mm;
               margin: 0;
             }
-            .sheet {
+            @media print {
+              html, body {
+                width: 90mm !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                background: #fff !important;
+              }
+              .boxp-print-page, .sheet {
+                width: 90mm !important;
+                height: 68mm !important;
+                max-width: 90mm !important;
+                max-height: 68mm !important;
+                box-sizing: border-box !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                overflow: hidden !important;
+                page-break-after: always !important;
+                break-after: page !important;
+                page-break-inside: avoid !important;
+                break-inside: avoid !important;
+              }
+              .boxp-print-page:last-child, .sheet:last-child {
+                page-break-after: auto !important;
+                break-after: auto !important;
+              }
+            }
+            .boxp-print-page, .sheet {
               width: 90mm !important;
               height: 68mm !important;
               max-width: 90mm !important;
@@ -7486,7 +7535,7 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
               margin: 0 !important;
               padding: 0 !important;
             }
-            .sheet:last-child {
+            .boxp-print-page:last-child, .sheet:last-child {
               page-break-after: auto !important;
               break-after: auto !important;
             }
@@ -7578,7 +7627,7 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
       -webkit-print-color-adjust: exact !important;
       print-color-adjust: exact !important;
       font-family: Arial, Helvetica, sans-serif !important;
-      ${isZpl90x68 ? 'width: 90mm !important;' : ''}
+      ${(isBoxp || is90x68) ? 'width: 90mm !important;' : ''}
     }
     @media print {
       html, body {
@@ -7900,22 +7949,24 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
             <div className="mb-3 flex items-baseline justify-between text-sm font-semibold">
               <div className="flex items-center gap-2">
                 <span>Preview</span>
-                {isZpl90x68 && (
+                {(isBoxp || isZplMode || paper === 'stock_90x68') && (
                   <span className="rounded bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-800 uppercase tracking-wide">
-                    90×68 mm ZPL Mode
+                    {printerMode === 'zpl_90x68' ? '90×68 mm ZPL Mode' : '90×68 mm Label Stock'}
                   </span>
                 )}
               </div>
               <span className="text-[11px] font-normal text-gray-500">
                 {expectedLabels} label{expectedLabels === 1 ? '' : 's'}
-                {isZpl90x68 ? ' · 90 × 68 mm' : (format?.labelSize ? ' · ' + format.labelSize : '')}
+                {(isBoxp || isZplMode || paper === 'stock_90x68')
+                  ? ' · 90 × 68 mm'
+                  : (format?.labelSize ? ' · ' + format.labelSize : '')}
               </span>
             </div>
-            {/* The same two choices the GRC Barcode Print page offers, from
+            {/* The same choices the GRC Barcode Print page offers, from
                 the same catalog - picking one re-lays the preview out at that
                 stock's real size and the Print run uses it unchanged. */}
-            {!isZpl90x68 && (
-              <div className="mb-3 flex flex-wrap items-center gap-3">
+            <div className="mb-3 flex flex-wrap items-center gap-3">
+              {!(isBoxp || isZplMode || paper === 'stock_90x68') && (
                 <label className="flex items-center gap-1 text-xs text-gray-600">
                   Label
                   <select
@@ -7927,19 +7978,23 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
                     {formats.map((f) => <option key={f.name} value={f.name}>{f.name}</option>)}
                   </select>
                 </label>
-                <label className="flex items-center gap-1 text-xs text-gray-600">
-                  Paper
-                  <select
-                    value={paper}
-                    onChange={(event) => setPaper(event.target.value)}
-                    className="rounded border border-gray-300 px-2 py-1 text-xs"
-                  >
-                    <option value="a4">A4 sheet</option>
-                    <option value="stock" disabled={!stockSize}>
-                      {stockSize ? 'Label stock ' + format.pageSize : 'Label stock (no size set)'}
-                    </option>
-                  </select>
-                </label>
+              )}
+              <label className="flex items-center gap-1 text-xs text-gray-600">
+                Paper
+                <select
+                  value={paper}
+                  onChange={(event) => {
+                    const val = event.target.value;
+                    setPaper(val);
+                  }}
+                  className="rounded border border-gray-300 px-2 py-1 text-xs font-medium"
+                >
+                  <option value="a4">A4 SHEET</option>
+                  <option value="stock">LABEL STOCK 100 × 40 MM</option>
+                  <option value="stock_90x68">LABEL STOCK 90 × 68 MM</option>
+                </select>
+              </label>
+              {!(isBoxp || isZplMode || paper === 'stock_90x68') && (
                 <label className="flex items-center gap-1 text-xs text-gray-600">
                   Barcode
                   <select
@@ -7951,8 +8006,8 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
                     <option value="tsc_te310">TSC TE310 (compact)</option>
                   </select>
                 </label>
-              </div>
-            )}
+              )}
+            </div>
             {chosen.length === 0 ? (
               <div className="rounded border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-500">Select a barcode to preview.</div>
             ) : expectedLabels === 0 ? (
@@ -7962,7 +8017,7 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
                     + ' to preview ' + (pendingBatch.length === 1 ? 'it' : 'them') + ' - Print will ask.'
                   : 'Nothing to print.'}
               </div>
-            ) : isZpl90x68 ? (
+            ) : (isBoxp || isZplMode || paper === 'stock_90x68') ? (
               <div className="flex flex-col items-center">
                 {selectedRows.length > 1 && (
                   <div className="mb-2.5 flex items-center justify-between w-full text-xs text-slate-600 px-1">
@@ -8040,23 +8095,27 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
                   const val = e.target.value;
                   setPrinterMode(val);
                   setZplNotice('');
-                  if (val === 'tsc_te310') {
+                  if (val === 'boxb_4304e' || val === 'boxp') {
+                    setPaper('stock_90x68');
+                  } else if (val === 'tsc_te310') {
                     setBarProfile('tsc_te310');
                     setPaper('stock');
+                  } else if (val === 'zpl_90x68') {
+                    setPaper('stock_90x68');
                   } else if (val === 'browser') {
                     setBarProfile('standard');
                   }
                 }}
                 className="rounded border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-800 shadow-2xs"
               >
-                <option value="boxb_4304e">BOXB BP 4304e (300 DPI) [90×68 MM ZPL]</option>
-                <option value="zpl_90x68">Zebra / ZPL Thermal Printer (90×68 mm)</option>
+                <option value="boxb_4304e">BOXP BP 4304e (300 DPI) [90×68 MM]</option>
                 <option value="tsc_te310">TSC TE310 (Browser / HTML 100×40 MM)</option>
+                <option value="zpl_90x68">Zebra / ZPL Thermal Printer (90×68 mm)</option>
                 <option value="browser">Standard Browser Printer (HTML/PDF)</option>
               </select>
             </label>
 
-            {isZpl90x68 && (
+            {(isBoxp || isZplMode) && (
               <button
                 type="button"
                 onClick={() => setShowZplConfigModal(true)}
@@ -8074,18 +8133,41 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
               <span className="text-xs font-medium text-red-700 mr-2">{printError}</span>
             )}
 
-            {!isZpl90x68 ? (
+            {isBoxp ? (
               <>
                 <button
                   type="button"
                   disabled={printing}
                   onClick={(event) => { if (event.detail > 1) return; runPrint(); }}
-                  className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 disabled:opacity-60"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-4 py-2 text-xs font-bold text-white shadow-xs hover:bg-brand-dark disabled:opacity-60"
+                  title="Print one 90×68 mm label per page using browser print dialog"
                 >
-                  {printing ? 'Preparing...' : 'Print'}
+                  <Icon name="printer" size={14} />
+                  <span>{printing ? 'Preparing...' : 'Print (90×68 mm)'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={directPrinting}
+                  onClick={handleDirectZplPrint}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-xs disabled:opacity-60"
+                  title="Print directly to connected BOXP BP 4304e printer via Windows Spooler RAW ZPL"
+                >
+                  <Icon name="printer" size={14} />
+                  <span>{directPrinting ? 'Sending...' : 'Direct Print (RAW)'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleDownloadZplPrn}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-xs"
+                  title="Download .PRN / .ZPL file"
+                >
+                  <Icon name="download" size={14} />
+                  <span>Download .PRN File</span>
                 </button>
               </>
-            ) : (
+            ) : isZplMode ? (
               <>
                 <button
                   type="button"
@@ -8113,12 +8195,21 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
                   disabled={directPrinting}
                   onClick={handleDirectZplPrint}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-4 py-2 text-xs font-bold text-white shadow-xs hover:bg-brand-dark disabled:opacity-60"
-                  title="Print directly to connected BOXB BP 4304e printer via Windows Spooler RAW ZPL"
+                  title="Print directly to connected Zebra / ZPL printer via Windows Spooler RAW ZPL"
                 >
                   <Icon name="printer" size={14} />
                   <span>{directPrinting ? 'Sending to Printer...' : 'Direct Print (90×68 mm)'}</span>
                 </button>
               </>
+            ) : (
+              <button
+                type="button"
+                disabled={printing}
+                onClick={(event) => { if (event.detail > 1) return; runPrint(); }}
+                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-slate-50 disabled:opacity-60"
+              >
+                {printing ? 'Preparing...' : 'Print'}
+              </button>
             )}
 
             <button
