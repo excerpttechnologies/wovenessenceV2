@@ -352,9 +352,7 @@ export default function ProductEccomAddPage() {
             ? kept.length + ' field' + (kept.length === 1 ? '' : 's') + ' you edited kept as typed.'
             : '',
           savedFor && savedFor !== (result.barcodeNo || '')
-            ? 'This item\u2019s e-commerce product is saved for barcode ' + savedFor
-              + '. Saving only sets whether ' + (result.barcodeNo || barcode)
-              + ' is shown in E-commerce; the existing product settings and its other barcodes are unchanged.'
+            ? 'This item\u2019s e-commerce product is linked with primary barcode ' + savedFor + '. Saving will update the product settings and classifications.'
             : '',
         ].filter(Boolean).join(' '));
         setData(next);
@@ -549,7 +547,6 @@ export default function ProductEccomAddPage() {
       /* Save the barcode currently in the box, not a value left in `data` by
          an earlier lookup. */
       const saveBarcode = (resolvedBarcode || barcodeInput.trim()).trim();
-      const visibilityOnly = productMatch?.ownsBarcode === false && Boolean(saveBarcode);
       const published = parseEcommerceVisibility(data.isPublished) ?? false;
       const r = await fetch('/api/product-eccom', {
         method: 'POST',
@@ -557,17 +554,13 @@ export default function ProductEccomAddPage() {
         body: JSON.stringify({
           business,
           ...(saveBarcode ? { barcode: saveBarcode } : {}),
-          ...(visibilityOnly ? { addBarcodeToExisting: saveBarcode } : {}),
-          data: visibilityOnly
-            /* a sibling save may only flip this barcode's flag */
-            ? { itemId: data.itemId, isPublished: published }
-            : {
-              ...data,
-              isPublished: published,
-              /* the storefront needs all three flags, so publishing sets them */
-              ...(published === true ? { isActive: true, status: 'active' } : {}),
-              ...(saveBarcode ? { barcode: saveBarcode } : {}),
-            },
+          data: {
+            ...data,
+            isPublished: published,
+            /* the storefront needs all three flags, so publishing sets them */
+            ...(published === true ? { isActive: true, status: 'active' } : {}),
+            ...(saveBarcode ? { barcode: saveBarcode } : {}),
+          },
         }),
       });
       const d = await r.json().catch(() => ({}));
@@ -928,7 +921,7 @@ export default function ProductEccomAddPage() {
                 onClick={save}
               >
                 {saving ? <span className="spin" /> : <Icon name="save" size={14} />}
-                {productMatch?.ownsBarcode === false ? ' Save visibility' : ' Save'}
+                {' Save'}
               </button>
             </div>
             </>

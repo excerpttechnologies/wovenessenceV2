@@ -3577,9 +3577,8 @@ const withBarcodeVisibility = (product, barcode, publish) => {
 /* the fields of a saved product that describe its own barcode rather than the
    item - dropped entirely when the product belongs to a different label */
 const PER_BARCODE_FIELDS = [
-  'image', 'productType', 'printDescriptionOverride',
+  'image', 'printDescriptionOverride',
   'barcodePriceOverride', 'barcodeQtyOverride',
-  'byWeave', 'byFabric', 'byCraft', 'byOccasion', 'byColour',
 ];
 const withoutPerBarcodeFields = (product) => {
   if (!product) return {};
@@ -4936,11 +4935,13 @@ export async function GET(req) {
     ]));
     const classificationDefaults = Object.fromEntries(
       ['byWeave', 'byFabric', 'byCraft', 'byOccasion', 'byColour'].map((field) => {
-        const savedValues = savedProduct[field];
+        const savedValues = savedProduct[field] ?? product?.[field];
         const barcodeValues = barcodeRow[field] ?? barcodeRow.customFields?.[field];
-        const source = Array.isArray(savedValues) && savedValues.length
-          ? savedValues
-          : savedValues && !Array.isArray(savedValues) ? savedValues : barcodeValues;
+        const source = (Array.isArray(barcodeValues) && barcodeValues.length)
+          ? barcodeValues
+          : (Array.isArray(savedValues) && savedValues.length)
+            ? savedValues
+            : (barcodeValues ?? savedValues);
         const values = Array.isArray(source)
           ? source
           : String(source || '').split(',').map((value) => value.trim()).filter(Boolean);
@@ -4952,7 +4953,7 @@ export async function GET(req) {
           const option = isValidObjectId(text)
             ? classificationById.get(text)
             : classificationByName.get(`${field}:${text.toLowerCase()}`);
-          return option && option.type === field ? String(option._id) : '';
+          return option && option.type === field ? String(option._id) : (isValidObjectId(text) ? text : '');
         }).filter(Boolean);
         /* Dupatta with no fabric yet: suggest the Dupatta group's By Fabric name
            that the descriptions mention (29-10-2026 - names from byfabric) */
@@ -5876,15 +5877,16 @@ export async function POST(req) {
 
   const existing = await col.findOne(productFilter);
 
-  /* Infer a sibling save even when the client did not send
-     addBarcodeToExisting: the item already has a product filed under a
-     different barcode, so this save may only touch this barcode's flag. */
+  /* Infer a sibling save only when the client sent visibility-only data
+     (no displayName, no classifications) */
   if (existing && requestedBarcode && !productOwnsBarcode(existing, requestedBarcode)) {
     const itemCode = String(existing.ecommItemCode || data.ecommItemCode || '').trim();
     if (!(await labelBelongsToItem(requestedBarcode, data.itemId, itemCode))) {
       return json({ error: 'This barcode is not linked to the existing product item.' }, 422);
     }
-    return saveVisibilityOnly(existing, requestedBarcode);
+    if (!data.displayName && !data.byFabric && !data.productType) {
+      return saveVisibilityOnly(existing, requestedBarcode);
+    }
   }
 
   if (!String(data.displayName || '').trim()) return json({ errors: { displayName: 'Display Name is required.' }, error: 'Display Name is required.' }, 422);
@@ -5913,7 +5915,13 @@ export async function POST(req) {
 
   const updateExisting = async (existingDoc) => {
     const set = { ...doc };
-    if (requestedBarcode) set.barcode = requestedBarcode;
+    if (requestedBarcode) {
+      if (!existingDoc.barcode) set.barcode = requestedBarcode;
+      const existingBarcodes = Array.isArray(existingDoc.barcodes) ? existingDoc.barcodes : [];
+      if (!existingBarcodes.includes(requestedBarcode) && existingDoc.barcode !== requestedBarcode) {
+        set.barcodes = [...existingBarcodes, requestedBarcode];
+      }
+    }
     if (requestedPublish !== undefined) {
       if (requestedBarcode) {
         const next = withBarcodeVisibility(existingDoc, requestedBarcode, requestedPublish === true);
@@ -5930,6 +5938,29 @@ export async function POST(req) {
     const result = await col.updateOne({ _id: existingDoc._id }, { $set: set });
     if (!result.matchedCount) {
       return json({ error: 'The existing product could not be found while saving. Please retry.' }, 409);
+    }
+    if (requestedBarcode) {
+      try {
+        await mongoose.connection.db.collection('barcodeLabel').updateMany(
+          {
+            $or: [
+              { barcodeNo: requestedBarcode },
+              { barcodeGenerated: requestedBarcode },
+              { oldBarcode: requestedBarcode },
+            ],
+          },
+          {
+            $set: {
+              byFabric: doc.byFabric,
+              byWeave: doc.byWeave,
+              byCraft: doc.byCraft,
+              byOccasion: doc.byOccasion,
+              byColour: doc.byColour,
+              updatedAt: now,
+            },
+          }
+        );
+      } catch {}
     }
     return json({
       ok: true,
@@ -5962,6 +5993,29 @@ export async function POST(req) {
   doc.__v = 0;
   try {
     const res = await col.insertOne(doc);
+    if (requestedBarcode) {
+      try {
+        await mongoose.connection.db.collection('barcodeLabel').updateMany(
+          {
+            $or: [
+              { barcodeNo: requestedBarcode },
+              { barcodeGenerated: requestedBarcode },
+              { oldBarcode: requestedBarcode },
+            ],
+          },
+          {
+            $set: {
+              byFabric: doc.byFabric,
+              byWeave: doc.byWeave,
+              byCraft: doc.byCraft,
+              byOccasion: doc.byOccasion,
+              byColour: doc.byColour,
+              updatedAt: now,
+            },
+          }
+        );
+      } catch {}
+    }
     return json({ ok: true, id: String(res.insertedId) });
   } catch (e) {
     if (e && e.code === 11000) {
@@ -5969,15 +6023,14 @@ export async function POST(req) {
          per-barcode rule instead of overwriting its visibility list. */
       const existingAfterRace = await col.findOne(productFilter);
       if (!existingAfterRace) throw e;
-      /* The other request may have filed the row under a sibling barcode. This
-         save may then only answer for its own barcode, exactly like the normal
-         sibling path, and must not move the row's fields. */
       if (requestedBarcode && !productOwnsBarcode(existingAfterRace, requestedBarcode)) {
         const itemCode = String(existingAfterRace.ecommItemCode || data.ecommItemCode || '').trim();
         if (!(await labelBelongsToItem(requestedBarcode, data.itemId, itemCode))) {
           return json({ error: 'This barcode is not linked to the existing product item.' }, 422);
         }
-        return saveVisibilityOnly(existingAfterRace, requestedBarcode);
+        if (!data.displayName && !data.byFabric && !data.productType) {
+          return saveVisibilityOnly(existingAfterRace, requestedBarcode);
+        }
       }
       delete doc.createdAt;
       delete doc.__v;

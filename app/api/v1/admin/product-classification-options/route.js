@@ -8,7 +8,7 @@ import {
   classificationCollection,
   listClassificationOptions,
 } from '@/lib/classificationCollections';
-import { classificationGroupKey, classificationGroupsFor } from '@/lib/productClassificationConstants';
+import { classificationGroupKey, classificationGroupKeyFor, classificationGroupsFor } from '@/lib/productClassificationConstants';
 
 const json = (d, s = 200) => Response.json(d, { status: s });
 
@@ -89,7 +89,7 @@ export async function POST(req) {
   if (!type || !CLASSIFICATION_FIELDS.includes(type)) {
     return json({ error: 'Valid classification type required (byWeave, byFabric, byCraft, byOccasion, byColour)' }, 422);
   }
-  const productType = classificationGroupKey(body.productType);
+  const productType = classificationGroupKeyFor(body.productType);
   const group = classificationGroupsFor(type).find((g) => g.value === productType);
   if (!group) {
     return json({ error: productType ? `"${body.productType}" does not use this list.` : 'Select a group first.' }, 422);
@@ -100,22 +100,41 @@ export async function POST(req) {
   }
 
   await dbConnect();
+  const db = mongoose.connection.db;
   const col = classificationCollection(type);
-  const inGroup = { businessId: businessMatch(business), productType };
+  const nameRegex = { $regex: `^${escapeRegex(trimmedName)}$`, $options: 'i' };
 
-  const existing = await col.findOne({
-    ...inGroup,
+  // Check if already exists in dedicated collection
+  const existingInCol = await col.findOne({
+    businessId: businessMatch(business),
     isActive: { $ne: false },
-    name: { $regex: `^${escapeRegex(trimmedName)}$`, $options: 'i' },
+    name: nameRegex,
   });
-  if (existing) {
-    return json({ error: `"${trimmedName}" already exists in ${group.label}` }, 422);
+  if (existingInCol) {
+    return json({ ok: true, option: shape({ ...existingInCol, type }) });
   }
 
-  const last = await col.find(inGroup, { projection: { displayOrder: 1 } })
+  // Check if already exists in legacy productclassificationoption
+  let existingInPco = null;
+  try {
+    existingInPco = await db.collection('productclassificationoption').findOne({
+      businessId: businessMatch(business),
+      type,
+      isActive: { $ne: false },
+      name: nameRegex,
+    });
+  } catch {}
+  if (existingInPco) {
+    // Sync to dedicated collection if missing
+    await col.updateOne({ _id: existingInPco._id }, { $set: existingInPco }, { upsert: true });
+    return json({ ok: true, option: shape({ ...existingInPco, type }) });
+  }
+
+  const last = await col.find({ businessId: businessMatch(business) }, { projection: { displayOrder: 1 } })
     .sort({ displayOrder: -1 }).limit(1).toArray();
   const now = new Date();
   const doc = {
+    _id: new Types.ObjectId(),
     businessId: new Types.ObjectId(business),
     type,
     productType,
@@ -125,8 +144,15 @@ export async function POST(req) {
     createdAt: now,
     updatedAt: now,
   };
-  const res = await col.insertOne(doc);
+  await col.insertOne(doc);
+  try {
+    await db.collection('productclassificationoption').updateOne(
+      { _id: doc._id },
+      { $set: doc },
+      { upsert: true }
+    );
+  } catch {}
 
-  return json({ ok: true, option: shape({ ...doc, _id: res.insertedId }) });
+  return json({ ok: true, option: shape(doc) });
 }
 
