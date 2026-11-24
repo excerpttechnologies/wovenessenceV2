@@ -1043,7 +1043,7 @@ export default function GrcBarcodePrintPage() {
         barcode={promptRow ? toLabelData(promptRow).barcode : ''}
         description={promptRow ? toLabelData(promptRow).description : ''}
         available={promptRow ? batchAvailableQty(promptRow) : 0}
-        initialValue={prompt ? batchCounts[prompt.key] ?? '' : ''}
+        initialValue={prompt ? (batchCounts[prompt.key] ?? batchAvailableQty(promptRow)) : ''}
         onCancel={cancelPrompt}
         onConfirm={confirmPrompt}
       />

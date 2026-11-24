@@ -7822,7 +7822,7 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
         barcode={promptRow ? promptRow.barcodeNo || '' : ''}
         description={promptRow ? (promptRow.printDescription || promptRow.itemName || promptRow.supplierDescription || '') : ''}
         available={batchAvailableQty(promptRow)}
-        initialValue={batchPrompt ? (batchCounts[batchPrompt.key] ?? '') : ''}
+        initialValue={batchPrompt ? (batchCounts[batchPrompt.key] ?? batchAvailableQty(promptRow)) : ''}
         onCancel={() => setBatchPrompt(null)}
         onConfirm={confirmBatchCount}
       />
