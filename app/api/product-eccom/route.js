@@ -5730,10 +5730,23 @@ export async function PATCH(req) {
   for (const { product, itemId, barcodes, label } of targets.values()) {
     try {
       if (product) {
-        /* no barcode to toggle: the legacy productId form flips the aggregate */
-        let working = barcodes.size ? product : { ...product, isPublished: publish };
+        if (!publish) {
+          const set = {
+            isPublished: false,
+            publishedBarcodes: [],
+            isActive: false,
+            status: 'inactive',
+            updatedAt: now,
+          };
+          const result = await col.updateOne({ _id: product._id }, { $set: set });
+          if (result.matchedCount) updated += 1;
+          continue;
+        }
+
+        /* publish === true */
+        let working = barcodes.size ? product : { ...product, isPublished: true };
         for (const barcode of barcodes) {
-          const next = withBarcodeVisibility(working, barcode, publish);
+          const next = withBarcodeVisibility(working, barcode, true);
           working = {
             ...working,
             publishedBarcodes: next.list,
@@ -5741,21 +5754,15 @@ export async function PATCH(req) {
           };
         }
 
-        const set = { isPublished: working.isPublished, updatedAt: now };
-        if (barcodes.size) {
-          set.publishedBarcodes = working.publishedBarcodes || [];
-        } else if (!publish) {
-          /* legacy row toggled by productId: it has no barcode target, so clearing
-             the list is the only visibility state it has */
-          set.publishedBarcodes = [];
-        }
-        if (working.isPublished) {
-          set.isActive = true;
-          set.status = 'active';
-        } else {
-          set.isActive = false;
-          set.status = 'inactive';
-        }
+        const set = {
+          isPublished: true,
+          publishedBarcodes: working.publishedBarcodes && working.publishedBarcodes.length > 0
+            ? working.publishedBarcodes
+            : (product.barcode ? [product.barcode] : []),
+          isActive: true,
+          status: 'active',
+          updatedAt: now,
+        };
         const result = await col.updateOne({ _id: product._id }, { $set: set });
         if (result.matchedCount) updated += 1;
         continue;
@@ -5925,18 +5932,22 @@ export async function POST(req) {
         isPublished: productVisibleForBarcode(existing, barcode),
       });
     }
-    const next = withBarcodeVisibility(existing, barcode, requestedPublish);
+    let next;
     const set = {
-      publishedBarcodes: next.list,
-      isPublished: next.isPublished,
       updatedAt: new Date(),
     };
-    if (next.isPublished) {
-      set.isActive = true;
-      set.status = 'active';
-    } else {
+    if (requestedPublish === false) {
+      set.isPublished = false;
+      set.publishedBarcodes = [];
       set.isActive = false;
       set.status = 'inactive';
+      next = { isPublished: false, list: [] };
+    } else {
+      next = withBarcodeVisibility(existing, barcode, true);
+      set.publishedBarcodes = next.list;
+      set.isPublished = next.isPublished;
+      set.isActive = true;
+      set.status = 'active';
     }
     const result = await col.updateOne({ _id: existing._id }, { $set: set });
     if (!result.matchedCount) {
@@ -6010,12 +6021,17 @@ export async function POST(req) {
       }
     }
     if (requestedPublish !== undefined) {
-      if (requestedBarcode) {
-        const next = withBarcodeVisibility(existingDoc, requestedBarcode, requestedPublish === true);
+      if (requestedPublish === false) {
+        set.isPublished = false;
+        set.publishedBarcodes = [];
+        set.isActive = false;
+        set.status = 'inactive';
+      } else if (requestedBarcode) {
+        const next = withBarcodeVisibility(existingDoc, requestedBarcode, true);
         set.publishedBarcodes = next.list;
         set.isPublished = next.isPublished;
       } else {
-        set.isPublished = requestedPublish;
+        set.isPublished = true;
       }
     }
     if (set.isPublished === true) {

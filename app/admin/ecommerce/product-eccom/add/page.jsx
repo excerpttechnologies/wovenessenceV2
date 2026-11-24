@@ -486,7 +486,11 @@ export default function ProductEccomAddPage() {
   /* "Show in E-commerce" ticks a flag the storefront requires; publishing an
      inactive row would still hide it, so the other two flags follow along. */
   const togglePublished = (checked) => {
-    setData((d) => ({ ...d, isPublished: checked, ...(checked ? { isActive: true, status: 'active' } : {}) }));
+    setData((d) => ({
+      ...d,
+      isPublished: checked,
+      ...(checked ? { isActive: true, status: 'active' } : { isActive: false, status: 'inactive' }),
+    }));
   };
 
   /* picking the item fills Display Name and Ecomm Item Code; it is a different
@@ -557,8 +561,8 @@ export default function ProductEccomAddPage() {
           data: {
             ...data,
             isPublished: published,
-            /* the storefront needs all three flags, so publishing sets them */
-            ...(published === true ? { isActive: true, status: 'active' } : {}),
+            /* the storefront needs all three flags, so publishing/unpublishing sets them */
+            ...(published === true ? { isActive: true, status: 'active' } : { isActive: false, status: 'inactive' }),
             ...(saveBarcode ? { barcode: saveBarcode } : {}),
           },
         }),
