@@ -98,6 +98,7 @@ import {
   pendingBatchRows,
   labelKey,
   toLabelData,
+  createBatchSequenceLabel,
 } from '@/lib/barcodeLabelPrint';
 import GrcZplLabelPreview from '@/components/GrcZplLabelPreview';
 import ZplPrinterConfigModal from '@/components/ZplPrinterConfigModal';
@@ -182,7 +183,7 @@ export default function GrcBarcodePrintPage() {
     }
     const zpl = generateBatchZpl90x68(counted, zplConfig);
     downloadPrnFile(zpl, `grc_${data?.grc?.grcNumber || 'labels'}_90x68.prn`);
-    setZplNotice(`Downloaded 90×68 mm .PRN file with ${counted.length} label(s).`);
+    setZplNotice(`Downloaded 90×68 mm .PRN file with ${totalLabels} label(s).`);
   };
 
   const handleDirectZplPrint = async (event) => {
@@ -245,7 +246,17 @@ export default function GrcBarcodePrintPage() {
       .then((r) => r.json())
       .then((d) => {
         if (d.error) setError(d.error);
-        else setData(d);
+        else {
+          setData(d);
+          const initialCounts = {};
+          (d.rows || []).forEach((r) => {
+            if (resolveLabelMode(r).mode === LABEL_MODE.BATCH) {
+              const avail = batchAvailableQty(r);
+              if (avail > 0) initialCounts[labelKey(r)] = avail;
+            }
+          });
+          setBatchCounts(initialCounts);
+        }
       })
       .catch((e) => setError(e.message || 'Failed to load'));
   }, [id]);
@@ -302,9 +313,20 @@ export default function GrcBarcodePrintPage() {
     ? run.perRow
     : run.perRow * Math.max(1, Math.floor((paperH - 10) / Math.max(1, run.size.h)));
 
-  /* Build labels array for iframe printing */
+  /* Build labels array for iframe printing - batch labels are expanded sequentially (1 to N) */
   const labelsForPrint = counted.flatMap((row, ri) => {
+    const isBatch = resolveLabelMode(row).mode === LABEL_MODE.BATCH;
     const n = Math.max(0, Math.floor(Number(row.copies) || 0));
+    if (isBatch && n > 0) {
+      return Array.from({ length: n }, (_, copy) => {
+        const seq = copy + 1;
+        const batchItem = createBatchSequenceLabel(row, seq, n);
+        return {
+          key: `${row._id || row.id || ri}-${copy}`,
+          row: batchItem,
+        };
+      });
+    }
     return Array.from({ length: n }, (_, copy) => ({
       key: `${row._id || row.id || ri}-${copy}`,
       row,

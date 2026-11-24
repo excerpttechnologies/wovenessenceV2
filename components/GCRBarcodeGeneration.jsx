@@ -4402,7 +4402,7 @@ import {
 } from "@/lib/barcodeValue";
 import {
   LABEL_MODE, resolveLabelMode, batchAvailableQty, withLabelCounts, pendingBatchRows, labelKey,
-  isUnprintableBatch, toLabelData,
+  isUnprintableBatch, toLabelData, createBatchSequenceLabel,
 } from "@/lib/barcodeLabelPrint";
 import {
   formDefaultsFromSetup, unmappedSetupFields, setupStatusMessage, setupIdentity, formatSetupValue,
@@ -7198,8 +7198,12 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
       return;
     }
     const zpl = generateBatchZpl90x68(selectedRows, zplConfig);
+    const totalCount = selectedRows.reduce((sum, r) => {
+      const isBatch = resolveLabelMode(r).mode === LABEL_MODE.BATCH;
+      return sum + (isBatch ? (Number(r.copies) || batchAvailableQty(r) || 1) : (Number(r.copies) || 1));
+    }, 0);
     downloadPrnFile(zpl, `grc_labels_90x68_${Date.now()}.prn`);
-    setZplNotice(`Downloaded 90×68 mm .PRN file with ${selectedRows.length} label(s). Matches BOXB BP 4304e printer output!`);
+    setZplNotice(`Downloaded 90×68 mm .PRN file with ${totalCount} label(s). Matches BOXB BP 4304e printer output!`);
   };
 
   const [directPrinting, setDirectPrinting] = useState(false);
@@ -7217,9 +7221,13 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
     setZplNotice(`Sending ZPL commands directly to ${targetModel}...`);
     try {
       const zpl = generateBatchZpl90x68(selectedRows, zplConfig);
+      const totalCount = selectedRows.reduce((sum, r) => {
+        const isBatch = resolveLabelMode(r).mode === LABEL_MODE.BATCH;
+        return sum + (isBatch ? (Number(r.copies) || batchAvailableQty(r) || 1) : (Number(r.copies) || 1));
+      }, 0);
       const res = await sendToZebraBrowserPrint(zpl, targetModel);
       if (res && res.success) {
-        setZplNotice(`✅ Successfully sent ${selectedRows.length} label(s) directly to ${res.printerName || targetModel} via Windows Spooler!`);
+        setZplNotice(`✅ Successfully sent ${totalCount} label(s) directly to ${res.printerName || targetModel} via Windows Spooler!`);
       } else {
         const errMsg = res?.error || 'Printer is not connected or offline.';
         setZplNotice(`❌ Cannot print: ${errMsg}`);
@@ -7259,8 +7267,7 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
      the open picker silently threw away whatever the operator had ticked and
      typed, and put the defaults back.
 
-     Every barcode starts ticked. No batch count is assumed: a batch barcode
-     is asked about when it is printed, or when its Set quantity is pressed. */
+     Every barcode starts ticked. Batch barcodes default to their available quantity. */
   const wasOpen = useRef(false);
   useEffect(() => {
     if (!open) { wasOpen.current = false; return; }
@@ -7268,7 +7275,16 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
     wasOpen.current = true;
 
     setSelected(rows.map(labelKey).filter(Boolean));
-    setBatchCounts({});
+    const initialCounts = {};
+    rows.forEach((r) => {
+      if (resolveLabelMode(r).mode === LABEL_MODE.BATCH) {
+        const avail = batchAvailableQty(r);
+        if (avail > 0) {
+          initialCounts[labelKey(r)] = avail;
+        }
+      }
+    });
+    setBatchCounts(initialCounts);
     setBatchPrompt(null);
   }, [open, rows]);
 
@@ -7282,9 +7298,23 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
   /* The ticked barcodes, each carrying its sticker count as `copies` - from
      getLabelPrintCount, through withLabelCounts. The preview AND the print
      surface are both built from this one list, so the screen cannot show a
-     different number of labels from the number that is printed. A batch with
-     no count yet carries 0 and is simply not on the sheet. */
+     different number of labels from the number that is printed. */
   const selectedRows = useMemo(() => withLabelCounts(chosen, batchCounts), [chosen, batchCounts]);
+
+  /* Individual sequential labels for preview and iframe printing */
+  const expandedSelectedRows = useMemo(() => {
+    return selectedRows.flatMap((row, ri) => {
+      const isBatch = resolveLabelMode(row).mode === LABEL_MODE.BATCH;
+      const n = Math.max(0, Math.floor(Number(row.copies) || 0));
+      if (isBatch && n > 0) {
+        return Array.from({ length: n }, (_, copy) => {
+          const seq = copy + 1;
+          return createBatchSequenceLabel(row, seq, n);
+        });
+      }
+      return [row];
+    });
+  }, [selectedRows]);
 
   /* the count shown against every barcode in the list, ticked or not */
   const countByKey = useMemo(
@@ -7350,9 +7380,20 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
     ? run.perRow
     : run.perRow * Math.max(1, Math.floor((paperH - 10) / Math.max(1, run.size.h)));
 
-  /* Build labels array for iframe printing */
+  /* Build labels array for iframe printing - batch labels are expanded sequentially (1 to N) */
   const labelsForPrint = selectedRows.flatMap((row, ri) => {
+    const isBatch = resolveLabelMode(row).mode === LABEL_MODE.BATCH;
     const n = Math.max(0, Math.floor(Number(row.copies) || 0));
+    if (isBatch && n > 0) {
+      return Array.from({ length: n }, (_, copy) => {
+        const seq = copy + 1;
+        const batchItem = createBatchSequenceLabel(row, seq, n);
+        return {
+          key: `${row._id || row.id || ri}-${copy}`,
+          row: batchItem,
+        };
+      });
+    }
     return Array.from({ length: n }, (_, copy) => ({
       key: `${row._id || row.id || ri}-${copy}`,
       row,
@@ -8019,10 +8060,10 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
               </div>
             ) : (isBoxp || isZplMode || paper === 'stock_90x68') ? (
               <div className="flex flex-col items-center">
-                {selectedRows.length > 1 && (
+                {expandedSelectedRows.length > 1 && (
                   <div className="mb-2.5 flex items-center justify-between w-full text-xs text-slate-600 px-1">
                     <span>
-                      Showing label <strong>{zplPreviewIndex + 1}</strong> of <strong>{selectedRows.length}</strong>
+                      Showing label <strong>{zplPreviewIndex + 1}</strong> of <strong>{expandedSelectedRows.length}</strong>
                     </span>
                     <div className="flex gap-1.5">
                       <button
@@ -8035,8 +8076,8 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
                       </button>
                       <button
                         type="button"
-                        disabled={zplPreviewIndex >= selectedRows.length - 1}
-                        onClick={() => setZplPreviewIndex((p) => Math.min(selectedRows.length - 1, p + 1))}
+                        disabled={zplPreviewIndex >= expandedSelectedRows.length - 1}
+                        onClick={() => setZplPreviewIndex((p) => Math.min(expandedSelectedRows.length - 1, p + 1))}
                         className="rounded border border-slate-300 bg-white px-2 py-0.5 font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
                       >
                         Next &rarr;
@@ -8045,7 +8086,7 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
                   </div>
                 )}
                 <div className="p-3 bg-slate-200/60 rounded-lg border border-slate-300 overflow-auto max-w-full">
-                  <GrcZplLabelPreview row={selectedRows[zplPreviewIndex] || selectedRows[0]} config={zplConfig} />
+                  <GrcZplLabelPreview row={expandedSelectedRows[zplPreviewIndex] || expandedSelectedRows[0]} config={zplConfig} />
                 </div>
               </div>
             ) : (
