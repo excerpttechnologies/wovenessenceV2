@@ -180,13 +180,15 @@ function ScopeControls() {
             className="tb-select"
             aria-label="Location"
             title={
-              (location && locations.find((l) => l.value === location)?.label) ||
-              "All Locations"
+              locations.find((l) => l.value === location)?.label ||
+              "Select Location"
             }
             value={location}
             onChange={(e) => setLocation(e.target.value)}
           >
-            <option value="">All Locations</option>
+            {locations.length === 0 && (
+              <option value="">Select Location</option>
+            )}
             {locations.map((l) => (
               <option key={l.value} value={l.value}>
                 {l.label}

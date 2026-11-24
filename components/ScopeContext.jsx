@@ -183,9 +183,19 @@ export function ScopeProvider({ children }) {
         setLocations(list);
         const saved = localStorage.getItem(locationKey(business));
         
+        /* Auto-select TEMPLE FABRICS WAREHOUSE on first load, but allow
+           switching to other locations. The saved location is restored if
+           it exists in the current business's location list. Otherwise,
+           default to TEMPLE FABRICS WAREHOUSE if available, or fall back
+           to the first location. */
         let pick = '';
-        if (saved !== null && (saved === '' || list.some((o) => o.value === saved))) {
+        if (saved && list.some((o) => o.value === saved)) {
           pick = saved;
+        } else {
+          const warehouse = list.find((o) => 
+            o.label && o.label.toUpperCase().includes('TEMPLE FABRICS WAREHOUSE')
+          );
+          pick = warehouse?.value || list[0]?.value || '';
         }
         setLocation(pick);
       })
@@ -227,8 +237,8 @@ export function ScopeProvider({ children }) {
      and writing that under the new branch's key would remember a location
      that does not belong to it. */
   useEffect(() => {
-    if (business && locationsFor === business) {
-      localStorage.setItem(locationKey(business), location || '');
+    if (business && location && locationsFor === business) {
+      localStorage.setItem(locationKey(business), location);
     }
   }, [business, location, locationsFor]);
 
