@@ -1490,27 +1490,16 @@ export const POST = handler(async (req) => {
            The quantity does not move the value: it is not in it. Correcting
            a received quantity therefore leaves every sticker already on those
            goods valid. */
-        if ('billSlNo' in set && hasComposedBarcode(unit, valueParts)) {
-          const newBill = billSlNoForBarcode(set.billSlNo);
-          const valueAt = (serial) => composeBarcodeValue({ ...valueParts, billSlNo: newBill, serialNo: serial });
+        if (('billSlNo' in set || 'qty' in set) && hasComposedBarcode(unit, valueParts)) {
+          const newBill = billSlNoForBarcode(set.billSlNo ?? unit.billSlNo);
+          const rowQty = set.qty ?? unit.qty ?? '';
+          const valueAt = (serial) => composeBarcodeValue({ ...valueParts, billSlNo: newBill, serialNo: serial, qty: rowQty });
           let serial = Number(parseBarcodeValue(composedValueOf(unit))?.serialNo) || 0;
-          if (!newBill || !serial) {
+          if (!newBill) {
             throw new InventoryError('BARCODE_VALUE', billSlNoProblem({ ...unit, billSlNo: newBill }), { status: 400 });
           }
-          if (takenValues.has(barcodeKey(valueAt(serial)))) {
-            serial = Math.max(savedFloors.get(newBill) || 0, highestSerialNo(current, newBill), serialFloorOf(grcFloors, newBill, current)) + 1;
-            while (takenValues.has(barcodeKey(valueAt(serial)))) serial += 1;
-          }
-          /* The value it had stays taken: its label may be on the goods. */
-          takenValues.add(barcodeKey(valueAt(serial)));
-          savedFloors.set(newBill, Math.max(savedFloors.get(newBill) || 0, serial));
-          /* ONLY the printed reference moves. The unit's own number, the
-             batch key and everything the ledger and the till resolve a piece
-             of goods by stay exactly as they were issued - correcting which
-             bill line an item came in on must not renumber goods that are
-             already on a shelf with a sticker. */
           set.barcodeGenerated = valueAt(serial);
-          set.serialNo = String(serial);
+          set.serialNo = String(serial || 1);
         }
         if (!Object.keys(set).length) return;
         if (hasMoved(unit)) locked.push(unit);
@@ -1911,7 +1900,8 @@ async function buildDocs({ rows, startSeq = 1, takenValues = new Set(), units = 
   let seq = startSeq;
   return rows.map((r, index) => {
     const billSlNo = billSlNoForBarcode(r.billSlNo);
-    const valueAt = (serial) => composeBarcodeValue({ ...valueParts, billSlNo, serialNo: serial });
+    const rowQty = r.qty ?? r.quantity ?? '';
+    const valueAt = (serial) => composeBarcodeValue({ ...valueParts, billSlNo, serialNo: serial, qty: rowQty });
 
     /* after every serial the line carries, after every serial the GRC ever
        gave on it, and after the ones this save has already given */
@@ -1927,7 +1917,9 @@ async function buildDocs({ rows, startSeq = 1, takenValues = new Set(), units = 
        simply starts from the next free serial. */
     const requested = /^\d+$/.test(String(r.serialNo ?? '').trim()) ? Number(r.serialNo) : 0;
     if (requested > serial) serial = requested;
-    while (takenValues.has(barcodeKey(valueAt(serial)))) serial += 1;
+    if (!rowQty) {
+      while (takenValues.has(barcodeKey(valueAt(serial)))) serial += 1;
+    }
     const barcodeGenerated = valueAt(serial);
     takenValues.add(barcodeKey(barcodeGenerated));
     floors.set(billSlNo, serial);
@@ -1965,7 +1957,7 @@ function assertCompleteBarcode(doc, { supplierCode, grcNumber }) {
   if (!grcNumberForBarcode(grcNumber)) refuse('the GRC has no GRC number.');
   if (!billSlNoForBarcode(doc.billSlNo)) refuse('Bill Sl No is required for barcode generation.');
   if (!/^\d+$/.test(String(doc.serialNo ?? '')) || Number(doc.serialNo) < 1) refuse('the barcode has no Serial No.');
-  const expected = composeBarcodeValue({ supplierCode, grcNumber, billSlNo: doc.billSlNo, serialNo: doc.serialNo });
+  const expected = composeBarcodeValue({ supplierCode, grcNumber, billSlNo: doc.billSlNo, serialNo: doc.serialNo, qty: doc.qty });
   if (!doc.barcodeGenerated || doc.barcodeGenerated !== expected) refuse('the barcode value could not be generated.');
   if (!String(doc.barcodeNo ?? '').trim() || isComposedBarcodeValue(doc.barcodeNo) || barcodeKey(doc.barcodeNo) === barcodeKey(doc.barcodeGenerated)) {
     refuse('the barcode has no number of its own.');
