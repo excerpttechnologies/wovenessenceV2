@@ -362,8 +362,9 @@ export default function StockFilterCard({
      company source. A location picked under the old company does not exist in
      the new one, so it is blanked as part of the switch unless the screen
      handles the change itself. */
+  const currentCompany = companyValue !== undefined ? companyValue : (scopeBusiness || '');
   const switchCompany = (value) => {
-    if (value === scopeBusiness) return;
+    if (value === currentCompany) return;
     if (onCompanyChange) { onCompanyChange(value); return; }
     if (locationField) onChange?.(locationField.k, '');
     setBusiness(value);
@@ -417,7 +418,7 @@ export default function StockFilterCard({
                   mode="single"
                   options={locationOptionsOverride || locationOptions}
                   loading={locationsLoading || !locationReady}
-                  disabled={!business}
+                  disabled={companyValue !== undefined ? false : !business}
                   value={draft[locationField.k] || ''}
                   placeholder={locationField.all || 'All Locations'}
                   emptyText="No locations found"
@@ -508,7 +509,7 @@ export default function StockFilterCard({
                               mode="single"
                               options={locationOptions}
                               loading={!locationReady}
-                              disabled={!business}
+                              disabled={companyValue !== undefined ? false : !business}
                               value={draft[f.k] || ''}
                               placeholder={f.all || 'All Locations'}
                               emptyText="No locations found"

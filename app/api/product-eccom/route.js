@@ -5422,6 +5422,17 @@ export async function GET(req) {
   });
 }
 
+function triggerStorefrontRevalidation() {
+  const target = process.env.STOREFRONT_URL || process.env.ECOMMERCE_URL || 'https://wovenessence.in';
+  try {
+    fetch(`${String(target).replace(/\/+$/, '')}/api/v1/products/revalidate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      cache: 'no-store',
+    }).catch(() => {});
+  } catch {}
+}
+
 /* --------------------------------------------------- publish / show ---
 
    The list's bulk Enable/Disable actions send the barcode rows the operator
@@ -5741,6 +5752,9 @@ export async function PATCH(req) {
         if (working.isPublished) {
           set.isActive = true;
           set.status = 'active';
+        } else {
+          set.isActive = false;
+          set.status = 'inactive';
         }
         const result = await col.updateOne({ _id: product._id }, { $set: set });
         if (result.matchedCount) updated += 1;
@@ -5809,6 +5823,10 @@ export async function PATCH(req) {
         error: String(e?.message || e),
       });
     }
+  }
+
+  if (updated > 0 || inserted > 0) {
+    triggerStorefrontRevalidation();
   }
 
   return json({
@@ -5916,11 +5934,15 @@ export async function POST(req) {
     if (next.isPublished) {
       set.isActive = true;
       set.status = 'active';
+    } else {
+      set.isActive = false;
+      set.status = 'inactive';
     }
     const result = await col.updateOne({ _id: existing._id }, { $set: set });
     if (!result.matchedCount) {
       return json({ error: 'The existing product could not be found while saving. Please retry.' }, 409);
     }
+    triggerStorefrontRevalidation();
     return json({
       ok: true,
       id: String(existing._id),
@@ -5999,6 +6021,9 @@ export async function POST(req) {
     if (set.isPublished === true) {
       set.isActive = true;
       set.status = 'active';
+    } else if (set.isPublished === false) {
+      set.isActive = false;
+      set.status = 'inactive';
     }
     const result = await col.updateOne({ _id: existingDoc._id }, { $set: set });
     if (!result.matchedCount) {
@@ -6027,6 +6052,7 @@ export async function POST(req) {
         );
       } catch {}
     }
+    triggerStorefrontRevalidation();
     return json({
       ok: true,
       id: String(existingDoc._id),
@@ -6053,6 +6079,9 @@ export async function POST(req) {
   if (doc.isPublished) {
     doc.isActive = true;
     doc.status = 'active';
+  } else {
+    doc.isActive = false;
+    doc.status = 'inactive';
   }
   doc.createdAt = now;
   doc.__v = 0;
@@ -6081,6 +6110,7 @@ export async function POST(req) {
         );
       } catch {}
     }
+    triggerStorefrontRevalidation();
     return json({ ok: true, id: String(res.insertedId) });
   } catch (e) {
     if (e && e.code === 11000) {

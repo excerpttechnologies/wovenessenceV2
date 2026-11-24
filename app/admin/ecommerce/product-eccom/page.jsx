@@ -252,7 +252,7 @@ import { useScope } from '@/components/ScopeContext';
 
 /* shown first, in this order, when the collection has them */
 const FIRST = [
-  'ecommItemCode', 'productType', 'isFeatured',
+  'ecommItemCode', 'isPublished', 'productType', 'isFeatured',
   'ecommOffPercent', 'barcodePriceOverride', 'barcodeQtyOverride', 'salesCount',
 ];
 const PRODUCT_LIST_FIXED_QUERY = { allErpBarcodes: '1' };
@@ -274,7 +274,7 @@ const HIDDEN_COLUMNS = new Set([
   'occasionDescription', 'printDescriptionOverride', 'weaveDescription',
   'image', 'images', 'additionalImages', 'byColour',
   'slug',
-  'isPublished', 'isFeatured',
+  'isFeatured',
   /* per-barcode internals; the checkbox already answers visibility */
   'barcodes', 'publishedBarcodes',
   /* only Is Published decides what the website shows */
@@ -292,6 +292,23 @@ const selectedFiltersFor = (row) => CLASSIFICATION_FILTERS
 function columnFor({ k, type }) {
   if (k === 'barcode') return { k, t: 'Barcode', value: (r) => r.barcode || '' };
   if (k === 'ecommItemCode') return { k, t: 'E-Comm Item Code' };
+  if (k === 'isPublished') {
+    return {
+      k,
+      t: 'E-Commerce Status',
+      render: (r) => (
+        <span
+          className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold ${
+            r.isPublished
+              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+              : 'bg-slate-100 text-slate-600 border border-slate-300'
+          }`}
+        >
+          {r.isPublished ? 'Published' : 'Hidden'}
+        </span>
+      ),
+    };
+  }
   if (k === 'businessId') return { k, t: 'Business', value: (r) => r.businessName || r.businessId || '' };
   if (k === 'itemId') return { k, t: 'Item', value: (r) => r.itemLabel || r.itemId || '' };
   if (CLASSIFICATION_COLUMNS.has(k)) {
@@ -500,6 +517,36 @@ export default function ProductEccomPage() {
     }
   };
 
+  const disableSelectedProducts = async () => {
+    const items = [...selectedProducts.values()]
+      .map((entry) => ({
+        barcode: String(entry?.barcode || '').trim(),
+        itemId: String(entry?.itemId || '').trim(),
+      }))
+      .filter((entry) => entry.barcode);
+    if (!items.length || bulkSaving) return;
+    setBulkSaving(true);
+    setBulkError('');
+
+    try {
+      const response = await fetch('/api/product-eccom', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ business, items, isPublished: false }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Could not disable selected products.');
+      setSelectedProducts(new Map());
+      const count = result.updated || items.length;
+      setBulkError(`${count} product${count === 1 ? '' : 's'} hidden from e-commerce.`);
+      setListVersion((version) => version + 1);
+    } catch (error) {
+      setBulkError(error.message || 'Could not disable selected products.');
+    } finally {
+      setBulkSaving(false);
+    }
+  };
+
   useEffect(() => {
     let off = false;
     setFields(null);
@@ -681,6 +728,14 @@ export default function ProductEccomPage() {
           </button>
           <button
             type="button"
+            className="btn border border-rose-300 text-rose-700 hover:bg-rose-50"
+            disabled={bulkSaving || selectingAll || selectedProducts.size === 0}
+            onClick={disableSelectedProducts}
+          >
+            {bulkSaving ? 'Saving...' : 'Hide from E-commerce'}
+          </button>
+          <button
+            type="button"
             className="btn btn-ghost"
             disabled={bulkSaving || selectingAll || selectedProducts.size === 0}
             onClick={clearProductSelection}
@@ -702,11 +757,58 @@ export default function ProductEccomPage() {
           icon: 'pencil',
           to: editHref,
         },
-        // {
-        //   label: 'Edit Item',
-        //   icon: 'box',
-        //   to: (r) => '/admin/inventory/item/' + r.itemId,
-        // },
+        {
+          label: 'Show on Website',
+          icon: 'check',
+          onClick: async (r) => {
+            if (!r.barcode) return;
+            try {
+              const res = await fetch('/api/product-eccom', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  business: r.businessId || business,
+                  items: [{ barcode: r.barcode, itemId: r.itemId }],
+                  isPublished: true,
+                }),
+              });
+              if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                alert(err.error || 'Failed to enable product');
+                return;
+              }
+              setListVersion((v) => v + 1);
+            } catch (e) {
+              alert(e.message || 'Failed to enable product');
+            }
+          },
+        },
+        {
+          label: 'Hide from Website',
+          icon: 'close',
+          onClick: async (r) => {
+            if (!r.barcode) return;
+            try {
+              const res = await fetch('/api/product-eccom', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  business: r.businessId || business,
+                  items: [{ barcode: r.barcode, itemId: r.itemId }],
+                  isPublished: false,
+                }),
+              });
+              if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                alert(err.error || 'Failed to hide product');
+                return;
+              }
+              setListVersion((v) => v + 1);
+            } catch (e) {
+              alert(e.message || 'Failed to hide product');
+            }
+          },
+        },
       ],
       columns: [
         {
@@ -747,6 +849,8 @@ export default function ProductEccomPage() {
     bulkSaving,
     business,
     clearProductSelection,
+    disableSelectedProducts,
+    enableSelectedProducts,
     fields,
     handleListResult,
     handleSelectionContextChange,
