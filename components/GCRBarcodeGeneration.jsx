@@ -8245,6 +8245,8 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
   const [fullExporting, setFullExporting] = useState(false);
   const [fullExportMessage, setFullExportMessage] = useState(null);
   const [showSaveConfirm, setShowSaveConfirm] = useState(false);
+  const [showPrintOptionModal, setShowPrintOptionModal] = useState(false);
+  const [printOption, setPrintOption] = useState("recent"); // "recent" | "entire"
   const [showPrint, setShowPrint] = useState(false);
   /* Submit & Print Label opens the picker AND the browser's print dialog */
   const [autoPrintAfterSubmit, setAutoPrintAfterSubmit] = useState(false);
@@ -9016,6 +9018,59 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
     }
   }
 
+  /* Identify the true latest entry in the current GRC transaction */
+  const findLatestBarcodeRow = (rowsList) => {
+    if (!Array.isArray(rowsList) || rowsList.length === 0) return null;
+    
+    // 1. If there are new / unsaved rows or edited rows in this session, the latest is the last of those
+    const newOrEdited = rowsList.filter((r) => !r._id || r._edited);
+    if (newOrEdited.length > 0) {
+      return newOrEdited[newOrEdited.length - 1];
+    }
+
+    // 2. If all rows are saved, sort deterministically to find the true latest entry in this GRC:
+    // - Highest seq (sequential number assigned by GRC barcode generation)
+    // - Highest createdAt timestamp
+    // - Newest MongoDB ObjectId (_id)
+    const sorted = [...rowsList].sort((a, b) => {
+      const seqA = Number(a.seq || 0);
+      const seqB = Number(b.seq || 0);
+      if (seqA && seqB && seqA !== seqB) return seqB - seqA;
+
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      if (timeA && timeB && timeA !== timeB) return timeB - timeA;
+
+      const idA = String(a._id || a.id || '');
+      const idB = String(b._id || b.id || '');
+      return idB.localeCompare(idA);
+    });
+
+    return sorted[0] || rowsList[rowsList.length - 1];
+  };
+
+  /* Continue to Print after selecting Recent Entry vs Entire Barcode */
+  const handleContinuePrint = async () => {
+    setShowPrintOptionModal(false);
+    if (!validRows || validRows.length === 0) {
+      setSaveError("No barcode rows available to print.");
+      return;
+    }
+
+    if (printOption === "recent") {
+      const targetRow = findLatestBarcodeRow(validRows);
+      if (!targetRow) {
+        setSaveError("Could not determine the recent barcode entry.");
+        return;
+      }
+      setAutoPrintAfterSubmit(true);
+      await saveRows(validRows, true, { printIds: [targetRow.id] });
+    } else {
+      setAutoPrintAfterSubmit(true);
+      await saveRows(validRows, true, { printIds: null });
+    }
+  };
+
   /* Removing a row - from the ITEMS sheet or the Item With Barcode tab. A row
      that was never saved lives only in this screen and simply goes. A saved
      one leaves the grid now but the database only when Submit is pressed:
@@ -9505,7 +9560,21 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
 
       <div className="mt-6 flex items-center justify-end gap-2">
         {saveError && <div className="mb-2 w-full rounded border border-[#f5c2c7] bg-[#f8d7da] px-3 py-2 text-[13px] text-[#842029]">{saveError}</div>}
-        <button type="button" disabled={saving} onClick={() => saveRows(validRows, true)} className="rounded-md bg-[#198754] px-7 py-3 text-[15px] font-semibold text-white shadow-[0_2px_8px_rgba(25,135,84,0.3)] transition hover:bg-[#146c43] disabled:opacity-60">Submit &amp; Print Label</button>
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => {
+            if (!validRows || validRows.length === 0) {
+              setSaveError("There is nothing to save.");
+              return;
+            }
+            setPrintOption("recent");
+            setShowPrintOptionModal(true);
+          }}
+          className="rounded-md bg-[#198754] px-7 py-3 text-[15px] font-semibold text-white shadow-[0_2px_8px_rgba(25,135,84,0.3)] transition hover:bg-[#146c43] disabled:opacity-60"
+        >
+          Submit &amp; Print Label
+        </button>
       </div>
 
       {/* The picker deliberately receives the rows and nothing else. What a
@@ -9523,6 +9592,105 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
         autoPrint={autoPrintAfterSubmit}
         onClose={() => { setShowPrint(false); setPrintRows([]); setAutoPrintAfterSubmit(false); }}
       />
+
+      {/* Select Barcode Printing Option Modal */}
+      {showPrintOptionModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-[500px] overflow-hidden rounded-xl bg-white shadow-2xl border border-gray-200">
+            <div className="flex items-center justify-between border-b border-gray-200 bg-gray-50 px-6 py-4">
+              <div className="flex items-center gap-2.5">
+                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                  </svg>
+                </span>
+                <h3 className="text-base font-semibold text-gray-900">Select Barcode Printing Option</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPrintOptionModal(false)}
+                className="rounded-md p-1 text-gray-400 hover:bg-gray-200 hover:text-gray-600 transition"
+                aria-label="Close dialog"
+              >
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="p-6 space-y-3.5">
+              <label
+                onClick={() => setPrintOption("recent")}
+                className={`flex cursor-pointer items-start gap-3 rounded-lg border p-4 transition-all ${
+                  printOption === "recent"
+                    ? "border-emerald-600 bg-emerald-50/50 ring-2 ring-emerald-500/20"
+                    : "border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="barcodePrintOption"
+                  value="recent"
+                  checked={printOption === "recent"}
+                  onChange={() => setPrintOption("recent")}
+                  className="mt-0.5 h-4 w-4 border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                />
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-gray-900 text-sm">Print Recent Entry (Latest Row)</span>
+                    <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800">Default</span>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-600 leading-relaxed">
+                    Print only the barcode belonging to the latest row added or generated in the current GRC transaction.
+                  </p>
+                </div>
+              </label>
+
+              <label
+                onClick={() => setPrintOption("entire")}
+                className={`flex cursor-pointer items-start gap-3 rounded-lg border p-4 transition-all ${
+                  printOption === "entire"
+                    ? "border-emerald-600 bg-emerald-50/50 ring-2 ring-emerald-500/20"
+                    : "border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="barcodePrintOption"
+                  value="entire"
+                  checked={printOption === "entire"}
+                  onChange={() => setPrintOption("entire")}
+                  className="mt-0.5 h-4 w-4 border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                />
+                <div className="flex-1">
+                  <span className="font-semibold text-gray-900 text-sm">Print Entire Barcode</span>
+                  <p className="mt-1 text-xs text-gray-600 leading-relaxed">
+                    Print all barcode labels belonging to the current GRC transaction, including all existing rows.
+                  </p>
+                </div>
+              </label>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 border-t border-gray-200 bg-gray-50 px-6 py-4">
+              <button
+                type="button"
+                onClick={() => setShowPrintOptionModal(false)}
+                className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={saving}
+                onClick={handleContinuePrint}
+                className="rounded-md bg-[#198754] px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#146c43] disabled:opacity-60 transition"
+              >
+                {saving ? "Saving..." : "Continue to Print"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showSaveConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
