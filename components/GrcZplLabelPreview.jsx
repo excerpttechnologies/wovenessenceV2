@@ -1,129 +1,346 @@
 'use client';
-import BarcodeSvg from './BarcodeSvg';
-import { formatLabelPrice, toLabelData } from '@/lib/barcodeLabelPrint';
+import { useEffect, useRef, useState, useMemo } from 'react';
+import JsBarcode from 'jsbarcode';
+import Icon from './Icon';
+import { getSingleLabelZplWithHeader, DEFAULT_ZPL_CONFIG } from '@/lib/zpl90x68';
+
+// Client-side cache to make label switching instantaneous (< 1ms)
+const clientPreviewCache = new Map();
 
 /**
- * Visual Preview of the 90 × 68 MM ZPL Label.
- * Accurately replicates the physical layout and fonts of 90x68 PRN FILE.prn.
+ * High-Fidelity Local ZPL Canvas Parser (Offline Engine).
+ * Parses the reference ZPL commands and paints them on a 1033 × 803 Canvas.
  */
-export default function GrcZplLabelPreview({ row, config = {}, isPrint = false }) {
-  if (!row) return null;
-  const label = toLabelData(row);
+function renderZplToCanvas(canvas, zplStr) {
+  if (!canvas || !zplStr) return;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
 
-  const barcodeNo = label.barcodeNo || row.barcodeNo || label.barcode || '';
-  let barcodeGenerated = label.barcodeGenerated || row.barcodeGenerated || barcodeNo;
-  if (barcodeGenerated && barcodeGenerated.includes('*')) {
-    const parts = barcodeGenerated.split('*');
-    if (parts.length === 3) {
-      const unitPart = String(row.serialNo || row.billSlNo || row.seq || '1').trim();
-      barcodeGenerated = `${parts[0]}*${parts[1]}*${parts[2]}*${unitPart}`;
+  const width = 1033;
+  const height = 803;
+  canvas.width = width;
+  canvas.height = height;
+
+  // Clear white background
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, width, height);
+
+  // 1. Draw Barcode: ^FO333,177^BY4^BCR,105,N,N^FD...^FS
+  const bcMatch = /\^FO(\d+),(\d+)[\s\S]*?\^BY(\d+)\^BCR,(\d+)[\s\S]*?\^FD([^^]+)\^FS/.exec(zplStr);
+  if (bcMatch) {
+    const originX = parseInt(bcMatch[1], 10);
+    const originY = parseInt(bcMatch[2], 10);
+    const bcHeight = parseInt(bcMatch[4], 10) || 105;
+    let rawData = bcMatch[5].trim();
+
+    // Strip ZPL Code 128 subset shift markers like >: or >5 or >6
+    const cleanBarcode = rawData.replace(/>[0-9:;<=]/g, '').trim();
+
+    try {
+      const tempSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      JsBarcode(tempSvg, cleanBarcode, {
+        format: 'CODE128',
+        width: 4,
+        height: bcHeight,
+        displayValue: false,
+        margin: 0,
+      });
+
+      const xml = new XMLSerializer().serializeToString(tempSvg);
+      const svg64 = btoa(unescape(encodeURIComponent(xml)));
+      const img = new Image();
+      img.onload = () => {
+        ctx.save();
+        ctx.translate(originX, originY);
+        ctx.rotate(Math.PI / 2); // 90° clockwise (^BCR)
+        ctx.drawImage(img, 0, 0);
+        ctx.restore();
+      };
+      img.src = 'data:image/svg+xml;base64,' + svg64;
+    } catch (e) {
+      console.warn('Canvas barcode render failed:', e);
     }
   }
 
-  const description =
-    row.printDescription || row.supplierDescription || row.itemName || label.description || 'ITEM';
-  const category = row.subGroupName || row.groupName || row.category || 'SAREE';
+  // 2. Draw Text Fields: ^FT(x),(y)...^A0R,(h),(w)^FD(text)^FS
+  const textRegex = /\^FT(\d+),(\d+)[\s\S]*?\^A0R,(\d+),(\d+)\^FD([^^]*?)\^FS/g;
+  let match;
+  while ((match = textRegex.exec(zplStr)) !== null) {
+    const x = parseInt(match[1], 10);
+    const y = parseInt(match[2], 10);
+    const fontH = parseInt(match[3], 10);
+    const fontW = parseInt(match[4], 10);
+    const text = match[5];
 
-  // Detail Row 1
-  const hsn = row.hsn || label.hsn || '601';
-  const itemCode = row.itemCode || label.itemCode || '15-PCRP';
-  const encodedCostPrice = row.encodedCostPrice || label.encodedCostPrice || row.purRateCode || 'HIWBB';
+    if (!text) continue;
 
-  // Detail Row 2
-  const supplierCode = row.supplierCode || row.batchUnique || 'AMTFT';
-  const qty = String(row.qty ?? label.quantity ?? 1);
-  const uom = String(row.uom || row.uomType || label.unit || 'PC(S)').toUpperCase();
-  const qtyText = `${qty} ${uom}`;
-  const offerPrice = row.offerPrice ? formatLabelPrice(row.offerPrice) : '';
-  const serialNo = offerPrice || row.serialNo || row.billSlNo || '26532';
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(Math.PI / 2); // 90° clockwise (^A0R)
+    ctx.fillStyle = '#000000';
+    // Use bold sans-serif with fontH to match Zebra Smooth Font 0
+    ctx.font = `900 ${fontH}px "Arial Black", Arial, Helvetica, sans-serif`;
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(text, 0, 0);
+    ctx.restore();
+  }
+}
 
-  // Rate
-  const retailPrice = formatLabelPrice(row.retailPrice || row.rsp || label.retailPrice || 0);
-  const rateText = `RATE:${retailPrice}/-`;
+/**
+ * Universal ZPL Label Preview Component.
+ *
+ * Architecture:
+ *   Product data → ZPL generator → PRN string → Preview Renderer
+ *
+ * Renders the EXACT physical ZPL label as generated for the printer:
+ *   1. Queries /api/zpl/preview (Labelary Zebra Official Engine) with caching.
+ *   2. Falls back instantly to High-Precision HTML5 Canvas if offline or loading.
+ *   3. Supports Printhead View (Landscape 90×68mm) & Reading View (Portrait 68×90mm).
+ */
+export default function GrcZplLabelPreview({
+  row,
+  zpl: directZpl = null,
+  config = DEFAULT_ZPL_CONFIG,
+  isPrint = false,
+  showControls = true,
+}) {
+  const [readingView, setReadingView] = useState(true);
+  const [showZpl, setShowZpl] = useState(false);
+  const [previewImg, setPreviewImg] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [renderSource, setRenderSource] = useState('canvas'); // 'labelary' | 'canvas'
+
+  const canvasRef = useRef(null);
+
+  // Compute the single source of truth ZPL
+  const activeZpl = useMemo(() => {
+    if (directZpl) return directZpl.trim();
+    if (!row) return '';
+    return getSingleLabelZplWithHeader(row, config).trim();
+  }, [directZpl, row, config]);
+
+  useEffect(() => {
+    if (!activeZpl) return;
+
+    // Check client-side memory cache first for 0ms render
+    if (clientPreviewCache.has(activeZpl)) {
+      setPreviewImg(clientPreviewCache.get(activeZpl));
+      setRenderSource('labelary');
+      setLoading(false);
+      return;
+    }
+
+    // Immediately render local canvas as instant preview / offline fallback
+    if (canvasRef.current) {
+      renderZplToCanvas(canvasRef.current, activeZpl);
+      setRenderSource('canvas');
+    }
+
+    let cancelled = false;
+    setLoading(true);
+
+    fetch('/api/zpl/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ zpl: activeZpl, width: 3.54, height: 2.68, dpmm: 12 }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        if (data.success && data.image) {
+          clientPreviewCache.set(activeZpl, data.image);
+          setPreviewImg(data.image);
+          setRenderSource('labelary');
+        }
+      })
+      .catch((err) => {
+        console.warn('ZPL preview API error, keeping canvas preview:', err);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeZpl]);
+
+  if (!activeZpl) {
+    return <div className="p-4 text-center text-xs text-slate-500">No label data available</div>;
+  }
+
+  // When used inside the browser print layout (window.print()):
+  if (isPrint) {
+    return (
+      <div
+        className="zpl-print-label"
+        style={{
+          width: '90mm',
+          height: '68mm',
+          maxWidth: '90mm',
+          maxHeight: '68mm',
+          boxSizing: 'border-box',
+          margin: 0,
+          padding: 0,
+          overflow: 'hidden',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: '#fff',
+        }}
+      >
+        {previewImg ? (
+          <img
+            src={previewImg}
+            alt="ZPL Label"
+            style={{ width: '90mm', height: '68mm', objectFit: 'contain', display: 'block' }}
+          />
+        ) : (
+          <canvas
+            ref={canvasRef}
+            style={{ width: '90mm', height: '68mm', objectFit: 'contain', display: 'block' }}
+          />
+        )}
+      </div>
+    );
+  }
 
   return (
-    <div
-      className={`zpl-label-preview bg-white relative select-none overflow-hidden ${
-        isPrint ? 'border-0 shadow-none m-0' : 'border border-slate-300 shadow-md mx-auto'
-      }`}
-      style={{
-        width: '90mm',
-        height: '68mm',
-        boxSizing: 'border-box',
-        padding: '3mm 4mm',
-        fontFamily: 'Arial, Helvetica, sans-serif',
-        color: '#000',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'space-between',
-        background: '#fff',
-      }}
-    >
-      {/* Top Line: Composed Barcode */}
-      <div className="flex justify-between items-center text-[10.5px] font-mono tracking-wide leading-none" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span className="font-bold text-[11px]">{barcodeGenerated}</span>
-        <span className="text-[9px] font-semibold text-slate-400 uppercase" style={{ fontSize: '9px', fontWeight: '600', textTransform: 'uppercase', color: '#94a3b8' }}>
-          90×68mm ZPL
-        </span>
-      </div>
+    <div className="zpl-preview-card flex flex-col items-center select-none">
+      {/* Header Controls */}
+      {showControls && (
+        <div className="mb-3 flex w-full max-w-[500px] flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2 text-[12px]">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1 rounded bg-slate-900 px-2 py-0.5 font-mono text-[10.5px] font-semibold text-white">
+              90 × 68 MM ZPL
+            </span>
+            <span className="flex items-center gap-1 text-[11px] font-medium text-emerald-700">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              {renderSource === 'labelary' ? 'Zebra Engine Match' : 'Local ZPL Preview'}
+            </span>
+            {loading && <span className="spin text-slate-400" />}
+          </div>
 
-      {/* Barcode Section: Code 128 + Human Readable */}
-      <div className="my-0.5" style={{ margin: '2px 0' }}>
-        <div className="h-[22mm] w-full flex items-center justify-center overflow-hidden" style={{ height: '22mm', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <BarcodeSvg
-            value={barcodeNo}
-            height={70}
-            width={1.6}
-            displayValue={false}
-            margin={0}
-            quietZone={1}
-            className="w-full h-full"
-          />
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setReadingView((prev) => !prev)}
+              className="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-2 py-1 text-[11.5px] font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+              title="Toggle between Reading Orientation (Portrait) and Printhead Roll Orientation (Landscape)"
+            >
+              <Icon name="refresh" size={12} />
+              {readingView ? 'View: Reading (Portrait)' : 'View: Printhead (90×68)'}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowZpl((prev) => !prev)}
+              className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-[11.5px] font-medium shadow-sm ${
+                showZpl
+                  ? 'border-brand bg-brand/10 text-brand'
+                  : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              <Icon name="file" size={12} />
+              {showZpl ? 'Hide ZPL' : 'View ZPL'}
+            </button>
+          </div>
         </div>
-        <div className="text-center font-mono font-bold text-[14px] tracking-wider leading-tight" style={{ textAlign: 'center', fontWeight: 'bold', fontSize: '14px', letterSpacing: '1px' }}>
-          {barcodeNo}
+      )}
+
+      {/* Visual Label Frame */}
+      <div className="relative flex items-center justify-center p-3">
+        <div
+          className="relative rounded-lg bg-white shadow-xl transition-all duration-300 ease-in-out border border-slate-300 overflow-hidden"
+          style={
+            readingView
+              ? {
+                  width: '68mm',
+                  height: '90mm',
+                  minWidth: '256px',
+                  minHeight: '340px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }
+              : {
+                  width: '90mm',
+                  height: '68mm',
+                  minWidth: '340px',
+                  minHeight: '256px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }
+          }
+        >
+          {/* Label Image or Canvas */}
+          <div
+            style={{
+              width: '90mm',
+              height: '68mm',
+              transform: readingView ? 'rotate(270deg)' : 'none',
+              transformOrigin: 'center center',
+              transition: 'transform 0.25s ease',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            {previewImg ? (
+              <img
+                src={previewImg}
+                alt="Exact ZPL Preview"
+                className="pointer-events-none"
+                style={{
+                  width: '90mm',
+                  height: '68mm',
+                  objectFit: 'contain',
+                  imageRendering: 'crisp-edges',
+                }}
+              />
+            ) : (
+              <canvas
+                ref={canvasRef}
+                style={{
+                  width: '90mm',
+                  height: '68mm',
+                  objectFit: 'contain',
+                  imageRendering: 'crisp-edges',
+                }}
+              />
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Product Description */}
-      <div className="text-[10px] font-bold uppercase tracking-tight truncate border-b border-dashed border-slate-300 pb-0.5" style={{ fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase', borderBottom: '1px dashed #cbd5e1', paddingBottom: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-        {description}
-      </div>
-
-      {/* Category */}
-      <div className="text-[9.5px] font-semibold text-slate-800 uppercase tracking-wide" style={{ fontSize: '9.5px', fontWeight: '600', textTransform: 'uppercase' }}>
-        {category}
-      </div>
-
-      {/* Detail Grid (Rows 1 & 2) */}
-      <div className="text-[9px] font-mono leading-tight py-0.5" style={{ fontSize: '9px', lineHeight: 1.2, padding: '2px 0' }}>
-        <div className="flex justify-between font-bold" style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
-          <span className="truncate w-1/3" style={{ width: '33%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{hsn}</span>
-          <span className="truncate w-1/3 text-center" style={{ width: '33%', textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{itemCode}</span>
-          <span className="truncate w-1/3 text-right" style={{ width: '33%', textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{encodedCostPrice}</span>
+      {/* Orientation Helper Subtitle */}
+      {showControls && (
+        <div className="mt-1 text-[11px] text-slate-500 text-center">
+          {readingView
+            ? 'Displayed in upright reading orientation (portrait). Click "View: Reading" above to switch to roll feed orientation.'
+            : 'Displayed in physical printhead feed orientation (90mm width × 68mm feed).'}
         </div>
-        <div className="flex justify-between text-slate-700 mt-0.5" style={{ display: 'flex', justifyContent: 'space-between', marginTop: '2px' }}>
-          <span className="truncate w-1/3" style={{ width: '33%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{supplierCode}</span>
-          <span className="truncate w-1/3 text-center font-bold text-black" style={{ width: '33%', textAlign: 'center', fontWeight: 'bold', color: '#000', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{qtyText}</span>
-          <span className="truncate w-1/3 text-right" style={{ width: '33%', textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{serialNo}</span>
+      )}
+
+      {/* Raw ZPL Inspector Drawer */}
+      {showZpl && (
+        <div className="mt-3 w-full max-w-[500px] rounded-lg border border-slate-300 bg-slate-900 p-3 text-left shadow-inner">
+          <div className="mb-1.5 flex items-center justify-between text-[11px] text-slate-400">
+            <span className="font-mono font-bold text-slate-300">Generated ZPL (Source of Truth)</span>
+            <button
+              type="button"
+              className="text-xs text-brand hover:underline"
+              onClick={() => navigator.clipboard?.writeText(activeZpl)}
+            >
+              Copy ZPL
+            </button>
+          </div>
+          <pre className="max-h-48 overflow-auto font-mono text-[11px] leading-relaxed text-emerald-400 select-all">
+            {activeZpl}
+          </pre>
         </div>
-      </div>
-
-      {/* RATE Section */}
-      <div className="flex items-center justify-between border-t border-b border-black py-0.5 my-0.5" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1.5px solid #000', borderBottom: '1.5px solid #000', padding: '2px 0', margin: '2px 0' }}>
-        <span className="text-[18px] font-black tracking-tight leading-none text-black" style={{ fontSize: '18px', fontWeight: '900', color: '#000', lineHeight: 1 }}>
-          {rateText}
-        </span>
-        <span className="text-[8px] font-bold text-slate-700 uppercase" style={{ fontSize: '8px', fontWeight: 'bold', textTransform: 'uppercase', color: '#333' }}>
-          (Inclusive all taxes)
-        </span>
-      </div>
-
-      {/* Care Instructions & Disclaimer */}
-      <div className="flex items-center justify-between text-[8px] font-bold tracking-tight text-slate-800 leading-none" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '8px', fontWeight: 'bold', lineHeight: 1 }}>
-        <span className="uppercase text-slate-900" style={{ textTransform: 'uppercase', color: '#000' }}>DRY WASH ONLY</span>
-        <span className="text-[7.5px] text-slate-600" style={{ fontSize: '7.5px', color: '#444' }}>No exchange,No Guarantee,No Return</span>
-      </div>
+      )}
     </div>
   );
 }
