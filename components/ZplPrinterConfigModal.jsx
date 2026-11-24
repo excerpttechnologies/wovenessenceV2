@@ -87,9 +87,11 @@ export default function ZplPrinterConfigModal({ open, onClose, onSave }) {
     if (res.success) {
       setTestStatus(`Sent to printer "${res.printerName}" successfully!`);
     } else {
-      setTestStatus(
-        `Direct print failed: ${res.error}. (Tip: Ensure Zebra Browser Print is running, or use "Download .PRN File")`
-      );
+      const errText = res.error || 'Printer is offline or not connected.';
+      const formatted = errText.includes('(Tip:')
+        ? errText
+        : `${errText} (Tip: Ensure Zebra Browser Print is running, or use "Download .PRN File")`;
+      setTestStatus(`Direct print failed: ${formatted}`);
     }
   };
 

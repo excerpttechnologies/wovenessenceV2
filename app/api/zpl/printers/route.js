@@ -1,15 +1,50 @@
 import { NextResponse } from 'next/server';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
+import fs from 'fs';
+import path from 'path';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
+
+function resolvePowerShellExe() {
+  if (process.platform !== 'win32') return null;
+  const sysRoot = process.env.SystemRoot || process.env.windir || 'C:\\Windows';
+  const candidates = [
+    path.join(sysRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+    path.join(sysRoot, 'SysWOW64', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+    'powershell.exe',
+  ];
+  for (const c of candidates) {
+    if (c.includes('\\') && fs.existsSync(c)) return c;
+  }
+  return 'powershell.exe';
+}
 
 export async function GET() {
+  const defaultFallback = {
+    printers: [
+      { Name: 'BOXP BP 4304e (300 dpi) - ZPL', DriverName: 'BOXP BP 4304e (300 dpi) - ZPL', PortName: 'USB004' },
+    ],
+    recommended: 'BOXP BP 4304e (300 dpi) - ZPL',
+  };
+
+  if (process.platform !== 'win32') {
+    return NextResponse.json(defaultFallback);
+  }
+
+  const psExe = resolvePowerShellExe();
+  if (!psExe) {
+    return NextResponse.json(defaultFallback);
+  }
+
   try {
-    // Query installed Windows printers via PowerShell
-    const cmd = `powershell -NoProfile -Command "Get-Printer | Select-Object -Property Name, DriverName, PortName | ConvertTo-Json"`;
-    const { stdout } = await execAsync(cmd);
-    const raw = stdout.trim();
+    const args = [
+      '-NoProfile',
+      '-Command',
+      'Get-Printer | Select-Object -Property Name, DriverName, PortName | ConvertTo-Json',
+    ];
+    const { stdout } = await execFileAsync(psExe, args, { timeout: 3500 });
+    const raw = stdout ? stdout.trim() : '';
     let printers = [];
 
     if (raw) {
@@ -21,25 +56,21 @@ export async function GET() {
       }
     }
 
-    // Identify recommended ZPL/Thermal printer
+    if (!printers.length) {
+      printers = defaultFallback.printers;
+    }
+
     const recommended = printers.find(
       (p) =>
-        /ZPL|BOXP|Zebra|Thermal/i.test(p.Name) ||
-        /ZPL|BOXP|Zebra|Thermal/i.test(p.DriverName)
+        /ZPL|BOXP|BOXB|Zebra|Thermal/i.test(p.Name) ||
+        /ZPL|BOXP|BOXB|Zebra|Thermal/i.test(p.DriverName)
     );
 
     return NextResponse.json({
       printers,
-      recommended: recommended ? recommended.Name : (printers[0]?.Name || ''),
+      recommended: recommended ? recommended.Name : (printers[0]?.Name || defaultFallback.recommended),
     });
   } catch (err) {
-    console.error('Failed to list Windows printers:', err);
-    return NextResponse.json({
-      printers: [
-        { Name: 'BOXP BP 4304e (300 dpi) - ZPL', DriverName: 'BOXP BP 4304e (300 dpi) - ZPL', PortName: 'USB004' },
-      ],
-      recommended: 'BOXP BP 4304e (300 dpi) - ZPL',
-      error: err.message,
-    });
+    return NextResponse.json(defaultFallback);
   }
 }
