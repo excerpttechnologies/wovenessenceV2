@@ -162,7 +162,7 @@ export default function ZplPrinterConfigModal({ open, onClose, onSave }) {
                   value={cfg.dpi}
                   onChange={(e) => {
                     const dpi = Number(e.target.value);
-                    const printWidth = dpi === 203 ? 720 : 1063;
+                    const printWidth = dpi === 203 ? 720 : 1033;
                     setCfg((prev) => ({ ...prev, dpi, printWidth }));
                   }}
                   className="w-full rounded border border-slate-300 bg-white px-2.5 py-1.5 font-medium text-slate-800"
