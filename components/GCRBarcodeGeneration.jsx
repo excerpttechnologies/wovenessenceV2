@@ -8102,7 +8102,7 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
                 <div className="overflow-auto rounded border border-gray-300 bg-white p-2">
                   {/* GrcBarcodeLabelSheet is the same component the
                       barcode-print page renders, so Preview = Print exactly. */}
-                  <GrcBarcodeLabelSheet rows={selectedRows} format={format2up} gap={gap} page={run.page} bar={bar} idSpacing={idSpacing} />
+                  <GrcBarcodeLabelSheet rows={expandedSelectedRows} format={format2up} gap={gap} page={run.page} bar={bar} idSpacing={idSpacing} />
                 </div>
               </>
             )}
@@ -8242,6 +8242,17 @@ export function PrintLabelPicker({ rows, open, onClose, autoPrint = false }) {
                   <span>{directPrinting ? 'Sending to Printer...' : 'Direct Print (90×68 mm)'}</span>
                 </button>
               </>
+            ) : printerMode === 'tsc_te310' ? (
+              <button
+                type="button"
+                disabled={printing}
+                onClick={(event) => { if (event.detail > 1) return; runPrint(); }}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-4 py-2 text-xs font-bold text-white shadow-xs hover:bg-brand-dark disabled:opacity-60"
+                title="Print labels on TSC TE310 printer stock (100×40 mm 2-up)"
+              >
+                <Icon name="printer" size={14} />
+                <span>{printing ? 'Preparing...' : 'Print (TSC TE310)'}</span>
+              </button>
             ) : (
               <button
                 type="button"

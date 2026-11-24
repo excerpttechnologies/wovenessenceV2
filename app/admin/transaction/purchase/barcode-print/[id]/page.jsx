@@ -286,6 +286,21 @@ export default function GrcBarcodePrintPage() {
     [counted]
   );
 
+  /* Individual sequential labels for preview and printing */
+  const countedExpanded = useMemo(() => {
+    return counted.flatMap((row, ri) => {
+      const isBatch = resolveLabelMode(row).mode === LABEL_MODE.BATCH;
+      const n = Math.max(0, Math.floor(Number(row.copies) || 0));
+      if (isBatch && n > 0) {
+        return Array.from({ length: n }, (_, copy) => {
+          const seq = copy + 1;
+          return createBatchSequenceLabel(row, seq, n);
+        });
+      }
+      return [row];
+    });
+  }, [counted]);
+
   /* FORCE 2-UP LAYOUT: Ensure minimum 2 labels per row and a 100 x 40 mm
      stock page. The label keeps its REAL catalog size - shrinking it to
      40 x 40 mm left 20mm of the 100mm sheet unused, so the second sticker
@@ -812,11 +827,15 @@ export default function GrcBarcodePrintPage() {
                 setZplNotice('');
                 if (val === 'boxb_4304e' || val === 'boxp' || val === 'zpl_90x68') {
                   setPaper('stock_90x68');
+                } else if (val === 'tsc_te310') {
+                  setBarProfile('tsc_te310');
+                  setPaper('stock');
                 }
               }}
               className="rounded border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-800 shadow-2xs"
             >
               <option value="browser">Standard Browser Printer (HTML/PDF)</option>
+              <option value="tsc_te310">TSC TE310 (Browser / HTML 100×40 MM)</option>
               <option value="boxb_4304e">BOXP BP 4304e (300 DPI) [90×68 MM]</option>
               <option value="zpl_90x68">Zebra / ZPL Thermal Printer (90×68 mm)</option>
             </select>
@@ -1048,7 +1067,7 @@ export default function GrcBarcodePrintPage() {
            than a narrow window; nothing about the labels themselves changes
            with the viewport. */
         <div className="overflow-auto rounded border border-slate-200 bg-white p-3">
-          <GrcBarcodeLabelSheet rows={counted} format={format2up} gap={gap} page={run.page} bar={bar} idSpacing={idSpacing} />
+          <GrcBarcodeLabelSheet rows={countedExpanded} format={format2up} gap={gap} page={run.page} bar={bar} idSpacing={idSpacing} />
         </div>
       )}
 

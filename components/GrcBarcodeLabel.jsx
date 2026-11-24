@@ -499,7 +499,13 @@
 
 'use client';
 import BarcodeSvg from './BarcodeSvg';
-import { toLabelData, formatLabelPrice } from '@/lib/barcodeLabelPrint';
+import {
+  toLabelData,
+  formatLabelPrice,
+  resolveLabelMode,
+  LABEL_MODE,
+  createBatchSequenceLabel,
+} from '@/lib/barcodeLabelPrint';
 import {
   labelGeometry,
   labelsPerRow,
@@ -659,10 +665,8 @@ export function Label({ label, geometry, idSpacing = null }) {
 
   const detailRow1 = LABEL_FIELDS.detailRow1.map((k) => label[k] ?? '');
   const detailRow2 = LABEL_FIELDS.detailRow2.map((k) => label[k] ?? '');
-  // Place offer price in the third column of row 2 if it exists
-  if (offerText) {
-    detailRow2[2] = offerText;
-  }
+  // Place offer price or serial / sequence number in the third column of row 2
+  detailRow2[2] = offerText || label.serialNo || '';
 
   /* THE BARCODE IDENTIFIER ROW — both values off the SAME record.
 
@@ -988,8 +992,20 @@ export default function GrcBarcodeLabelSheet({ rows, format = null, gap = '1mm',
   const perRow = labelsPerRow(format);  /* already enforces Math.max(2, ...) */
 
   const labels = (rows || []).flatMap((row, ri) => {
+    const isBatch = resolveLabelMode(row).mode === LABEL_MODE.BATCH || row.isBatch || row.batchUnique === 'batch' || row.mode === 'batch';
     const n = Math.max(0, Math.floor(Number(row.copies) || 0));
-    return Array.from({ length: n }, (_, copy) => ({
+    const alreadyExpanded = Boolean(row.copyIndex);
+    if (isBatch && n > 0 && !alreadyExpanded) {
+      return Array.from({ length: n }, (_, copy) => {
+        const seq = copy + 1;
+        const seqRow = createBatchSequenceLabel(row, seq, n);
+        return {
+          key: `${row._id || row.id || ri}-${copy}`,
+          label: labelFor(seqRow),
+        };
+      });
+    }
+    return Array.from({ length: n || 1 }, (_, copy) => ({
       key: `${row._id || row.id || ri}-${copy}`,
       label: labelFor(row),
     }));
