@@ -1655,7 +1655,7 @@
 // //   const scopePending = scoped && (!businessReady || !locationReady);
 // //   /* Resolved, but this deployment has no business at all - querying now would
 // //      be the unscoped query all over again, so don't. */
-// //   const noBusiness = needs.includes("business") && !scopePending && !business;
+// //   const noBusiness = needs.includes("business") && !scopePending && !business && !cfg.allowAllBusinesses;
 
 // //   /* Only the newest request may write state. Two are still legitimately in
 // //      flight at once (typing in Search, paging), and without this the slower of
@@ -2760,7 +2760,7 @@
 //   const scopePending = scoped && (!businessReady || !locationReady);
 //   /* Resolved, but this deployment has no business at all - querying now would
 //      be the unscoped query all over again, so don't. */
-//   const noBusiness = needs.includes("business") && !scopePending && !business;
+//   const noBusiness = needs.includes("business") && !scopePending && !business && !cfg.allowAllBusinesses;
 
 //   /* Only the newest request may write state. Two are still legitimately in
 //      flight at once (typing in Search, paging), and without this the slower of
@@ -4045,12 +4045,17 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
   const scopePending = scoped && (!businessReady || !locationReady);
   /* Resolved, but this deployment has no business at all - querying now would
      be the unscoped query all over again, so don't. */
-  const noBusiness = needs.includes("business") && !scopePending && !business;
+  const noBusiness = needs.includes("business") && !scopePending && !business && !cfg.allowAllBusinesses;
 
   /* Only the newest request may write state. Two are still legitimately in
      flight at once (typing in Search, paging), and without this the slower of
      the two can land last and overwrite the newer answer. */
   const reqRef = useRef(0);
+  /* The URL of the request currently on the wire. A second identical request
+     - Enter and the Search button pressed in the same moment, or a filter
+     applied twice - is not sent again: the answer already on its way covers
+     it. Cleared when that request settles. */
+  const inFlightUrlRef = useRef({ url: '', seq: 0 });
 
   const load = useCallback(async () => {
     /* Hold the spinner - deliberately NOT an empty table, which would read as
@@ -4067,18 +4072,27 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
       setLoading(false);
       return;
     }
-    setLoading(true);
-    const seq = ++reqRef.current;
 
+    const activeBusiness = filters.companyFilter !== undefined
+      ? String(filters.companyFilter || "")
+      : (business || "");
     const qs = new URLSearchParams({
       page: String(page),
       search,
-      business: business || "",
+      business: activeBusiness,
       location: location || "",
       finYear: finYear || "",
     });
     Object.entries(filters).forEach(([k, v]) => {
-      if (v) qs.set(k, v);
+      if (v !== undefined && v !== null) {
+        if (typeof v === 'string') {
+          if (v || k === 'locationFilter' || k === 'companyFilter') qs.set(k, v);
+        } else if (Array.isArray(v)) {
+          if (v.length) qs.set(k, v.join(','));
+        } else {
+          qs.set(k, String(v));
+        }
+      }
     });
     if (numberedPager && perPage) qs.set("perPage", String(perPage));
     if (sort.key && sort.dir) {
@@ -4095,7 +4109,16 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
     });
  
     const url = cfg.endpoint + "?" + qs;
- 
+
+    /* the same request is already on the wire - its answer serves this one too */
+    if (inFlightUrlRef.current.url === url) return;
+
+    setLoading(true);
+    const seq = ++reqRef.current;
+    /* remember which request owns the wire (the URL alone is not enough: an
+       older request for the same URL must not clear a newer one's slot) */
+    inFlightUrlRef.current = { url, seq };
+
     try {
       const r = await fetch(url, { cache: "no-store" });
       const d = await r.json().catch(() => ({}));
@@ -4128,6 +4151,9 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
     } catch (e) {
       if (seq === reqRef.current) setError("Network error - could not reach the server.");
     } finally {
+      /* release the wire even when a newer request superseded it: only the
+         request that owns the slot may clear it */
+      if (inFlightUrlRef.current.seq === seq) inFlightUrlRef.current = { url: '', seq: 0 };
       if (seq === reqRef.current) setLoading(false);
     }
   }, [
@@ -4412,7 +4438,9 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
         page: String(pageNo),
         perPage: String(EXPORT_PAGE),
         search,
-        business: business || "",
+        business: filters.companyFilter !== undefined
+          ? String(filters.companyFilter || "")
+          : (business || ""),
         location: location || "",
         finYear: finYear || "",
       });
@@ -4646,6 +4674,7 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
           filters={cfg.filters}
           groups={cfg.filterGroups}
           headerDates={cfg.headerDates}
+          loading={loading}
           onSearch={(f) => {
             setPage(1);
             setFilters(f);
@@ -4847,7 +4876,7 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
                 {!loading && !scopePending && !error && !noBusiness && searched && state.rows.length === 0 && (
                   <tr>
                     <td colSpan={visible.length + 1 + (cfg.serialNumber ? 1 : 0)} className="dt-empty">
-                      No Data..
+                      {cfg.emptyText || "No Data.."}
                     </td>
                   </tr>
                 )}

@@ -378,7 +378,7 @@ function ProductView({ row }) {
 
 export default function ProductEccomPage() {
   const router = useRouter();
-  const { business, location } = useScope();
+  const { business, location, businessReady } = useScope();
   const [fields, setFields] = useState(null);
   const [viewing, setViewing] = useState(null);
   /* Map<_id, { barcode, itemId }>: the listing row is a barcode, not the
@@ -418,7 +418,7 @@ export default function ProductEccomPage() {
   }, []);
 
   const selectAllFilteredProducts = useCallback(async () => {
-    if (!listResult?.query || !listResult.total || selectingAll || !business) return;
+    if (!listResult?.query || !listResult.total || selectingAll) return;
     const requestId = ++selectionRequestRef.current;
     const params = new URLSearchParams(listResult.query);
     ['page', 'perPage', 'sortBy', 'sortDir'].forEach((key) => params.delete(key));
@@ -467,7 +467,7 @@ export default function ProductEccomPage() {
         itemId: String(entry?.itemId || '').trim(),
       }))
       .filter((entry) => entry.barcode);
-    if (!business || !items.length || bulkSaving) return;
+    if (!items.length || bulkSaving) return;
     setBulkSaving(true);
     setBulkError('');
 
@@ -501,14 +501,12 @@ export default function ProductEccomPage() {
   };
 
   useEffect(() => {
-    /* wait for the scoped business before asking the API for field metadata -
-       firing with an empty business= produced an incomplete/empty field list
-       on first paint, which could in turn hide columns (and the data under
-       them) on the very first render after navigating here. */
-    if (!business) return undefined;
     let off = false;
     setFields(null);
-    fetch('/api/product-eccom?fields=1&business=' + business, { cache: 'no-store' })
+    const url = business
+      ? '/api/product-eccom?fields=1&business=' + encodeURIComponent(business)
+      : '/api/product-eccom?fields=1';
+    fetch(url, { cache: 'no-store' })
       .then((r) => r.json())
       .then((d) => { if (!off) setFields(Array.isArray(d.fields) ? d.fields : []); })
       .catch(() => { if (!off) setFields([]); });
@@ -536,10 +534,14 @@ export default function ProductEccomPage() {
       basePath: '/admin/ecommerce/',
       slugPath: 'product-eccom',
       endpoint: '/api/product-eccom',
+      /* what the table says when a search (barcode pattern included) answers
+         with nothing */
+      emptyText: 'No matching products found.',
       /* business AND location: the top bar's Company and Location are this
          page's data context, so the list waits for both to resolve before it
          queries rather than loading the whole company first. */
       scope: ['business', 'location'],
+      allowAllBusinesses: true,
       fixedQuery: PRODUCT_LIST_FIXED_QUERY,
       onListResult: handleListResult,
       onSelectionContextChange: handleSelectionContextChange,
@@ -576,7 +578,7 @@ export default function ProductEccomPage() {
            same list. `def` opens it on the location the top bar is on, so the
            first load is already the Company + Location context and not the
            whole company. */
-        { k: 'locationFilter', label: 'Location', type: 'location', all: 'All Locations', def: location || '' },
+        { k: 'locationFilter', label: 'Location', type: 'location', all: 'All Locations', def: '' },
 
         { k: 'city', label: 'City', type: 'city', placeholder: 'Type city', suggest: '/api/cities' },
         {
@@ -613,7 +615,7 @@ export default function ProductEccomPage() {
           icon: 'barcode',
           color: '#2563a9',
           cols: 5,
-          fields: ['barcodeNo', 'groupName', 'itemId', 'hsn', 'gst', 'locationFilter'],
+          fields: ['barcodeNo', 'groupName', 'itemId', 'hsn', 'gst'],
         },
         {
           title: 'Supplier & Inventory',
@@ -658,7 +660,7 @@ export default function ProductEccomPage() {
           <button
             type="button"
             className="btn"
-            disabled={selectingAll || bulkSaving || !listResult.total || !business}
+            disabled={selectingAll || bulkSaving || !listResult.total}
             onClick={selectedProducts.size === listResult.total && listResult.total > 0
               ? clearProductSelection
               : selectAllFilteredProducts}
@@ -672,7 +674,7 @@ export default function ProductEccomPage() {
           <button
             type="button"
             className="btn btn-primary"
-            disabled={bulkSaving || selectingAll || selectedProducts.size === 0 || !business}
+            disabled={bulkSaving || selectingAll || selectedProducts.size === 0}
             onClick={enableSelectedProducts}
           >
             {bulkSaving ? 'Saving...' : 'Show in E-commerce'}
@@ -755,8 +757,7 @@ export default function ProductEccomPage() {
     selectedProducts,
   ]);
 
-  if (!business) return <div className="card p-6 text-[13px] text-inkmuted">Select a Business in the top bar first.</div>;
-  if (fields === null) return <div className="card p-6 text-[13px] text-inkmuted">Loading...</div>;
+  if (!businessReady || fields === null) return <div className="card p-6 text-[13px] text-inkmuted">Loading...</div>;
   return (
     <>
       <ListView

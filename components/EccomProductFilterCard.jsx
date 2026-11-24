@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import Icon from './Icon';
 import StockFilterCard from './StockFilterCard';
 import { filterDefaults } from './FilterPanel';
 import { useScope } from './ScopeContext';
@@ -44,8 +45,48 @@ export default function EccomProductFilterCard({
   groups = [],
   headerDates = [],
   onSearch,
+  loading = false,
 }) {
-  const { business, location: scopeLocation, locationReady, setBusiness } = useScope();
+  const { business, location: scopeLocation, locationReady, setLocation } = useScope();
+  const [selectedCompany, setSelectedCompany] = useState(business || '');
+  const [companyLocations, setCompanyLocations] = useState([]);
+  const [locationsLoading, setLocationsLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLocationsLoading(true);
+    const url = selectedCompany
+      ? '/api/options?ref=companylocations&business=' + encodeURIComponent(selectedCompany)
+      : '/api/options?ref=companylocations';
+    fetch(url, { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((d) => {
+        if (!cancelled) setCompanyLocations(Array.isArray(d.options) ? d.options : []);
+      })
+      .catch(() => {
+        if (!cancelled) setCompanyLocations([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLocationsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [selectedCompany]);
+
+  const customLocationOptions = useMemo(() => {
+    const seen = new Set(['']);
+    const out = [{ value: '', label: 'All Locations' }];
+    (companyLocations || []).forEach((opt) => {
+      const val = String(opt?.value ?? '');
+      if (seen.has(val)) return;
+      seen.add(val);
+      out.push({
+        value: val,
+        label: String(opt?.label || '').trim() || val,
+      });
+    });
+    return out;
+  }, [companyLocations]);
+
   const [draft, setDraft] = useState(() => filterDefaults(filters));
   const byKey = useMemo(() => new Map(filters.map((f) => [f.k, f])), [filters]);
   const locationKey = (filters.find((f) => f.type === 'location') || {}).k || '';
@@ -84,10 +125,27 @@ export default function EccomProductFilterCard({
     /* Location IS the page's data context: moving it reloads the products and
        the option lists at once, instead of leaving the list on the previous
        location until Search is pressed. */
-    if (locationPick) onSearch?.(draftRef.current);
+    if (locationPick) {
+      if (typeof setLocation === 'function') {
+        setLocation(v || '');
+      }
+      onSearch?.(draftRef.current);
+    }
   };
 
   const apply = (next) => { commit(next); onSearch?.(next); };
+
+  /* The bottom Search button and Enter in a filter box both land here. A
+     second identical search while the first is still running is the same
+     request, so it is dropped rather than sent again. */
+  const lastSearchRef = useRef('');
+  const runSearch = () => {
+    const next = draftRef.current;
+    const signature = JSON.stringify(next);
+    if (loading && signature === lastSearchRef.current) return;
+    lastSearchRef.current = signature;
+    apply(next);
+  };
 
   /* A section's Clear blanks only its own keys. Any filter that depends on
      one of those keys goes too, so clearing City cannot leave a Supplier
@@ -103,7 +161,40 @@ export default function EccomProductFilterCard({
     commit(next);
   };
 
-  const reset = () => apply(filterDefaults(filters));
+  const reset = () => {
+    const next = filterDefaults(filters);
+    next.companyFilter = selectedCompany;
+    if (locationKey) next[locationKey] = '';
+    if (typeof setLocation === 'function') {
+      setLocation('');
+    }
+    apply(next);
+  };
+
+  const handleCompanyChange = (newBusinessId) => {
+    const val = newBusinessId || '';
+    if (val === selectedCompany) return;
+    setSelectedCompany(val);
+    const next = filterDefaults(filters);
+    next.companyFilter = val;
+    if (locationKey) next[locationKey] = '';
+    if (typeof setLocation === 'function') {
+      setLocation('');
+    }
+    apply(next);
+  };
+
+  const lastTopbarBusinessRef = useRef(business);
+  useEffect(() => {
+    if (lastTopbarBusinessRef.current !== business) {
+      lastTopbarBusinessRef.current = business;
+      setSelectedCompany(business || '');
+      const next = filterDefaults(filters);
+      next.companyFilter = business || '';
+      if (locationKey) next[locationKey] = '';
+      apply(next);
+    }
+  }, [business]);
 
   /* Follow the top bar. The Company and its Location are one context, so a
      branch change starts the page's filters from scratch (nothing picked for
@@ -125,7 +216,7 @@ export default function EccomProductFilterCard({
     if (!last) {
       /* first settled scope: adopt the top bar's location unless the screen
          already drafted one (a filter `def` does that on mount) */
-      if (scopeLocation && !draftRef.current[locationKey]) {
+      if (scopeLocation && draftRef.current[locationKey] === undefined) {
         onSearch?.(commit({ ...draftRef.current, [locationKey]: scopeLocation }));
       }
       return undefined;
@@ -136,8 +227,8 @@ export default function EccomProductFilterCard({
       onSearch?.(commit(next));
       return undefined;
     }
-    if (last.location !== scopeLocation && scopeLocation) {
-      const next = withoutScopeBound({ ...draftRef.current, [locationKey]: scopeLocation });
+    if (last.location !== scopeLocation) {
+      const next = withoutScopeBound({ ...draftRef.current, [locationKey]: scopeLocation || '' });
       onSearch?.(commit(next));
     }
     return undefined;
@@ -153,12 +244,32 @@ export default function EccomProductFilterCard({
       onChange={set}
       onClear={clearGroup}
       onReset={reset}
-      onSearch={() => apply(draftRef.current)}
+      onSearch={runSearch}
+      onEnter={runSearch}
+      loading={loading}
       business={business}
-      /* The company dropdown in the card is the top bar's branch. This card
-         resets its whole draft on that change (see the effect above), so it
-         only needs the global setter here. */
-      onCompanyChange={setBusiness}
+      companyValue={selectedCompany}
+      locationOptionsOverride={customLocationOptions}
+      locationsLoading={locationsLoading}
+      /* The company dropdown in the card allows filtering by any company or
+         searching across All Companies without changing the global top bar. */
+      onCompanyChange={handleCompanyChange}
+      /* A dedicated Search button directly below the last section (Barcode
+         Pattern) so a pattern search can be run from where it is typed. It
+         sends the WHOLE draft - company/location, dates and every other
+         section included - exactly as the header Search does. */
+      footer={(
+        <div className="stock-filter-footer">
+          <button
+            type="button"
+            className="btn btn-primary stock-filter-footer-search"
+            onClick={runSearch}
+            disabled={loading}
+          >
+            {loading ? <span className="spin" /> : <Icon name="search" size={15} />} Search
+          </button>
+        </div>
+      )}
     />
   );
 }

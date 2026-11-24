@@ -173,31 +173,32 @@ export function ScopeProvider({ children }) {
 
   useEffect(() => {
     if (!business) { setLocations([]); setLocation(''); setLocationsFor(business); return; }
-    fetch('/api/options?ref=companylocations&business=' + business)
+    let cancelled = false;
+    setLocationsFor(null);
+    fetch('/api/options?ref=companylocations&business=' + encodeURIComponent(business), { cache: 'no-store' })
       .then((r) => r.json())
       .then((d) => {
-        const list = d.options || [];
+        if (cancelled) return;
+        const list = Array.isArray(d.options) ? d.options : [];
         setLocations(list);
         const saved = localStorage.getItem(locationKey(business));
         
-        /* Auto-select TEMPLE FABRICS WAREHOUSE on first load, but allow
-           switching to other locations. The saved location is restored if
-           it exists in the current business's location list. Otherwise,
-           default to TEMPLE FABRICS WAREHOUSE if available, or fall back
-           to the first location. */
         let pick = '';
-        if (saved && list.find((o) => o.value === saved)) {
+        if (saved !== null && (saved === '' || list.some((o) => o.value === saved))) {
           pick = saved;
-        } else {
-          const warehouse = list.find((o) => 
-            o.label && o.label.toUpperCase().includes('TEMPLE FABRICS WAREHOUSE')
-          );
-          pick = warehouse?.value || list[0]?.value || '';
         }
         setLocation(pick);
       })
-      .catch(() => {})
-      .finally(() => setLocationsFor(business));
+      .catch(() => {
+        if (!cancelled) {
+          setLocations([]);
+          setLocation('');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLocationsFor(business);
+      });
+    return () => { cancelled = true; };
   }, [business]);
 
   /* Re-read on every business change: permissions are stored per business,
@@ -226,8 +227,8 @@ export function ScopeProvider({ children }) {
      and writing that under the new branch's key would remember a location
      that does not belong to it. */
   useEffect(() => {
-    if (business && location && locationsFor === business) {
-      localStorage.setItem(locationKey(business), location);
+    if (business && locationsFor === business) {
+      localStorage.setItem(locationKey(business), location || '');
     }
   }, [business, location, locationsFor]);
 

@@ -204,7 +204,7 @@ function TagsField({ f, value, onChange, business }) {
   );
 }
 
-function Field({ f, value, onChange, draft, hint, business }) {
+function Field({ f, value, onChange, draft, hint, business, onEnter }) {
   if (f.type === 'tags') return <TagsField f={f} value={value} onChange={onChange} business={business} />;
   if (f.type === 'city') return <CityField f={f} value={value} onChange={onChange} business={business} />;
   if (f.type === 'ref') {
@@ -243,6 +243,16 @@ function Field({ f, value, onChange, draft, hint, business }) {
       placeholder={f.type === 'date' ? '' : f.placeholder || ''}
       value={value || ''}
       onChange={(e) => onChange(e.target.value)}
+      onKeyDown={(e) => {
+        /* Enter in a filter box runs the same search as the Search button, so
+           a barcode pattern can be typed and submitted without reaching for
+           the mouse. The tags picker above owns its own Enter (it commits a
+           chip), and selects have nothing to submit. */
+        if (e.key === 'Enter' && onEnter) {
+          e.preventDefault();
+          onEnter();
+        }
+      }}
     />
   );
 }
@@ -280,6 +290,16 @@ export default function StockFilterCard({
   hint = '',
   toolbar = null,
   beforeGroups = null,
+  companyValue = undefined,
+  locationOptionsOverride = null,
+  locationsLoading = false,
+  /* A screen can add its own action bar at the bottom of the card - the
+     E-commerce Product screen puts a second, dedicated Search button directly
+     below the Barcode Pattern section. Kept optional so the Master Stock
+     Report, which shares this card, is unchanged. */
+  footer = null,
+  /* Enter in a plain filter input runs this - the same handler as Search. */
+  onEnter = null,
   className = '',
 }) {
   const {
@@ -289,6 +309,7 @@ export default function StockFilterCard({
     businessReady,
     locationReady,
     setBusiness,
+    setLocation,
   } = useScope();
   const [folded, setFolded] = useState({});
   const byKey = useMemo(() => new Map(filters.map((f) => [f.k, f])), [filters]);
@@ -322,7 +343,7 @@ export default function StockFilterCard({
      a second control interfering with top-nav behavior. */
   const companyOptions = useMemo(() => {
     const seen = new Set();
-    const out = [];
+    const out = [{ value: '', label: 'All Companies' }];
     (businesses || []).forEach((option) => {
       const value = String(option?.value ?? '');
       if (!value || seen.has(value)) return;
@@ -342,7 +363,7 @@ export default function StockFilterCard({
      the new one, so it is blanked as part of the switch unless the screen
      handles the change itself. */
   const switchCompany = (value) => {
-    if (!value || value === scopeBusiness) return;
+    if (value === scopeBusiness) return;
     if (onCompanyChange) { onCompanyChange(value); return; }
     if (locationField) onChange?.(locationField.k, '');
     setBusiness(value);
@@ -382,8 +403,8 @@ export default function StockFilterCard({
                   options={companyOptions}
                   loading={!businessReady}
                   disabled={!businessReady || !companyOptions.length}
-                  value={scopeBusiness || ''}
-                  placeholder="Select company"
+                  value={companyValue !== undefined ? companyValue : (scopeBusiness || '')}
+                  placeholder="All Companies"
                   onChange={switchCompany}
                 />
               </div>
@@ -394,12 +415,18 @@ export default function StockFilterCard({
                 <label className={GROUP_LABEL}>{locationField.label || 'Location'}</label>
                 <MultiSelect
                   mode="single"
-                  options={locationOptions}
-                  loading={!locationReady}
+                  options={locationOptionsOverride || locationOptions}
+                  loading={locationsLoading || !locationReady}
                   disabled={!business}
                   value={draft[locationField.k] || ''}
                   placeholder={locationField.all || 'All Locations'}
-                  onChange={(v) => onChange?.(locationField.k, v)}
+                  emptyText="No locations found"
+                  onChange={(v) => {
+                    onChange?.(locationField.k, v || '');
+                    if (typeof setLocation === 'function') {
+                      setLocation(v || '');
+                    }
+                  }}
                 />
               </div>
             )}
@@ -484,6 +511,7 @@ export default function StockFilterCard({
                               disabled={!business}
                               value={draft[f.k] || ''}
                               placeholder={f.all || 'All Locations'}
+                              emptyText="No locations found"
                               onChange={(v) => onChange?.(f.k, v)}
                             />
                           </div>
@@ -504,6 +532,7 @@ export default function StockFilterCard({
                             onChange={(v) => onChange?.(f.k, v)}
                             draft={draft}
                             business={business}
+                            onEnter={onEnter}
                           />
                         </div>
                       );
@@ -519,6 +548,12 @@ export default function StockFilterCard({
                             placeholder="Start"
                             value={draft[lo] || ''}
                             onChange={(e) => onChange?.(lo, e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && onEnter) {
+                                e.preventDefault();
+                                onEnter();
+                              }
+                            }}
                           />
                           <input
                             type="text"
@@ -526,6 +561,12 @@ export default function StockFilterCard({
                             placeholder="End"
                             value={draft[hi] || ''}
                             onChange={(e) => onChange?.(hi, e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && onEnter) {
+                                e.preventDefault();
+                                onEnter();
+                              }
+                            }}
                           />
                         </div>
                       </div>
@@ -538,6 +579,8 @@ export default function StockFilterCard({
         })}
 
         {hint && <div className="stock-filter-hint">{hint}</div>}
+
+        {footer}
       </div>
     </div>
   );

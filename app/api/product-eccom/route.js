@@ -1554,13 +1554,13 @@
 // // //     const fabricOptions = await Promise.all(fabricNames.map((name) =>
 // // //       ProductClassificationOption.findOneAndUpdate(
 // // //         {
-// // //           businessId: new Types.ObjectId(business),
+// // //           businessId: new Types.ObjectId(b),
 // // //           type: 'byFabric',
 // // //           name: { $regex: `^${escapeRegex(name)}$`, $options: 'i' },
 // // //         },
 // // //         {
 // // //           $setOnInsert: {
-// // //             businessId: new Types.ObjectId(business),
+// // //             businessId: new Types.ObjectId(b),
 // // //             type: 'byFabric',
 // // //             name,
 // // //             displayOrder: 100 + DUPATTA_FABRIC_OPTIONS.indexOf(name),
@@ -2448,13 +2448,13 @@
 // //     const fabricOptions = await Promise.all(fabricNames.map((name) =>
 // //       ProductClassificationOption.findOneAndUpdate(
 // //         {
-// //           businessId: new Types.ObjectId(business),
+// //           businessId: new Types.ObjectId(b),
 // //           type: 'byFabric',
 // //           name: { $regex: `^${escapeRegex(name)}$`, $options: 'i' },
 // //         },
 // //         {
 // //           $setOnInsert: {
-// //             businessId: new Types.ObjectId(business),
+// //             businessId: new Types.ObjectId(b),
 // //             type: 'byFabric',
 // //             name,
 // //             displayOrder: 100 + DUPATTA_FABRIC_OPTIONS.indexOf(name),
@@ -3348,13 +3348,13 @@
 //     const fabricOptions = await Promise.all(fabricNames.map((name) =>
 //       ProductClassificationOption.findOneAndUpdate(
 //         {
-//           businessId: new Types.ObjectId(business),
+//           businessId: new Types.ObjectId(b),
 //           type: 'byFabric',
 //           name: { $regex: `^${escapeRegex(name)}$`, $options: 'i' },
 //         },
 //         {
 //           $setOnInsert: {
-//             businessId: new Types.ObjectId(business),
+//             businessId: new Types.ObjectId(b),
 //             type: 'byFabric',
 //             name,
 //             displayOrder: 100 + DUPATTA_FABRIC_OPTIONS.indexOf(name),
@@ -3795,17 +3795,47 @@ async function resolveProductFilters(sp, businessId) {
     ands.push({ supplierId: { $in: vendorKeys(agentVendors) } });
   }
 
-  /* Barcode Pattern section, read exactly as the Master Stock Report does. */
+  /* Barcode Pattern section, read exactly as the Master Stock Report does.
+     SUPPLIER NO is the code on the supplier master (contactId), so the code is
+     resolved to that supplier's two keys first and the barcode row is matched
+     on the supplier it was received from - never on the product's name or item
+     code. Rows written before barcodeLabel carried supplierId are still reached
+     through their GRC (barcode.grcId -> grc.supplierId), so the filtered set is
+     the same stock either way. */
   const patternSupplierNo = trimmed(sp.get('patternSupplierNo'));
   if (patternSupplierNo) {
-    const vendors = await Supplier.find({
-      contactId: { $regex: '^\\s*' + escapeRegex(patternSupplierNo) + '\\s*$', $options: 'i' },
-    }).select('contactId').lean();
-    ands.push({ supplierId: { $in: vendorKeys(vendors) } });
+    const supplierCodeRx = { $regex: '^\\s*' + escapeRegex(patternSupplierNo) + '\\s*$', $options: 'i' };
+    const supplierQuery = { contactId: supplierCodeRx };
+    if (businessId && isValidObjectId(businessId)) supplierQuery.businessId = idMatch(businessId);
+    const vendors = await Supplier.find(supplierQuery).select('_id contactId').lean();
+    const keys = vendorKeys(vendors);
+    const vendorIds = vendors.map((vendor) => vendor._id).filter(Boolean);
+    const grcQuery = { supplierId: { $in: vendorIds } };
+    if (businessId && isValidObjectId(businessId)) grcQuery.businessId = idMatch(businessId);
+    const grcs = vendorIds.length
+      ? await database.collection('grc').find(grcQuery, { projection: { _id: 1 } }).toArray()
+      : [];
+    const grcKeys = grcs.flatMap((grc) => [String(grc._id), grc._id]);
+    ands.push({
+      $or: [
+        { supplierId: { $in: keys } },
+        ...(grcKeys.length ? [{ grcId: { $in: grcKeys } }] : []),
+      ],
+    });
   }
   const patternGrcNo = trimmed(sp.get('patternGrcNo')).replace(/^GRC\s*/i, '').trim();
   if (patternGrcNo) {
-    ands.push({ grcNo: { $regex: '^\\s*' + escapeRegex(patternGrcNo) + '\\s*$', $options: 'i' } });
+    const grcNoRx = { $regex: '^\\s*' + escapeRegex(patternGrcNo) + '\\s*$', $options: 'i' };
+    const grcQuery = { grcNumber: grcNoRx };
+    if (businessId && isValidObjectId(businessId)) grcQuery.businessId = idMatch(businessId);
+    const grcs = await database.collection('grc').find(grcQuery, { projection: { _id: 1 } }).toArray();
+    const grcKeys = grcs.flatMap((grc) => [String(grc._id), grc._id]);
+    ands.push({
+      $or: [
+        { grcNo: grcNoRx },
+        ...(grcKeys.length ? [{ grcId: { $in: grcKeys } }] : []),
+      ],
+    });
   }
   const patternSlNo = trimmed(sp.get('patternSlNo'));
   if (patternSlNo) {
@@ -3814,8 +3844,16 @@ async function resolveProductFilters(sp, businessId) {
   const patternQtyRaw = trimmed(sp.get('patternQty'));
   if (patternQtyRaw) {
     const patternQty = Number(patternQtyRaw);
+    /* the live quantity is qtyNum; qty is the older imported spelling. Both are
+       read exactly as the listing itself reads them, so a quantity search
+       cannot miss a row the list is already showing. */
     exprs.push(Number.isFinite(patternQty)
-      ? { $eq: [numericExpr('$qtyNum'), patternQty] }
+      ? {
+        $eq: [
+          { $convert: { input: { $ifNull: ['$qtyNum', '$qty'] }, to: 'double', onError: null, onNull: null } },
+          patternQty,
+        ],
+      }
       : { $literal: false });
   }
 
@@ -3851,7 +3889,10 @@ async function resolveProductFilters(sp, businessId) {
   /* LOCATION FILTER - the same expression the Master Stock Report uses, so a
      row is matched by the location it actually sits at now (currentLocationId)
      with its originating locationId as the fallback. Empty = unrestricted. */
-  const locationFilter = trimmed(sp.get('locationFilter'));
+  const rawLocFilter = sp.get('locationFilter');
+  const locationFilter = rawLocFilter !== null
+    ? trimmed(rawLocFilter)
+    : trimmed(sp.get('location'));
   if (locationFilter) {
     exprs.push({
       $eq: [
@@ -3889,11 +3930,15 @@ async function listAllErpBarcodes({
   const itemCollection = database.collection('item');
   const barcodeCollection = database.collection('barcodeLabel');
   const productCollection = database.collection(COLLECTION);
-  const items = await itemCollection.find({ businessId: idMatch(businessId) }, {
-    /* subGroupId is the item's GROUP - the product type is read from its name
-       (see the page's type map below) */
-    projection: { itemCode: 1, name: 1, image: 1, subGroupId: 1 },
-  }).toArray();
+  const isBusinessScoped = Boolean(businessId && isValidObjectId(businessId));
+  const items = await itemCollection.find(
+    isBusinessScoped ? { businessId: idMatch(businessId) } : {},
+    {
+      /* subGroupId is the item's GROUP - the product type is read from its name
+         (see the page's type map below) */
+      projection: { itemCode: 1, name: 1, image: 1, subGroupId: 1 },
+    }
+  ).toArray();
   const itemIds = items.flatMap((item) => [
     item._id,
     String(item._id),
@@ -3904,12 +3949,12 @@ async function listAllErpBarcodes({
   const itemNames = [...new Set(items
     .map((item) => String(item.name || '').trim())
     .filter(Boolean))];
-  const barcodeScope = {
+  const barcodeScope = isBusinessScoped ? {
     $or: [
       { businessId: idMatch(businessId) },
       { currentBusinessId: idMatch(businessId) },
     ],
-  };
+  } : null;
   const legacyItemLinks = [
     ...(itemIds.length ? [{ itemId: { $in: itemIds } }] : []),
     ...(itemCodes.length ? [{ itemCode: { $in: itemCodes } }] : []),
@@ -3936,7 +3981,7 @@ async function listAllErpBarcodes({
   };
   const barcodeFilter = {
     $and: [
-      { $or: [barcodeScope, ...(legacyItemLinks.length ? [legacyScope] : [])] },
+      ...(barcodeScope ? [{ $or: [barcodeScope, ...(legacyItemLinks.length ? [legacyScope] : [])] }] : []),
       {
         $or: [
           { barcodeNo: { $exists: true, $nin: ['', null] } },
@@ -3997,7 +4042,11 @@ async function listAllErpBarcodes({
       qty: 1,
     },
   }).toArray();
-  const products = await productCollection.find({ businessId: idMatch(businessId) }).toArray();
+  const products = await productCollection.find(
+    isBusinessScoped ? { businessId: idMatch(businessId) } : {}
+  ).toArray();
+  const allBusinesses = await database.collection('business').find({}, { projection: { name: 1, companyName: 1 } }).toArray();
+  const businessNameMap = new Map(allBusinesses.map((b) => [String(b._id), b.name || b.companyName || '']));
 
   const itemById = new Map(items.map((item) => [String(item._id), item]));
   const itemByCode = new Map(items.flatMap((item) => [
@@ -4038,7 +4087,9 @@ async function listAllErpBarcodes({
         .find({ _id: { $in: pageGroupIds.map((gid) => new Types.ObjectId(gid)) } })
         .project({ name: 1 }).toArray(),
       database.collection('producttypes')
-        .find({ businessId: { $in: [businessId, new Types.ObjectId(businessId)] }, isActive: { $ne: false } })
+        .find(isBusinessScoped
+          ? { businessId: { $in: [businessId, new Types.ObjectId(businessId)] }, isActive: { $ne: false } }
+          : { isActive: { $ne: false } })
         .project({ value: 1, label: 1 }).toArray(),
     ]);
     pageGroups.forEach((group) => groupNameById.set(String(group._id), String(group.name || '')));
@@ -4110,8 +4161,8 @@ async function listAllErpBarcodes({
       itemLabel: [itemCode, itemName].filter(Boolean).join(' - '),
       ecommItemCode: product?.ecommItemCode || itemCode,
       displayName: product?.displayName || barcodeRow.printDescription || itemName || itemCode,
-      businessId: String(barcodeRow.currentBusinessId || barcodeRow.businessId || businessId),
-      businessName: '',
+      businessId: String(barcodeRow.currentBusinessId || barcodeRow.businessId || businessId || ''),
+      businessName: businessNameMap.get(String(barcodeRow.currentBusinessId || barcodeRow.businessId || businessId || '')) || '',
       productType: resolvedProductType,
       isPublished: productVisibleForBarcode(product, barcode),
       salesCount: product?.salesCount || 0,
@@ -4222,10 +4273,14 @@ async function listAllErpBarcodes({
   ))];
   const classificationNameById = new Map([...(await classificationOptionsById(classificationIds))]
     .map(([id, option]) => [id, option.name]));
-  const businessRecord = await database.collection('business').findOne(
-    { _id: new Types.ObjectId(businessId) },
-    { projection: { name: 1, businessPrintName: 1 } },
-  );
+  /* All Companies context has no single business - each row keeps the name of
+     its own business (filled from businessNameMap above). */
+  const businessRecord = isBusinessScoped
+    ? await database.collection('business').findOne(
+      { _id: new Types.ObjectId(businessId) },
+      { projection: { name: 1, businessPrintName: 1 } },
+    )
+    : null;
   const businessName = businessRecord?.name || businessRecord?.businessPrintName || '';
 
   return {
@@ -4241,7 +4296,8 @@ async function listAllErpBarcodes({
             .filter(Boolean)
             .join(', '),
         ])),
-        businessName,
+        /* per-row business wins so All Companies keeps each row's own name */
+        businessName: row.businessName || businessName,
       };
     }),
     labels: {},
@@ -5061,12 +5117,10 @@ export async function GET(req) {
 
   const search = (sp.get('search') || '').trim();
   if (sp.get('allErpBarcodes') === '1') {
-    if (!b || !isValidObjectId(b)) {
-      return json({ error: 'Select a valid business before loading ERP barcodes.' }, 422);
-    }
-    const productFilter = await resolveProductFilters(sp, b);
+    const validBusiness = b && isValidObjectId(b) ? b : '';
+    const productFilter = await resolveProductFilters(sp, validBusiness);
     const rows = await listAllErpBarcodes({
-      businessId: b,
+      businessId: validBusiness,
       search,
       page,
       perPage,
@@ -5383,8 +5437,8 @@ export async function PATCH(req) {
   if (!session) return json({ error: 'Unauthorized' }, 401);
 
   const body = await req.json().catch(() => ({}));
-  const business = body.business;
-  if (!business || !isValidObjectId(business)) return json({ error: 'Select a Business in the top bar first.' }, 400);
+  let business = body.business;
+  if (business && !isValidObjectId(business)) return json({ error: 'Invalid business.' }, 400);
 
   const publish = parseEcommerceVisibility(body.isPublished);
   if (publish === undefined) return json({ error: 'isPublished must be true or false.' }, 422);
@@ -5418,9 +5472,15 @@ export async function PATCH(req) {
     ],
   });
 
-  const itemById = async (id) => (isValidObjectId(String(id || ''))
-    ? itemCol.findOne({ _id: new Types.ObjectId(String(id)), businessId: idMatch(business) })
-    : null);
+  const itemById = async (id, targetBusiness) => {
+    const b = targetBusiness || business;
+    return (isValidObjectId(String(id || ''))
+      ? itemCol.findOne({
+          _id: new Types.ObjectId(String(id)),
+          ...(b ? { businessId: idMatch(b) } : {}),
+        })
+      : null);
+  };
 
   /* Barcodes are NOT unique - the same number can sit on several labels, even
      within one business. Fetch every candidate and keep only the label that
@@ -5430,12 +5490,12 @@ export async function PATCH(req) {
     if (!barcode) return null;
     const rows = await barcodeCol.find({
       $and: [
-        {
+        ...(business ? [{
           $or: [
             { businessId: idMatch(business) },
             { currentBusinessId: idMatch(business) },
           ],
-        },
+        }] : []),
         barcodeCodeMatch(barcode),
       ],
     }).limit(25).toArray();
@@ -5445,7 +5505,7 @@ export async function PATCH(req) {
     const byItem = rows.filter((row) => String(row.itemId || '').trim() === want);
     if (byItem.length) return byItem[0];
     /* a label with no itemId can still be this item's when its item code is */
-    const item = await itemById(want);
+    const item = await itemById(want, String(rows[0]?.currentBusinessId || rows[0]?.businessId || business || ''));
     const itemCode = String(item?.itemCode || '').trim().toLowerCase();
     if (itemCode) {
       const byCode = rows.filter((row) =>
@@ -5453,7 +5513,7 @@ export async function PATCH(req) {
         && String(row.itemCode || '').trim().toLowerCase() === itemCode);
       if (byCode.length) return byCode[0];
     }
-    return null;
+    return rows[0];
   };
 
   /* The item this label belongs to: its own itemId wins; a label without one
@@ -5463,7 +5523,8 @@ export async function PATCH(req) {
     if (isValidObjectId(labelItemId)) return labelItemId;
     const want = String(itemId || '').trim();
     if (!isValidObjectId(want)) return '';
-    const item = await itemById(want);
+    const b = String(label?.currentBusinessId || label?.businessId || business || '');
+    const item = await itemById(want, b);
     const labelCode = String(label?.itemCode || '').trim().toLowerCase();
     const itemCode = String(item?.itemCode || '').trim().toLowerCase();
     if (labelCode && itemCode && labelCode === itemCode) return want;
@@ -5474,12 +5535,14 @@ export async function PATCH(req) {
      fallback exists for rows filed under a code instead of the item id, and it
      is only accepted when the row really belongs to THIS item - matching a code
      alone used to attach the visibility flag to a different item's product. */
-  const findProductForItem = async (itemId, itemCode) => {
-    const byItem = await col.findOne({ ...businessFilter, itemId: idMatch(itemId) });
+  const findProductForItem = async (itemId, itemCode, targetBusiness) => {
+    const b = targetBusiness || business;
+    const bFilter = b ? { businessId: idMatch(b) } : {};
+    const byItem = await col.findOne({ ...bFilter, itemId: idMatch(itemId) });
     if (byItem) return byItem;
     if (itemCode) {
       const byCode = await col.findOne({
-        ...businessFilter,
+        ...bFilter,
         ecommItemCode: exact(itemCode),
       });
       if (byCode && String(byCode.itemId || '').trim() === String(itemId)) return byCode;
@@ -5491,7 +5554,9 @@ export async function PATCH(req) {
      the same live ERP sources the barcode lookup / Add form use: item master,
      product group -> product type, label photo and per-barcode prices. */
   const buildProductDoc = async (label, itemId) => {
-    const item = await itemById(itemId);
+    const b = String(label?.currentBusinessId || label?.businessId || business || '');
+    if (!isValidObjectId(b)) return null;
+    const item = await itemById(itemId, b);
     if (!item) return null;
     const codes = [label.barcodeNo, label.barcodeGenerated, label.oldBarcode]
       .map((value) => String(value || '').trim()).filter(Boolean);
@@ -5538,7 +5603,7 @@ export async function PATCH(req) {
       ...codes,
     );
 
-    const classOptions = await listClassificationOptions(business);
+    const classOptions = await listClassificationOptions(b);
     const classById = new Map(classOptions.map((option) => [String(option._id), option]));
     const classByName = new Map(classOptions.map((option) => [
       `${option.type}:${String(option.name || '').trim().toLowerCase()}`, option,
@@ -5564,7 +5629,7 @@ export async function PATCH(req) {
 
     const now = new Date();
     return {
-      businessId: new Types.ObjectId(business),
+      businessId: new Types.ObjectId(b),
       itemId: new Types.ObjectId(itemId),
       barcode,
       barcodes: codes,
