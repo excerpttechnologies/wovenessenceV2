@@ -8797,7 +8797,7 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
           setActiveTab("items");
           /* the sheet's Purchase Rate column is keyed 'rate'; everything else
              already uses the row's own field name */
-          const focusKey = first.field === "purchaseRate" ? "rate" : first.field;
+          const focusKey = first.field === "purchaseRate" ? "rate" : first.field === "retailPrice" ? "rsp" : first.field;
           setSheetFocus({ rowId: firstRow?.id, key: focusKey, at: Date.now() });
           setSaveError(itemValidationMessage(summary));
           return false;
@@ -9353,7 +9353,7 @@ export default function GCRBarcodeGeneration({ grcId = null, initialRows = NO_RO
                   type="button"
                   onClick={() => {
                     setActiveTab("items");
-                    setSheetFocus({ rowId: warning.rowId, key: warning.field, at: Date.now() });
+                    setSheetFocus({ rowId: warning.rowId, key: warning.field === "retailPrice" ? "rsp" : warning.field, at: Date.now() });
                   }}
                   className="text-left underline decoration-amber-400 underline-offset-2 hover:text-amber-950"
                 >
