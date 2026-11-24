@@ -140,6 +140,8 @@ function DeliveryDialog({ row, onClose, onSaved }) {
   /* preview of the number this delivery will most likely be given - never
      submitted, see the effect below */
   const [nextNo, setNextNo] = useState('');
+  /* Track selected transporter name for conditional LR Number handling */
+  const [selectedTransporterName, setSelectedTransporterName] = useState('');
   
   /* GRC auto-fetch and image cropping */
   const [availableGrcs, setAvailableGrcs] = useState([]);
@@ -435,6 +437,25 @@ function DeliveryDialog({ row, onClose, onSaved }) {
       .catch(() => {});
     return () => { live = false; };
   }, [isEdit, scope.business, scope.location, scope.finYear]);
+
+  /* Fetch transporter name on edit to enable conditional LR Number handling */
+  useEffect(() => {
+    if (!isEdit || !data.transporterId) return;
+    
+    const fetchTransporterName = async () => {
+      try {
+        const response = await fetch(`/api/options?ref=transporter&ids=${data.transporterId}`);
+        const result = await response.json();
+        if (result.options && result.options.length > 0) {
+          setSelectedTransporterName(result.options[0].label || '');
+        }
+      } catch (err) {
+        console.error('Failed to fetch transporter name:', err);
+      }
+    };
+    
+    fetchTransporterName();
+  }, [isEdit, data.transporterId]);
   
   /* GRC auto-fetch functionality removed - fields can be entered manually */
 
@@ -442,6 +463,25 @@ function DeliveryDialog({ row, onClose, onSaved }) {
     setData((d) => ({ ...d, [k]: v }));
     if (!isEdit) setIsDirty(true);
     setErrors((e) => (e[k] ? { ...e, [k]: undefined } : e));
+  };
+
+  /* Handle transporter selection - auto-populate LR Number for PERSONAL DELIVERY-PAID */
+  const handleTransporterChange = (option) => {
+    const transporterName = option?.label || '';
+    setSelectedTransporterName(transporterName);
+    
+    // Check if selected transporter is "PERSONAL DELIVERY-PAID"
+    const isPersonalDelivery = transporterName.toUpperCase().includes('PERSONAL DELIVERY') && 
+                               transporterName.toUpperCase().includes('PAID');
+    
+    if (isPersonalDelivery) {
+      // Auto-populate LR Number with "N/A" and clear error
+      setData((d) => ({ ...d, lrNumber: 'N/A' }));
+      setErrors((e) => (e.lrNumber ? { ...e, lrNumber: undefined } : e));
+    } else if (data.lrNumber === 'N/A') {
+      // Clear N/A when switching away from PERSONAL DELIVERY-PAID
+      setData((d) => ({ ...d, lrNumber: '' }));
+    }
   };
   
   const handleFileSelect = (e, fieldName = 'document') => {
@@ -736,6 +776,7 @@ function DeliveryDialog({ row, onClose, onSaved }) {
                     value={data.transporterId}
                     error={errors.transporterId}
                     onChange={set}
+                    onOptionChange={handleTransporterChange}
                   />
                   <button
                     type="button"
@@ -746,7 +787,16 @@ function DeliveryDialog({ row, onClose, onSaved }) {
                   </button>
                 </div>
 
-                <Field f={field('lrNumber')} value={data.lrNumber} error={errors.lrNumber} onChange={set} />
+                <Field 
+                  f={{
+                    ...field('lrNumber'),
+                    readOnly: selectedTransporterName.toUpperCase().includes('PERSONAL DELIVERY') && 
+                              selectedTransporterName.toUpperCase().includes('PAID')
+                  }} 
+                  value={data.lrNumber} 
+                  error={errors.lrNumber} 
+                  onChange={set} 
+                />
                 <Field f={field('bookingDate')} value={data.bookingDate} error={errors.bookingDate} onChange={set} />
               </div>
             </Section>

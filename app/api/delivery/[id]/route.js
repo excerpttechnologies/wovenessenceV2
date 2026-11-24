@@ -45,6 +45,24 @@ export async function PUT(req, { params }) {
   const { errors, doc, ok } = validate(FIELDS, body.data || {});
   if (!ok) return json({ errors }, 422);
 
+  /* Handle PERSONAL DELIVERY-PAID: auto-set LR Number to N/A and skip validation */
+  if (doc.transporterId && isValidObjectId(doc.transporterId)) {
+    const Transporter = (await import('@/models/Transporter')).default;
+    const transporter = await Transporter.findById(doc.transporterId).select('transporterName').lean();
+    const transporterName = transporter?.transporterName || '';
+    const isPersonalDelivery = transporterName.toUpperCase().includes('PERSONAL DELIVERY') && 
+                               transporterName.toUpperCase().includes('PAID');
+    
+    if (isPersonalDelivery) {
+      // Auto-populate LR Number with "N/A" and remove any validation error
+      doc.lrNumber = 'N/A';
+      delete errors.lrNumber;
+    }
+  }
+
+  /* Re-check if validation passed after PERSONAL DELIVERY-PAID handling */
+  if (Object.keys(errors).length > 0) return json({ errors }, 422);
+
   const totals = freightBreakdown(doc);
   DERIVED_FIELDS.forEach((f) => { doc[f.k] = totals[f.k]; });
 
