@@ -4971,6 +4971,13 @@ function customFieldNames(rows) {
   return Array.from(new Set(rows.flatMap((row) => Object.keys(row?.customFields || {}))));
 }
 
+function isUniqueBarcodeYes(value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value === 1;
+  const s = String(value ?? "").trim().toLowerCase();
+  return s === "yes" || s === "y" || s === "true" || s === "1";
+}
+
 function modeFromUom(uom, uniqueBarcode = "No") {
   const value = String(uom || "").trim();
   if (meterRegex.test(value)) return "batch";
@@ -5544,7 +5551,7 @@ function AddItemModal({ open, onClose, onSubmit, barcodeFormat, business = "", m
        seeded from the Old Barcode lookup and editable from row 2. */
     supplierDescription: "",
     printDescription: "",
-    uniqueBarcode: true,
+    uniqueBarcode: false,
     isMtr: false,
     qty: "",
     noOfCuts: "",
@@ -5684,6 +5691,7 @@ function AddItemModal({ open, onClose, onSubmit, barcodeFormat, business = "", m
             name: row.name || '',
             subGroupId: row.subGroupId || '',
             description: row.description || '',
+            uniqueBarcode: row.uniqueBarcode ?? 'No',
           })));
         })
         .catch(() => setItemOptions([]))
@@ -5979,6 +5987,7 @@ function AddItemModal({ open, onClose, onSubmit, barcodeFormat, business = "", m
       itemId: "", itemCode: "", itemName: "",
       hsnId: "", hsn: "", hsn2Id: "", hsn2: "", gst: "0",
       printDescription: "", supplierDescription: "", subGroupName: "", groupName: "",
+      uniqueBarcode: false,
     }, null)));
   };
 
@@ -6100,6 +6109,7 @@ function AddItemModal({ open, onClose, onSubmit, barcodeFormat, business = "", m
         supplierDescription: unit.supplierDescription || unit.description || "",
         purchaseRate: unit.rate ? String(unit.rate) : current.purchaseRate,
         uom: unit.uom || current.uom,
+        uniqueBarcode: unit.uniqueBarcode !== undefined ? isUniqueBarcodeYes(unit.uniqueBarcode) : false,
       }));
 
       resolvedRef.current = code;
@@ -6125,7 +6135,12 @@ function AddItemModal({ open, onClose, onSubmit, barcodeFormat, business = "", m
       const offerTurn = itemDetailRef.current;
       const offerItem = await itemDetailByCode(unit.itemId, unit.itemCode || unit.itemName);
       if (resolvedRef.current !== code || itemDetailRef.current !== offerTurn) return;
-      setForm((current) => withFormPrices(withItemOffers(current, offerItem)));
+      setForm((current) => withFormPrices(withItemOffers({
+        ...current,
+        ...(offerItem && offerItem.uniqueBarcode !== undefined
+          ? { uniqueBarcode: isUniqueBarcodeYes(offerItem.uniqueBarcode) }
+          : {}),
+      }, offerItem)));
       noteItemOffers(offerItem, unit.itemCode || unit.itemName || code);
     } catch {
       if (inFlightRef.current !== code) return;
@@ -6164,6 +6179,7 @@ function AddItemModal({ open, onClose, onSubmit, barcodeFormat, business = "", m
         itemId: "", itemName: "", itemCode: "", subGroupName: "", groupName: "", printDescription: "",
         serialNo: nextBillSlNo(itemSummaryRows, initialBillSlNo),
         hsnId: "", hsn: "", hsn2Id: "", hsn2: "", gst: "0",
+        uniqueBarcode: false,
         ...supplierMarkups,
       }, null)));
       setOfferNote("");
@@ -6184,6 +6200,7 @@ function AddItemModal({ open, onClose, onSubmit, barcodeFormat, business = "", m
          automatically incremented from the highest existing Bill SL No. */
       serialNo: nextBillSlNo(itemSummaryRows, initialBillSlNo),
       printDescription: opt.description || "",
+      uniqueBarcode: opt.uniqueBarcode !== undefined ? isUniqueBarcodeYes(opt.uniqueBarcode) : false,
       hsnId: "",
       hsn: "",
       hsn2Id: "",
@@ -6214,6 +6231,7 @@ function AddItemModal({ open, onClose, onSubmit, barcodeFormat, business = "", m
       const itemMarkup = (value, fallback) => (value == null || fixed2(value) === "" ? fallback : fixed2(value));
       setForm((current) => withFormPrices(withItemOffers({
         ...current,
+        uniqueBarcode: item.uniqueBarcode !== undefined ? isUniqueBarcodeYes(item.uniqueBarcode) : current.uniqueBarcode,
         hsnId: item.hsnId || "",
         hsn: item.hsnCode || "",
         hsn2Id: item.hsnId || "",
@@ -6790,7 +6808,7 @@ function AddItemModal({ open, onClose, onSubmit, barcodeFormat, business = "", m
               Bill Sl No. here is a locked read-back of the value entered in row 2
               — one value, two windows, hidden with it. Serial No. is the same
               bill line, locked. */}
-          <div className={`mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 ${SHOW_BILL_SL_NO ? "xl:grid-cols-[90px_90px_minmax(170px,1fr)_auto]" : "xl:grid-cols-[90px_minmax(170px,1fr)_auto]"}`}>
+          <div className={`mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 ${SHOW_BILL_SL_NO ? "xl:grid-cols-[90px_90px_190px_auto]" : "xl:grid-cols-[90px_190px_auto]"}`}>
             {SHOW_BILL_SL_NO && <SerialNoField value={form.serialNo} readOnlyClass={readOnlyClass} locked />}
             <div className="space-y-1">
               <label className="block text-[11px] font-semibold text-gray-700">Serial No. *</label>

@@ -146,6 +146,7 @@ export async function GET(req, { params }) {
       id: String(item._id),
       itemCode: item.itemCode || '',
       name: item.name || '',
+      uniqueBarcode: item.uniqueBarcode ?? 'No',
       hsnId: item.hsnId ? String(item.hsnId) : '',
       hsnCode: hsn ? hsn.code || '' : '',
       uom: uom ? uom.shortName || uom.name || '' : '',
