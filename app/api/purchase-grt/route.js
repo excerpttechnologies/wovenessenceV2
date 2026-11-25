@@ -9,6 +9,7 @@ import { nextSeriesNumber } from '@/lib/docnumber';
 import { FORM } from '@/app/admin/transaction/purchase/grt/form';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { sortedPage } from '@/lib/listSort';
+import { validateGrtReturnItems } from '@/lib/grtReturnable';
 
 /* header fields AND the totals rows - the totals card holds real stored
    numbers (taxable value, round off, net value, the editable discounts).
@@ -174,26 +175,34 @@ export async function POST(req) {
   if (body.location && isValidObjectId(body.location)) doc.locationId = body.location;
   if (body.finYear) doc.finYear = body.finYear;
 
-  if (Array.isArray(body.data?.items)) {
-    doc.items = body.data.items;
-    doc.qty = body.data.items.reduce((sum, item) => sum + (Number(item.qty) || 1), 0);
-    doc.itemCount = body.data.items.length;
-    doc.taxable = body.data.items.reduce((sum, item) => sum + (Number(item.finalNet) || 0) * (Number(item.qty) || 1), 0);
-    doc.gst = body.data.items.reduce((sum, item) => {
-      const taxable = (Number(item.finalNet) || 0) * (Number(item.qty) || 1);
-      return sum + taxable * ((Number(item.gst) || 0) / 100);
-    }, 0);
-    doc.netAmount = doc.taxable + doc.gst;
-    const sourceGrcId = body.data.items[0]?.grcId;
-    if (sourceGrcId && isValidObjectId(sourceGrcId)) {
-      const sourceGrc = await Grc.findById(sourceGrcId).select('grcNumber').lean();
-      if (sourceGrc?.grcNumber) doc.grcNumber = sourceGrc.grcNumber;
-    }
+  if (!Array.isArray(body.data?.items) || body.data.items.length === 0) {
+    return json({ errors: { items: 'Select at least one vendor item.' }, error: 'Select at least one vendor item.' }, 422);
+  }
+
+  const check = await validateGrtReturnItems({
+    items: body.data.items,
+    businessId: doc.businessId,
+    supplierId: doc.supplierId,
+  });
+  if (!check.ok) {
+    return json({ errors: { items: check.error }, error: check.error }, 422);
+  }
+
+  doc.items = check.items;
+  doc.qty = check.items.reduce((sum, item) => sum + (Number(item.qty) || 0), 0);
+  doc.itemCount = check.items.length;
+  doc.taxable = check.items.reduce((sum, item) => sum + (Number(item.finalNet || item.purRate) || 0) * (Number(item.qty) || 0), 0);
+  doc.gst = check.items.reduce((sum, item) => {
+    const taxable = (Number(item.finalNet || item.purRate) || 0) * (Number(item.qty) || 0);
+    return sum + taxable * ((Number(item.gst) || 0) / 100);
+  }, 0);
+  doc.netAmount = doc.taxable + doc.gst;
+  const sourceGrcId = check.items[0]?.grcId;
+  if (sourceGrcId && isValidObjectId(sourceGrcId)) {
+    const sourceGrc = await Grc.findById(sourceGrcId).select('grcNumber').lean();
+    if (sourceGrc?.grcNumber) doc.grcNumber = sourceGrc.grcNumber;
   }
   if (!doc.grtDate) doc.grtDate = new Date();
-  if (!Array.isArray(body.data?.items) || body.data.items.length === 0) {
-    return json({ errors: { items: 'Select at least one vendor item.' } }, 422);
-  }
 
   /* GRT sequence starts at TFJ/26/0129 and increments from the highest
      number already issued for this business, location and financial year. */

@@ -3089,6 +3089,7 @@ import ModalForm from "./ModalForm";
 import FilterPanel from "./FilterPanel";
 import AttachmentsDialog from "./AttachmentsDialog";
 import ShareDocDialog from "./ShareDocDialog";
+import ConfirmDialog from "./ConfirmDialog";
 import GrtPrintDocument from "./GrtPrintDocument";
 import { useScope } from "./ScopeContext";
 import NumberedPager, { SortHeader } from "./NumberedPager";
@@ -3234,6 +3235,9 @@ export default function ListView({ cfg, slug }) {
      number, and makes it impossible for the dialog to be open against one
      record while showing another's. */
   const [uploadRow, setUploadRow] = useState(null);
+  const [deleteRow, setDeleteRow] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const [actionFlash, setActionFlash] = useState(null);
   /* The row whose Share button was pressed - the row itself, so every message
      is composed from that record and no id is carried separately. */
   const [shareRow, setShareRow] = useState(null);
@@ -3652,17 +3656,44 @@ export default function ListView({ cfg, slug }) {
     }
   }
  
-  async function remove(id) {
-    if (!window.confirm("Delete this record?")) return;
-    const r = await fetch(cfg.endpoint + "/" + id, { method: "DELETE" });
-    /* A refused delete used to look identical to a successful one - the row
-       simply stayed. Business Masters now returns 409 for the main branch. */
-    if (!r.ok) {
+  useEffect(() => {
+    if (!actionFlash) return undefined;
+    const t = setTimeout(() => setActionFlash(null), 5000);
+    return () => clearTimeout(t);
+  }, [actionFlash]);
+
+  async function confirmDelete() {
+    if (!deleteRow || deleting) return;
+    setDeleting(true);
+    setActionFlash(null);
+    const qs = new URLSearchParams();
+    if (business) qs.set("business", business);
+    if (location) qs.set("location", location);
+    if (finYear) qs.set("finYear", finYear);
+    const suffix = qs.toString() ? "?" + qs.toString() : "";
+    try {
+      const r = await fetch(cfg.endpoint + "/" + deleteRow._id + suffix, { method: "DELETE" });
       const d = await r.json().catch(() => ({}));
-      window.alert(d.error || "Could not delete this record.");
-      return;
+      if (!r.ok) {
+        setDeleteRow(null);
+        setActionFlash({ type: "err", msg: d.error || "Could not delete this record." });
+        return;
+      }
+      const docLabel = deleteRow.grtNo || deleteRow._id;
+      const wasLastOnPage = state.rows.length === 1 && page > 1;
+      setDeleteRow(null);
+      setActionFlash({ type: "ok", msg: `GRT "${docLabel}" deleted successfully.` });
+      if (wasLastOnPage) {
+        setPage((p) => Math.max(1, p - 1));
+      } else {
+        load();
+      }
+    } catch (err) {
+      setDeleteRow(null);
+      setActionFlash({ type: "err", msg: err?.message || "Could not delete this record." });
+    } finally {
+      setDeleting(false);
     }
-    load();
   }
  
   return (
@@ -3794,6 +3825,12 @@ export default function ListView({ cfg, slug }) {
             exporting={exporting}
             exportingLabel={`Building the full ${cfg.title} export...`}
           />
+
+          {actionFlash && (
+            <div className={"mt-2 flash " + (actionFlash.type === "err" ? "flash-err" : "flash-ok")}>
+              {actionFlash.msg}
+            </div>
+          )}
 
           {exportMessage && (
             <div className={'mt-2 text-[12.5px] ' + (exportMessage.tone === 'err' ? 'text-danger' : exportMessage.tone === 'warn' ? 'text-[#9a6700]' : 'text-okgreen')}>
@@ -3989,8 +4026,9 @@ export default function ListView({ cfg, slug }) {
                                 <button
                                   key={a}
                                   className="act-btn act-red"
-                                  title="Delete"
-                                  onClick={() => remove(row._id)}
+                                  title={cfg.deleteTitle || "Delete GRT"}
+                                  aria-label={(cfg.deleteTitle || "Delete GRT") + (row.grtNo ? " " + row.grtNo : "")}
+                                  onClick={() => { setActionFlash(null); setDeleteRow(row); }}
                                 >
                                   <Icon name="trash" size={12} />
                                 </button>
@@ -4114,6 +4152,22 @@ export default function ListView({ cfg, slug }) {
           onUploaded={() => load()}
         />
       )}
+
+      <ConfirmDialog
+        open={Boolean(deleteRow)}
+        tone="danger"
+        busy={deleting}
+        title="Delete GRT"
+        message={
+          deleteRow
+            ? `Are you sure you want to delete GRT "${deleteRow.grtNo || deleteRow._id}"? Only unposted GRTs with no linked Debit Note can be deleted.`
+            : ""
+        }
+        confirmLabel="Confirm Delete"
+        cancelLabel="Cancel"
+        onCancel={() => !deleting && setDeleteRow(null)}
+        onConfirm={confirmDelete}
+      />
     </>
   );
 }

@@ -14,7 +14,8 @@ const CONFIG = {
   pager: 'numbered',
   sortable: true,
   scope: ["business","location","finYear"],
-  actionIcons: ["view", "edit", "upload", "share"],
+  actionIcons: ["view", "edit", "upload", "share", "delete"],
+  deleteTitle: "Delete GRT",
   viewModal: true,
   /* Share -> WhatsApp / Email / Download / Print, for the row the button sits
      on. Every value below is read off THAT row: nothing is hardcoded, and the

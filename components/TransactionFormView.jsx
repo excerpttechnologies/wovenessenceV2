@@ -1712,28 +1712,87 @@ function SourceTable({ card, partyId, selected, onToggle }) {
   );
 }
 
-function VendorItems({ supplierId, selected, onChange, scope }) {
+const returnableQtyOf = (row) => {
+  if (!row) return 0;
+  const raw = row.returnableQty ?? row.maximumQuantity ?? row.qtyNum ?? row.qty;
+  if (raw === undefined || raw === null || raw === '') return 0;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const isEligibleVendorRow = (row) => {
+  if (!row) return false;
+  if (row.status && row.status !== 'IN_STOCK') return false;
+  return returnableQtyOf(row) > 0;
+};
+
+function VendorItems({ supplierId, selected, onChange, scope, grtId }) {
   const [available, setAvailable] = useState([]);
   const [term, setTerm] = useState('');
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [popupError, setPopupError] = useState('');
   const [checked, setChecked] = useState([]);
+  const prevSupplierRef = useRef(supplierId || '');
 
   useEffect(() => {
-    setAvailable([]); setChecked([]); onChange([]);
-    if (!supplierId) { setOpen(false); return undefined; }
+    const prevSupplier = prevSupplierRef.current;
+    prevSupplierRef.current = supplierId || '';
+    const supplierChanged = prevSupplier !== (supplierId || '');
+
+    setAvailable([]);
+    setTerm('');
+    setPopupError('');
+    if (!supplierId) {
+      setChecked([]);
+      onChange([]);
+      setOpen(false);
+      return undefined;
+    }
+    if (supplierChanged && (!grtId || prevSupplier)) {
+      setChecked([]);
+      onChange([]);
+    }
     let cancelled = false;
     setLoading(true);
-    const qs = new URLSearchParams({ supplier: supplierId, business: scope.business || '', location: scope.location || '', perPage: '1000', page: '1' });
-    fetch('/api/barcode-generation?' + qs)
+    const qs = new URLSearchParams({
+      supplier: supplierId,
+      business: scope.business || '',
+      location: scope.location || '',
+      returnableOnly: '1',
+      ...(grtId ? { excludeGrtId: grtId } : {}),
+      perPage: '1000',
+      page: '1',
+    });
+    fetch('/api/barcode-generation?' + qs, { cache: 'no-store' })
       .then((response) => response.json())
-      .then((result) => { if (!cancelled) { setAvailable(result.rows || []); setOpen(true); } })
-      .catch(() => { if (!cancelled) setAvailable([]); })
+      .then((result) => {
+        if (cancelled) return;
+        const eligible = (result.rows || []).filter(isEligibleVendorRow);
+        setAvailable(eligible);
+        if (!grtId || (supplierChanged && prevSupplier)) {
+          setOpen(true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAvailable([]);
+          setPopupError('Failed to load eligible vendor items.');
+        }
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [supplierId, scope.business, scope.location, onChange]);
+  }, [supplierId, scope.business, scope.location, grtId, onChange]);
+
+  const openPicker = () => {
+    setPopupError('');
+    const eligibleIds = new Set(available.map((row) => String(row._id)));
+    setChecked((selected || []).map((row) => String(row._id)).filter((id) => eligibleIds.has(id)));
+    setOpen(true);
+  };
 
   const matches = available.filter((row) => {
+    if (!isEligibleVendorRow(row)) return false;
     const query = term.trim().toLowerCase();
     if (!query) return true;
     /* a barcode may be typed with or without the spaces around '*' */
@@ -1742,8 +1801,44 @@ function VendorItems({ supplierId, selected, onChange, scope }) {
     return [row.itemCode, row.itemName, row.supplierDescription, row.printDescription, row.purRate, row.finalNet, row.retailPrice, row.offerPrice]
       .some((value) => String(value || '').toLowerCase().includes(query));
   });
-  const toggle = (id) => setChecked((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
-  const applySelection = () => { onChange(available.filter((row) => checked.includes(row._id))); setOpen(false); };
+  const toggle = (id) => {
+    setPopupError('');
+    setChecked((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
+  };
+  const applySelection = () => {
+    const selectedById = new Map((selected || []).map((row) => [String(row._id), row]));
+    const picked = available
+      .filter((row) => checked.includes(String(row._id)) && isEligibleVendorRow(row))
+      .map((row) => {
+        const maxQty = returnableQtyOf(row);
+        const existing = selectedById.get(String(row._id));
+        const existingQty = Number(existing?.qty);
+        const safeQty = existing && Number.isFinite(existingQty) && existingQty > 0
+          ? Math.min(existingQty, maxQty)
+          : maxQty;
+        return {
+          ...row,
+          ...(existing || {}),
+          maximumQuantity: maxQty,
+          returnableQty: maxQty,
+          qty: safeQty,
+        };
+      });
+    if (checked.length > 0 && picked.length === 0) {
+      setPopupError('Selected items no longer have positive returnable quantity.');
+      return;
+    }
+    onChange(picked);
+    setOpen(false);
+  };
+  const removeSelectedRow = (index) => {
+    const target = selected[index];
+    const nextSelected = selected.filter((_, rowIndex) => rowIndex !== index);
+    onChange(nextSelected);
+    if (target?._id) {
+      setChecked((current) => current.filter((value) => String(value) !== String(target._id)));
+    }
+  };
   const updateSelectedRow = (index, key, value) => {
     onChange(selected.map((row, rowIndex) => rowIndex === index
       ? { ...row, [key]: value, ...(key === 'finalNet' ? { purRate: value } : {}) }
@@ -1767,20 +1862,95 @@ function VendorItems({ supplierId, selected, onChange, scope }) {
 
   return (
     <div className="card">
-      <div className="card-head flex items-center justify-between gap-3"><span className="card-title">Vendor Items</span>{supplierId && <button type="button" className="btn btn-primary" onClick={() => setOpen(true)}>Select Items</button>}</div>
+      <div className="card-head flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <span className="card-title">Vendor Items</span>
+          {supplierId && (
+            <span className="text-xs font-medium text-inkmuted">
+              Selected: {selected.length} item{selected.length === 1 ? '' : 's'}
+            </span>
+          )}
+        </div>
+        {supplierId && <button type="button" className="btn btn-primary" onClick={openPicker}>Select Items</button>}
+      </div>
       <div className="card-body">
         {!supplierId && <div className="text-sm text-gray-500">Select a vendor to view its items.</div>}
-        {supplierId && selected.length > 0 && <div className="overflow-x-auto"><table className="dt min-w-[1500px]"><thead><tr><th>Sl No</th><th>Item Code</th><th>Item Name</th><th>HSN</th><th>GST Slab</th><th>UOM</th><th>Maximum Quantity</th><th>Final Rate</th><th>Return Quantity</th><th>Before GST</th><th>IGST Amount</th><th>CGST Amount</th><th>SGST Amount</th><th>Net Amount</th></tr></thead><tbody>
+        {supplierId && selected.length > 0 && <div className="overflow-x-auto"><table className="dt min-w-[1550px]"><thead><tr><th style={{ width: 64 }}>Action</th><th>Sl No</th><th>Item Code</th><th>Item Name</th><th>HSN</th><th>GST Slab</th><th>UOM</th><th>Maximum Quantity</th><th>Final Rate</th><th>Return Quantity</th><th>Before GST</th><th>IGST Amount</th><th>CGST Amount</th><th>SGST Amount</th><th>Net Amount</th></tr></thead><tbody>
           {selected.map((row, index) => {
             const amounts = amountFor(row);
-            const input = (key, type = 'text', fallback = '') => <input className="f-input h-8 min-w-[80px]" type={type} value={row[key] ?? fallback} onChange={(event) => updateSelectedRow(index, key, event.target.value)} onWheel={(e) => e.currentTarget.blur()} />;
-            return <tr key={row._id}><td>{index + 1}</td><td>{input('itemCode')}</td><td>{input('supplierDescription', 'text', row.itemName)}</td><td>{input('hsn')}</td><td>{input('gst', 'number')}</td><td>{input('uom')}</td><td>{input('maximumQuantity', 'number', row.qty || 1)}</td><td>{input('finalNet', 'number')}</td><td>{input('qty', 'number')}</td><td>{amounts.beforeGst.toFixed(2)}</td><td>{amounts.igst.toFixed(2)}</td><td>{amounts.cgst.toFixed(2)}</td><td>{amounts.sgst.toFixed(2)}</td><td>{amounts.net.toFixed(2)}</td></tr>;
+            const maxQty = returnableQtyOf(row);
+            const qtyNum = Number(row.qty);
+            const qtyInvalid = row.qty === '' || row.qty === null || row.qty === undefined || !Number.isFinite(qtyNum) || qtyNum <= 0 || (maxQty > 0 && qtyNum > maxQty);
+            const input = (key, type = 'text', fallback = '', extraProps = {}) => (
+              <input
+                className={'f-input h-8 min-w-[80px]' + (extraProps.className ? ' ' + extraProps.className : '')}
+                type={type}
+                value={row[key] ?? fallback}
+                onChange={extraProps.readOnly ? undefined : (event) => updateSelectedRow(index, key, event.target.value)}
+                onWheel={(e) => e.currentTarget.blur()}
+                readOnly={extraProps.readOnly}
+                min={extraProps.min}
+                max={extraProps.max}
+                step={extraProps.step}
+                title={extraProps.title}
+              />
+            );
+            return (
+              <tr key={row._id || index}>
+                <td>
+                  <button
+                    type="button"
+                    className="act-btn act-red"
+                    title="Remove item"
+                    aria-label={'Remove ' + (row.barcodeNo || row.itemCode || 'item')}
+                    onClick={() => removeSelectedRow(index)}
+                  >
+                    <Icon name="trash" size={12} />
+                  </button>
+                </td>
+                <td>{index + 1}</td>
+                <td>{input('itemCode')}</td>
+                <td>{input('supplierDescription', 'text', row.itemName)}</td>
+                <td>{input('hsn')}</td>
+                <td>{input('gst', 'number')}</td>
+                <td>{input('uom')}</td>
+                <td>
+                  <input
+                    className="f-input h-8 min-w-[80px] cursor-not-allowed bg-slate-100"
+                    type="number"
+                    value={maxQty}
+                    readOnly
+                    tabIndex={-1}
+                    title="Available returnable quantity"
+                  />
+                </td>
+                <td>{input('finalNet', 'number')}</td>
+                <td>
+                  {input('qty', 'number', '', {
+                    min: '0.01',
+                    max: maxQty > 0 ? String(maxQty) : undefined,
+                    step: 'any',
+                    className: qtyInvalid ? 'border-danger text-danger' : '',
+                  })}
+                  {qtyInvalid && (
+                    <div className="mt-0.5 text-[10.5px] text-danger">
+                      {!Number.isFinite(qtyNum) || qtyNum <= 0 ? 'Must be > 0' : `Max ${maxQty}`}
+                    </div>
+                  )}
+                </td>
+                <td>{amounts.beforeGst.toFixed(2)}</td>
+                <td>{amounts.igst.toFixed(2)}</td>
+                <td>{amounts.cgst.toFixed(2)}</td>
+                <td>{amounts.sgst.toFixed(2)}</td>
+                <td>{amounts.net.toFixed(2)}</td>
+              </tr>
+            );
           })}
-          <tr className="font-semibold"><td colSpan={8}>Total</td><td>{selectedTotals.qty.toFixed(2)}</td><td>{selectedTotals.beforeGst.toFixed(2)}</td><td>{selectedTotals.igst.toFixed(2)}</td><td>{selectedTotals.cgst.toFixed(2)}</td><td>{selectedTotals.sgst.toFixed(2)}</td><td>{selectedTotals.net.toFixed(2)}</td></tr>
+          <tr className="font-semibold"><td colSpan={9}>Total</td><td>{selectedTotals.qty.toFixed(2)}</td><td>{selectedTotals.beforeGst.toFixed(2)}</td><td>{selectedTotals.igst.toFixed(2)}</td><td>{selectedTotals.cgst.toFixed(2)}</td><td>{selectedTotals.sgst.toFixed(2)}</td><td>{selectedTotals.net.toFixed(2)}</td></tr>
         </tbody></table></div>}
         {supplierId && selected.length === 0 && !loading && <div className="text-sm text-gray-500">No items selected yet.</div>}
       </div>
-      {open && supplierId && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"><div className="flex max-h-[85vh] w-full max-w-6xl flex-col rounded-lg bg-white shadow-xl"><div className="flex items-center gap-3 border-b border-line px-5 py-3"><span className="card-title">Select Vendor Items</span><span className="flex-1" /><button type="button" className="btn" onClick={() => setOpen(false)}>Close</button></div><div className="flex flex-wrap gap-2 border-b border-line p-4"><input className="f-input min-w-[280px] flex-1" placeholder="Search by barcode, item name, or price" value={term} onChange={(event) => setTerm(event.target.value)} /><button type="button" className="btn" onClick={() => setTerm((value) => value.trim())}>Search</button><button type="button" className="btn" onClick={() => setChecked(matches.map((row) => row._id))}>Select All</button><button type="button" className="btn" onClick={() => setChecked([])}>Unselect All</button></div><div className="flex-1 overflow-auto p-4">{loading && <div className="py-8 text-center text-sm text-gray-500">Loading vendor items...</div>}{!loading && matches.length === 0 && <div className="py-8 text-center text-sm text-gray-500">No matching items.</div>}{!loading && matches.length > 0 && <table className="dt min-w-[1050px]"><thead><tr><th>Select</th><th>Barcode</th><th>Item Code</th><th>Item Name</th><th>HSN</th><th>Pur Rate</th><th>Final NET</th><th>Retail Price</th><th>Qty</th><th>GST</th></tr></thead><tbody>{matches.map((row) => <tr key={row._id} className={(checked.includes(row._id) ? 'bg-indigo-50 ' : '') + (term && row._id === firstMatchId ? 'bg-yellow-100' : '')}><td><input type="checkbox" checked={checked.includes(row._id)} onChange={() => toggle(row._id)} /></td><td>{/* the unit's own barcodeNo ("9A1163"), never barcodeGenerated */}{row.barcodeNo || '-'}</td><td>{row.itemCode || '-'}</td><td>{row.supplierDescription || row.itemName || row.printDescription || '-'}</td><td>{row.hsn || '-'}</td><td>{row.purRate || '-'}</td><td>{row.finalNet || '-'}</td><td>{row.retailPrice || row.offerPrice || '-'}</td><td>{row.qty || 1}</td><td>{row.gst || 0}%</td></tr>)}</tbody></table>}</div><div className="flex justify-end gap-2 border-t border-line p-4"><button type="button" className="btn" onClick={() => setOpen(false)}>Cancel</button><button type="button" className="btn btn-primary" onClick={applySelection}>Submit Selected ({checked.length})</button></div></div></div>}
+      {open && supplierId && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"><div className="flex max-h-[85vh] w-full max-w-6xl flex-col rounded-lg bg-white shadow-xl"><div className="flex items-center gap-3 border-b border-line px-5 py-3"><span className="card-title">Select Vendor Items</span><span className="flex-1" /><button type="button" className="btn" onClick={() => setOpen(false)}>Close</button></div><div className="flex flex-wrap items-center gap-2 border-b border-line p-4"><input className="f-input min-w-[280px] flex-1" placeholder="Search by barcode, item name, or price" value={term} onChange={(event) => setTerm(event.target.value)} /><button type="button" className="btn" onClick={() => setTerm((value) => value.trim())}>Search</button><button type="button" className="btn" disabled={matches.length === 0} onClick={() => setChecked(matches.map((row) => String(row._id)))}>Select All</button><button type="button" className="btn" disabled={checked.length === 0} onClick={() => setChecked([])}>Unselect All</button><span className="text-xs font-medium text-inkmuted">Selected: {checked.length}</span></div>{popupError && <div className="mx-4 mt-3 flash flash-err">{popupError}</div>}<div className="flex-1 overflow-auto p-4">{loading && <div className="py-8 text-center text-sm text-gray-500">Loading vendor items...</div>}{!loading && matches.length === 0 && <div className="py-8 text-center text-sm text-gray-500">No eligible items with positive quantity found.</div>}{!loading && matches.length > 0 && <table className="dt min-w-[1050px]"><thead><tr><th>Select</th><th>Barcode</th><th>Item Code</th><th>Item Name</th><th>HSN</th><th>Pur Rate</th><th>Final NET</th><th>Retail Price</th><th>Qty</th><th>GST</th></tr></thead><tbody>{matches.map((row) => <tr key={row._id} className={(checked.includes(String(row._id)) ? 'bg-indigo-50 ' : '') + (term && row._id === firstMatchId ? 'bg-yellow-100' : '')}><td><input type="checkbox" checked={checked.includes(String(row._id))} onChange={() => toggle(String(row._id))} /></td><td>{/* the unit's own barcodeNo ("9A1163"), never barcodeGenerated */}{row.barcodeNo || '-'}</td><td>{row.itemCode || '-'}</td><td>{row.supplierDescription || row.itemName || row.printDescription || '-'}</td><td>{row.hsn || '-'}</td><td>{row.purRate || '-'}</td><td>{row.finalNet || '-'}</td><td>{row.retailPrice || row.offerPrice || '-'}</td><td>{returnableQtyOf(row)}</td><td>{row.gst || 0}%</td></tr>)}</tbody></table>}</div><div className="flex justify-end gap-2 border-t border-line p-4"><button type="button" className="btn" onClick={() => setOpen(false)}>Cancel</button><button type="button" className="btn btn-primary" disabled={checked.length === 0} onClick={applySelection}>Submit Selected ({checked.length})</button></div></div></div>}
     </div>
   );
 }
@@ -2231,6 +2401,31 @@ export default function TransactionFormView({ cfg, id, slug }) {
   };
 
   async function submit() {
+    const hasVendorItemsCard = cards.some((card) => card.type === 'vendorItems');
+    if (hasVendorItemsCard) {
+      if (!vendorItems.length) {
+        setFlash({ type: 'err', msg: 'Please select at least one eligible vendor item.' });
+        return;
+      }
+      for (let i = 0; i < vendorItems.length; i += 1) {
+        const row = vendorItems[i] || {};
+        const label = row.barcodeNo || row.itemCode || row.itemName || `Row ${i + 1}`;
+        const qtyNum = Number(row.qty);
+        const maxQty = returnableQtyOf(row);
+        if (!Number.isFinite(qtyNum) || qtyNum <= 0) {
+          setFlash({ type: 'err', msg: `Return quantity for "${label}" must be greater than 0.` });
+          return;
+        }
+        if (maxQty <= 0) {
+          setFlash({ type: 'err', msg: `"${label}" has 0 returnable quantity available and cannot be returned.` });
+          return;
+        }
+        if (qtyNum > maxQty) {
+          setFlash({ type: 'err', msg: `Return quantity (${qtyNum}) for "${label}" exceeds available returnable quantity (${maxQty}).` });
+          return;
+        }
+      }
+    }
     setSaving(true); setFlash(null);
     try {
       const payload = {
@@ -2431,7 +2626,7 @@ export default function TransactionFormView({ cfg, id, slug }) {
         }
 
         if (card.type === 'vendorItems') {
-          return <VendorItems key={i} supplierId={data.supplierId} selected={vendorItems} onChange={setVendorItems} scope={scope} />;
+          return <VendorItems key={i} supplierId={data.supplierId} selected={vendorItems} onChange={setVendorItems} scope={scope} grtId={id} />;
         }
 
         if (card.type === 'scan') {

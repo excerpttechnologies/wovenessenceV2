@@ -1054,6 +1054,7 @@ import { purchasePriceError, normalisePurchasePrice } from '@/lib/purchasePrice'
 import { saveBatchTypeOf } from '@/lib/barcodeUnits';
 import { grcTotals } from '@/lib/grcMoney';
 import { trySyncGrcPosting, reverseGrcJournal } from '@/lib/accounting/posting';
+import { computeReturnableBreakdown, loadReturnedQuantities } from '@/lib/grtReturnable';
 import {
   masterIndex, normaliseItemCode, rowItemIssues, itemValidationSummary, itemValidationMessage,
 } from '@/lib/itemMasterValidation';
@@ -1103,6 +1104,8 @@ export const GET = handler(async (req) => {
   const finYear = sp.get('finYear');
   const grcId = sp.get('grcId');
   const supplier = sp.get('supplier');
+  const returnableOnly = sp.get('returnableOnly') === '1' || Boolean(supplier);
+  const excludeGrtId = sp.get('excludeGrtId') || '';
   if (business) filter.businessId = business;
   if (location) filter.locationId = location;
   if (finYear) filter.finYear = finYear;
@@ -1114,6 +1117,39 @@ export const GET = handler(async (req) => {
   const name = (sp.get('name') || '').trim();
 
   const andClauses = [];
+  if (returnableOnly) {
+    if (!status) {
+      andClauses.push({
+        $or: [
+          { status: BARCODE_STATUS.IN_STOCK },
+          { status: '' },
+          { status: null },
+          { status: { $exists: false } },
+        ],
+      });
+    }
+    andClauses.push({
+      $expr: {
+        $gt: [
+          {
+            $convert: {
+              input: {
+                $cond: [
+                  { $and: [{ $ne: ['$qtyNum', null] }, { $ne: ['$qtyNum', ''] }] },
+                  '$qtyNum',
+                  '$qty',
+                ],
+              },
+              to: 'double',
+              onError: 0,
+              onNull: 0,
+            },
+          },
+          0,
+        ],
+      },
+    });
+  }
   if (code) {
     const rx = { $regex: escapeRegex(code), $options: 'i' };
     /* a barcode is found by either spelling of its value - the label prints
@@ -1127,12 +1163,44 @@ export const GET = handler(async (req) => {
   }
   if (andClauses.length) filter.$and = andClauses;
 
-  const total = await BarcodeLabel.countDocuments(filter);
-  const rows = await BarcodeLabel.find(filter)
-    .sort({ createdAt: -1 })
-    .skip((page - 1) * perPage)
-    .limit(perPage)
-    .lean();
+  let total = 0;
+  let rows = [];
+  if (returnableOnly) {
+    const candidateRows = await BarcodeLabel.find(filter)
+      .sort({ createdAt: -1 })
+      .lean();
+    const knownLabelIds = new Set(candidateRows.map((row) => String(row._id)));
+    const returnedMaps = await loadReturnedQuantities({
+      businessId: business,
+      supplierId: supplier,
+      excludeGrtId,
+      knownLabelIds,
+    });
+    const eligibleRows = [];
+    for (const row of candidateRows) {
+      const { receivedQty, returnedQty, returnableQty } = computeReturnableBreakdown(row, returnedMaps);
+      if (returnableQty > 0) {
+        eligibleRows.push({
+          ...row,
+          receivedQty,
+          previouslyReturnedQty: returnedQty,
+          returnableQty,
+          maximumQuantity: returnableQty,
+          qty: returnableQty,
+          qtyNum: returnableQty,
+        });
+      }
+    }
+    total = eligibleRows.length;
+    rows = eligibleRows.slice((page - 1) * perPage, page * perPage);
+  } else {
+    total = await BarcodeLabel.countDocuments(filter);
+    rows = await BarcodeLabel.find(filter)
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * perPage)
+      .limit(perPage)
+      .lean();
+  }
 
   /* Supplier name and GRC number, resolved for the screens that list these
      rows - NOT for the printed label. A label no longer carries either
