@@ -6839,7 +6839,9 @@ function AddItemModal({ open, onClose, onSubmit, barcodeFormat, business = "", m
               </div>
             </div>
 
-            {renderHsn2Field()}
+            <div className="max-w-[190px]">
+              {renderHsn2Field()}
+            </div>
 
             <div className="flex items-end gap-2 flex-wrap">
               <label className="flex w-fit cursor-pointer items-center justify-start gap-2 whitespace-nowrap rounded-md border border-[#dfe4eb] bg-white px-3 py-2 text-sm text-gray-700">
