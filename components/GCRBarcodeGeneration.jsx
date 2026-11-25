@@ -6808,7 +6808,7 @@ function AddItemModal({ open, onClose, onSubmit, barcodeFormat, business = "", m
               Bill Sl No. here is a locked read-back of the value entered in row 2
               — one value, two windows, hidden with it. Serial No. is the same
               bill line, locked. */}
-          <div className={`mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 ${SHOW_BILL_SL_NO ? "xl:grid-cols-[90px_90px_190px_auto]" : "xl:grid-cols-[90px_190px_auto]"}`}>
+          <div className={`mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 ${SHOW_BILL_SL_NO ? "xl:grid-cols-[90px_90px_220px_auto]" : "xl:grid-cols-[90px_220px_auto]"}`}>
             {SHOW_BILL_SL_NO && <SerialNoField value={form.serialNo} readOnlyClass={readOnlyClass} locked />}
             <div className="space-y-1">
               <label className="block text-[11px] font-semibold text-gray-700">Serial No. *</label>
@@ -6839,7 +6839,7 @@ function AddItemModal({ open, onClose, onSubmit, barcodeFormat, business = "", m
               </div>
             </div>
 
-            <div className="max-w-[190px]">
+            <div className="max-w-[220px]">
               {renderHsn2Field()}
             </div>
 
