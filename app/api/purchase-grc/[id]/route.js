@@ -12,6 +12,7 @@ import { nextDocNumber } from '@/lib/docnumber';
 import { itemPriceErrors } from '@/lib/purchasePrice';
 import { trySyncGrcPosting, reverseGrcPosting } from '@/lib/accounting/posting';
 import { checkGrcDependencies, isLatestGrc } from '@/lib/grcDependencies';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 /* header fields AND the totals rows - the totals card holds real stored
    numbers (taxable value, round off, net value, the editable discounts).
@@ -40,8 +41,10 @@ const json = (d, s = 200) => Response.json(d, { status: s });
    did before (404 / ok), so no check runs for it. Returns a 403 Response or
    null. */
 async function grcDenied(session, id, actions) {
-  const rec = isValidObjectId(id) ? await Grc.findById(id).select('businessId').lean() : null;
+  const rec = isValidObjectId(id) ? await Grc.findById(id).select('businessId locationId').lean() : null;
   if (!rec) return null;
+  const locDenied = await assertDocumentLocationAccess(session, rec);
+  if (locDenied) return locDenied;
   const denied = await screenDenialAnyAction({ session, screens: [SCREENS.GRC], actions, businessId: rec.businessId, label: 'GRC' });
   return denied ? json({ error: denied.message, code: denied.code }, 403) : null;
 }

@@ -337,7 +337,7 @@ function UnitsDrawer({
 }
 
 // export default function StockGallery() {
-//   const { business, location, finYear } = useScope();
+//   const { business, location, finYear, isLocationLocked } = useScope();
 
 //   const [draft, setDraft] = useState(BLANK);
 //   const [applied, setApplied] = useState(BLANK);
@@ -572,7 +572,7 @@ function UnitsDrawer({
 
 
 export default function StockGallery({ stockImageReport = false }) {
-  const { business, location, finYear } = useScope();
+  const { business, location, finYear, isLocationLocked } = useScope();
 
   const [draft, setDraft] = useState(stockImageReport ? IMAGE_REPORT_BLANK : BLANK);
   const [applied, setApplied] = useState(stockImageReport ? null : BLANK);
@@ -621,7 +621,7 @@ export default function StockGallery({ stockImageReport = false }) {
     });
     /* the screen's own Location filter says All Locations */
     if (stockImageReport) q.set('screen', 'stock-image');
-    if (!applied?.location) q.set('allLocations', '1');
+    if (!isLocationLocked && !applied?.location) q.set('allLocations', '1');
     Object.entries(applied || {}).forEach(([k, v]) => {
       if (k === 'age') return;
       if (Array.isArray(v)) { if (v.length) q.set(k, v.join(',')); }
@@ -728,9 +728,10 @@ export default function StockGallery({ stockImageReport = false }) {
                   mode="single"
                   options={locations.options}
                   loading={locations.loading}
-                  value={draft.location}
-                  placeholder="Select..."
-                  onChange={(v) => set('location', v)}
+                  disabled={isLocationLocked}
+                  value={isLocationLocked ? (location || locations.options[0]?.value || '') : draft.location}
+                  placeholder={isLocationLocked ? (locations.options[0]?.label || 'Assigned Location') : 'Select...'}
+                  onChange={isLocationLocked ? () => {} : (v) => set('location', v)}
                 />
               </ReportField>
               <ReportField label="Group Name">
@@ -951,7 +952,7 @@ export default function StockGallery({ stockImageReport = false }) {
           business={business}
           location={applied?.location || location}
           finYear={finYear}
-          allLocations={!applied?.location}
+          allLocations={!isLocationLocked && !applied?.location}
           stockImageReport={stockImageReport}
           onClose={() => setOpen(null)}
         />

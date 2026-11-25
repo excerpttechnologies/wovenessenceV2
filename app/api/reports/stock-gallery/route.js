@@ -5,7 +5,7 @@ import ProductGroup from '@/models/ProductGroup';
 import { BarcodeLabel, BARCODE_STATUS } from '@/lib/barcodeLabel';
 import { imageUrl } from '@/lib/inventory';
 import { requireSession } from '@/lib/session';
-import { json, num, r2, scopeOf, pageOf } from '@/lib/reports';
+import { json, num, r2, requireReportScope, pageOf } from '@/lib/reports';
 import { supplierKeysForFilters, loadSupplierMap } from '@/lib/stockPosition';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { escapeRegex } from '@/lib/validate';
@@ -99,7 +99,8 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
-  const scope = scopeOf(sp);
+  const scope = await requireReportScope(session, sp, { allowAllLocations: true });
+  if (!scope.ok) return scope.response;
   const { page, perPage } = pageOf(sp);
   
    const reportScreen = sp.get('screen') === 'stock-image'
@@ -115,18 +116,27 @@ export async function GET(req) {
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
-  if (sp.get('allLocations') === '1') scope.locationId = null;
-
   /* ------------------------------------------------------------- scope --- */
   const filter = { status: BARCODE_STATUS.IN_STOCK };
-  /* barcodeLabel keeps its scope as plain strings and a blank one belongs to
-     the business as a whole - the same inclusion Master Stock Report makes,
-     or imported stock would disappear from the gallery. */
+  /* barcodeLabel keeps its scope as plain strings; blank locationId is included
+     only for unrestricted admins. Restricted users stay locked to assigned locations. */
   if (scope.businessId) filter.businessId = String(scope.businessId);
   if (scope.finYear) filter.finYear = { $in: [scope.finYear, '', null] };
-  if (scope.locationId) filter.locationId = { $in: [String(scope.locationId), '', null] };
-
   const and = [];
+  if (scope.access.isRestricted) {
+    const locList = scope.locationId ? [String(scope.locationId)] : scope.locationIds.map(String);
+    if (locList.length) {
+      and.push({
+        $or: [
+          { currentLocationId: { $in: locList } },
+          { currentLocationId: null, locationId: { $in: locList } },
+          { currentLocationId: { $exists: false }, locationId: { $in: locList } },
+        ],
+      });
+    }
+  } else if (scope.locationId) {
+    filter.locationId = { $in: [String(scope.locationId), '', null] };
+  }
 
   /* SUPPLIER: the row carries only the vendor key, in either spelling. */
   const supplierKeys = await supplierKeysForFilters({

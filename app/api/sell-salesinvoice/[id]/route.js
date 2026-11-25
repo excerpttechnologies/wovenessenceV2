@@ -3,6 +3,7 @@ import SalesInvoice from '@/models/SalesInvoice';
 import { requireSession } from '@/lib/session';
 import { validate } from '@/lib/validate';
 import { FORM } from '@/app/admin/transaction/sell/salesinvoice/form';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 /* header fields AND the totals rows - the totals card holds real stored
    numbers (taxable value, round off, net value, the editable discounts).
@@ -31,6 +32,8 @@ export async function GET(req, { params }) {
 
   const doc = await SalesInvoice.findById(id).lean();
   if (!doc) return json({ doc: null }, 404);
+  const locDenied = await assertDocumentLocationAccess(session, doc);
+  if (locDenied) return locDenied;
   return json({ doc: { ...doc, _id: String(doc._id) } });
 }
 
@@ -41,6 +44,11 @@ export async function PUT(req, { params }) {
   const { id } = await params;
   const body = await req.json();
   await dbConnect();
+
+  const existing = await SalesInvoice.findById(id).select('businessId locationId').lean();
+  if (!existing) return json({ error: 'Not found' }, 404);
+  const locDenied = await assertDocumentLocationAccess(session, existing);
+  if (locDenied) return locDenied;
 
   const { errors, doc, ok } = validate(FIELDS, body.data || {});
   if (!ok) return json({ errors }, 422);
@@ -62,6 +70,12 @@ export async function DELETE(req, { params }) {
 
   const { id } = await params;
   await dbConnect();
+
+  const existing = await SalesInvoice.findById(id).select('businessId locationId').lean();
+  if (existing) {
+    const locDenied = await assertDocumentLocationAccess(session, existing);
+    if (locDenied) return locDenied;
+  }
 
   await SalesInvoice.findByIdAndDelete(id);
   return json({ ok: true });

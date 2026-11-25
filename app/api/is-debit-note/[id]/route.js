@@ -5,6 +5,7 @@ import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import StoreDebitNote from '@/models/StoreDebitNote';
 import StoreSalesInvoice from '@/models/StoreSalesInvoice';
 import { r2 } from '@/lib/storeSell';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 /* /api/is-debit-note/<id> - read one, delete one.
 
@@ -25,6 +26,11 @@ export async function GET(req, { params }) {
   const doc = await StoreDebitNote.findById(id).lean();
   if (!doc) return json({ doc: null }, 404);
 
+  const locDenied = await assertDocumentLocationAccess(session, doc, {
+    locationKeys: ['locationId', 'toLocationId', 'fromLocationId'],
+  });
+  if (locDenied) return locDenied;
+
   const denied = await screenDenial({
     session, ...SCREEN, action: PERM.READ, businessId: doc.businessId,
   });
@@ -43,6 +49,11 @@ export async function DELETE(req, { params }) {
   await dbConnect();
   const doc = await StoreDebitNote.findById(id).lean();
   if (!doc) return json({ ok: true });
+
+  const locDenied = await assertDocumentLocationAccess(session, doc, {
+    locationKeys: ['locationId', 'toLocationId', 'fromLocationId'],
+  });
+  if (locDenied) return locDenied;
 
   const denied = await screenDenial({
     session, ...SCREEN, action: PERM.DELETE, businessId: doc.businessId,

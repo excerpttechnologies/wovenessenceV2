@@ -4,6 +4,7 @@ import { BarcodeLabel } from '@/lib/barcodeLabel';
 import { requireSession } from '@/lib/session';
 import { escapeRegex } from '@/lib/validate';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { resolveAuthorizedScope } from '@/lib/locationAccess';
 
 /* /api/reports/barcode-suggest?q=<part>&business=<id>
 
@@ -41,7 +42,12 @@ export async function GET(req) {
 
   await dbConnect();
 
-  const business = sp.get('business');
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: sp.get('business') || '',
+    locationId: sp.get('location') || '',
+  });
+  if (!scope.ok) return json({ error: scope.error, code: scope.code }, scope.status || 403);
+  const business = scope.businessId;
 
   /* Roles & Permissions (17-10-2026): the Master Stock Report's Barcode
      filter - that report's Read */
@@ -51,7 +57,18 @@ export async function GET(req) {
   const rx = { $regex: escapeRegex(q), $options: 'i' };
 
   const rows = await BarcodeLabel.find({
-    ...(business && isValidObjectId(business) ? { businessId: business } : {}),
+    ...(scope.businessFilter ? { businessId: scope.businessFilter } : (business && isValidObjectId(business) ? { businessId: business } : {})),
+    ...(scope.access.isRestricted && scope.locationIds.length
+      ? {
+          $and: [{
+            $or: [
+              { currentLocationId: { $in: scope.locationIds } },
+              { currentLocationId: null, locationId: { $in: scope.locationIds } },
+              { currentLocationId: { $exists: false }, locationId: { $in: scope.locationIds } },
+            ],
+          }],
+        }
+      : {}),
     /* both spellings a label can be read by: its own number and the composed
        value the bars carry */
     $or: [{ barcodeNo: rx }, { barcodeGenerated: rx }],

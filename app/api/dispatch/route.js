@@ -80,6 +80,7 @@ import { validate, escapeRegex } from '@/lib/validate';
 import { nextSeriesNumber } from '@/lib/docnumber';
 import { FIELDS } from '@/app/admin/transport/dispatch/fields';
 import { sortedPage } from '@/lib/listSort';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 /* /api/dispatch - list + create.
 
@@ -121,15 +122,21 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
-  const denied = await screenDenial({ session, screen: SCREENS.DISPATCH, action: PERM.READ, businessId: sp.get('business'), label: 'dispatches' });
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: sp.get('business'),
+    locationId: sp.get('location'),
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
+  const denied = await screenDenial({ session, screen: SCREENS.DISPATCH, action: PERM.READ, businessId: scope.businessId || sp.get('business'), label: 'dispatches' });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const page = Math.max(1, Number(sp.get('page') || 1));
   const perPage = Math.min(500, Number(sp.get('perPage') || PER_PAGE));
 
   const filter = {};
-  const b = sp.get('business'); if (b && isValidObjectId(b)) filter.businessId = b;
-  const l = sp.get('location'); if (l && isValidObjectId(l)) filter.locationId = l;
+  if (scope.businessFilter) filter.businessId = scope.businessFilter;
+  if (scope.locationFilter) filter.locationId = scope.locationFilter;
   const y = sp.get('finYear'); if (y) filter.finYear = y;
 
   const search = (sp.get('search') || '').trim();
@@ -172,14 +179,23 @@ export async function POST(req) {
   const body = await req.json();
   await dbConnect();
 
-  const denied = await screenDenial({ session, screen: SCREENS.DISPATCH, action: PERM.CREATE, businessId: body.business, label: 'dispatches' });
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: body.business,
+    locationId: body.location,
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+  if (!scope.access.unrestricted && !scope.locationId) {
+    return json({ error: 'Please select an authorized location.', code: 'LOCATION_REQUIRED' }, 422);
+  }
+
+  const denied = await screenDenial({ session, screen: SCREENS.DISPATCH, action: PERM.CREATE, businessId: scope.businessId || body.business, label: 'dispatches' });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const { errors, doc, ok } = validate(FIELDS, body.data || {});
   if (!ok) return json({ errors }, 422);
 
-  if (body.business && isValidObjectId(body.business)) doc.businessId = body.business;
-  if (body.location && isValidObjectId(body.location)) doc.locationId = body.location;
+  if (scope.businessId) doc.businessId = scope.businessId;
+  if (scope.locationId) doc.locationId = scope.locationId;
   if (body.finYear) doc.finYear = body.finYear;
 
   const ids = (doc.deliveryIds || []).filter((v) => isValidObjectId(v));

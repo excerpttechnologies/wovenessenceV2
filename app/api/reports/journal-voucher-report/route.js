@@ -5,7 +5,7 @@ import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import JournalEntry from '@/models/JournalEntry';
 import AccountsMaster, { ACCOUNT_TYPES } from '@/models/AccountsMaster';
 import CompanyLocation from '@/models/CompanyLocation';
-import { r2, scopeOf } from '@/lib/reports';
+import { r2, requireReportScope } from '@/lib/reports';
 
 const json = (data, status = 200) => Response.json(data, {
   status,
@@ -62,11 +62,11 @@ export async function GET(request) {
 
   await dbConnect();
 
-  const scope = scopeOf(params);
+  const scope = await requireReportScope(session, params, { asObjectId: true, allowAllLocations: true });
+  if (!scope.ok) return scope.response;
   if (!scope.businessId) return json({ error: 'Select a business in the top bar.' }, 422);
   const denied = await screenDenial({ session, screen: SCREENS.JOURNAL_VOUCHER_REPORT, action: PERM.READ, businessId: scope.businessId, label: 'the journal voucher report' });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
-  if (params.get('allLocations') === '1') scope.locationId = null;
 
   const ledgerId = params.get('ledgerId') || '';
   if (ledgerId && !isValidObjectId(ledgerId)) {
@@ -85,9 +85,9 @@ export async function GET(request) {
       businessId: new Types.ObjectId(scope.businessId),
       accountType: ledgerGroup,
     };
-    if (scope.locationId) {
+    if (scope.locationFilter) {
       accountFilter.$or = [
-        { locationId: new Types.ObjectId(scope.locationId) },
+        { locationId: scope.locationFilter },
         { locationId: null },
         { locationId: { $exists: false } },
       ];
@@ -114,7 +114,7 @@ export async function GET(request) {
 
   const filter = {
     businessId: new Types.ObjectId(scope.businessId),
-    ...(scope.locationId ? { locationId: new Types.ObjectId(scope.locationId) } : {}),
+    ...(scope.locationFilter ? { locationId: scope.locationFilter } : {}),
     ...(scope.finYear ? { finYear: scope.finYear } : {}),
     journalDate: { $gte: fromDate, $lte: toDate },
     lines: { $elemMatch: lineMatch },

@@ -3,6 +3,7 @@ import CashRegister, { OPEN, CLOSED } from '@/models/CashRegister';
 import PosInvoice from '@/models/PosInvoice';
 import PosReturn from '@/models/PosReturn';
 import { requireSession } from '@/lib/session';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 /* /api/cash-register/<id> - read one, close, delete.
 
@@ -41,6 +42,8 @@ export async function GET(req, { params }) {
 
   const doc = await CashRegister.findById(id).lean();
   if (!doc) return json({ doc: null }, 404);
+  const locDenied = await assertDocumentLocationAccess(session, doc);
+  if (locDenied) return locDenied;
   return json({ doc: { ...doc, _id: String(doc._id) } });
 }
 
@@ -54,6 +57,8 @@ export async function PUT(req, { params }) {
 
   const reg = await CashRegister.findById(id).lean();
   if (!reg) return json({ error: 'Register not found' }, 404);
+  const locDenied = await assertDocumentLocationAccess(session, reg);
+  if (locDenied) return locDenied;
   if (reg.status === CLOSED) {
     return json({ error: 'This register is already closed.' }, 409);
   }
@@ -112,8 +117,10 @@ export async function DELETE(req, { params }) {
   const { id } = await params;
   await dbConnect();
 
-  const reg = await CashRegister.findById(id).select('status').lean();
+  const reg = await CashRegister.findById(id).select('status businessId locationId').lean();
   if (!reg) return json({ ok: true });
+  const locDenied = await assertDocumentLocationAccess(session, reg);
+  if (locDenied) return locDenied;
   /* a closed register is a signed-off count - removing it would erase the
      record of an over or short */
   if (reg.status === CLOSED) {

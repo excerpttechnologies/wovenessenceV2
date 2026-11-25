@@ -63,7 +63,7 @@ function queryFor({ business, finYear, filters, search, page, perPage }, extra =
 }
 
 export default function SalesReportView() {
-  const { business, locations, finYear, setFinYear } = useScope();
+  const { business, location, locations, finYear, setFinYear, isLocationLocked } = useScope();
   const locationOptions = useOptions('companylocations');
   const supplierOptions = useOptions('supplier');
   const targetLocation = locationOptions.options.find((option) => (
@@ -145,7 +145,7 @@ export default function SalesReportView() {
     setLoading(true);
     setError('');
     const params = queryFor({
-      business, finYear, filters: applied, search: appliedSearch, page, perPage,
+      business, finYear, filters: isLocationLocked && location ? { ...applied, location } : applied, search: appliedSearch, page, perPage,
     });
 
     fetch(`/api/reports/sales-report?${params}`, { cache: 'no-store', signal: controller.signal })
@@ -278,9 +278,10 @@ export default function SalesReportView() {
               <MultiSelect
                 mode="single"
                 options={filterLocationOptions}
-                value={draft.location}
-                onChange={(value) => setFilter('location', value)}
-                placeholder="All Locations"
+                disabled={isLocationLocked}
+                value={isLocationLocked ? (location || filterLocationOptions[0]?.value || '') : draft.location}
+                onChange={(value) => { if (!isLocationLocked) setFilter('location', value); }}
+                placeholder={isLocationLocked ? (filterLocationOptions[0]?.label || 'Assigned Location') : 'All Locations'}
                 loading={locationOptions.loading}
                 error={locationOptions.error}
               />

@@ -14,6 +14,7 @@ import { FORM } from '@/app/admin/transaction/purchase/grc/form';
 import { screenDenial, screenDenialAnyAction, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { sortedPage } from '@/lib/listSort';
 import { trySyncGrcPosting } from '@/lib/accounting/posting';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 const GRC_SCREEN = { screen: SCREENS.GRC, label: 'GRC' };
 
@@ -69,22 +70,26 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: sp.get('business'),
+    locationId: sp.get('location'),
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   /* Roles & Permissions (17-10-2026), Purchase > GRC: the list needs Read;
      the ?availableLr=1 picker (used while raising a document) also lets
      Create / Update through */
   {
     const denied = sp.get('availableLr') === '1'
-      ? await screenDenialAnyAction({ session, screens: [SCREENS.GRC], actions: [PERM.READ, PERM.CREATE, PERM.UPDATE], businessId: sp.get('business'), label: 'GRC' })
-      : await screenDenial({ session, ...GRC_SCREEN, action: PERM.READ, businessId: sp.get('business') });
+      ? await screenDenialAnyAction({ session, screens: [SCREENS.GRC], actions: [PERM.READ, PERM.CREATE, PERM.UPDATE], businessId: scope.businessId || sp.get('business'), label: 'GRC' })
+      : await screenDenial({ session, ...GRC_SCREEN, action: PERM.READ, businessId: scope.businessId || sp.get('business') });
     if (denied) return json({ error: denied.message, code: denied.code }, 403);
   }
 
   if (sp.get('availableLr') === '1') {
     const deliveryFilter = {};
-    const business = sp.get('business');
-    const location = sp.get('location');
-    if (business && isValidObjectId(business)) deliveryFilter.businessId = business;
-    if (location && isValidObjectId(location)) deliveryFilter.locationId = location;
+    if (scope.businessFilter) deliveryFilter.businessId = scope.businessFilter;
+    if (scope.locationFilter) deliveryFilter.locationId = scope.locationFilter;
     if (sp.get('finYear')) deliveryFilter.finYear = sp.get('finYear');
     if (sp.get('supplierId') && isValidObjectId(sp.get('supplierId'))) deliveryFilter.supplierId = sp.get('supplierId');
     const used = await Grc.find({
@@ -141,8 +146,8 @@ export async function GET(req) {
   const perPage = Math.min(500, Number(sp.get('perPage') || PER_PAGE));
 
   const filter = {};
-  const b = sp.get('business'); if (b && isValidObjectId(b)) filter.businessId = b;
-  const l = sp.get('location'); if (l && isValidObjectId(l)) filter.locationId = l;
+  if (scope.businessFilter) filter.businessId = scope.businessFilter;
+  if (scope.locationFilter) filter.locationId = scope.locationFilter;
   const y = sp.get('finYear'); if (y) filter.finYear = y;
   const sup = sp.get('supplierId'); if (sup && isValidObjectId(sup)) filter.supplierId = sup;
 
@@ -265,8 +270,17 @@ export async function POST(req) {
   const body = await req.json();
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: body.business,
+    locationId: body.location,
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+  if (!scope.access.unrestricted && !scope.locationId) {
+    return json({ error: 'Please select an authorized location.', code: 'LOCATION_REQUIRED' }, 422);
+  }
+
   /* Roles & Permissions (17-10-2026): GRC -> Create */
-  const denied = await screenDenial({ session, ...GRC_SCREEN, action: PERM.CREATE, businessId: body.business });
+  const denied = await screenDenial({ session, ...GRC_SCREEN, action: PERM.CREATE, businessId: scope.businessId || body.business });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const { errors, doc, ok } = validate(FIELDS, body.data || {});
@@ -274,8 +288,8 @@ export async function POST(req) {
   /* coerce() spells an empty number as null; Round Off's own default is 0, and
      "no adjustment" is 0, not "unknown". Keeps the stored shape honest. */
   if (doc.roundOff == null) doc.roundOff = 0;
-  if (body.business && isValidObjectId(body.business)) doc.businessId = body.business;
-  if (body.location && isValidObjectId(body.location)) doc.locationId = body.location;
+  if (scope.businessId) doc.businessId = scope.businessId;
+  if (scope.locationId) doc.locationId = scope.locationId;
   if (body.finYear) doc.finYear = body.finYear;
 
   if (Array.isArray(body.data?.items)) doc.items = body.data.items;

@@ -2,6 +2,7 @@ import dbConnect from '@/lib/db';
 import IcSalesInvoice from '@/models/IcSalesInvoice';
 import IcDeliveryChallan from '@/models/IcDeliveryChallan';
 import { requireSession } from '@/lib/session';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 /* /api/ic-sales-invoice/<id> - read one, delete.
 
@@ -22,6 +23,10 @@ export async function GET(req, { params }) {
 
   const doc = await IcSalesInvoice.findById(id).lean();
   if (!doc) return json({ doc: null }, 404);
+  const locDenied = await assertDocumentLocationAccess(session, doc, {
+    locationKeys: ['locationId', 'toLocationId'],
+  });
+  if (locDenied) return locDenied;
   return json({ doc: { ...doc, _id: String(doc._id) } });
 }
 
@@ -32,8 +37,10 @@ export async function DELETE(req, { params }) {
   const { id } = await params;
   await dbConnect();
 
-  const existing = await IcSalesInvoice.findById(id).select('receivedId').lean();
+  const existing = await IcSalesInvoice.findById(id).select('receivedId businessId locationId').lean();
   if (!existing) return json({ ok: true });
+  const locDenied = await assertDocumentLocationAccess(session, existing);
+  if (locDenied) return locDenied;
 
   /* Once the receiving branch has accepted it into stock there is a GRC on
      the other side referencing it. Reverse the receipt there first. */

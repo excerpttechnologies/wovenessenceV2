@@ -109,7 +109,7 @@ import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import PosInvoice from '@/models/PosInvoice';
 import PosCounter from '@/models/PosCounter';
 import {
-  json, num, r2, scopeOf, scopeFilter, dateRange, linesOf, lineNet,
+  json, num, r2, requireReportScope, scopeFilter, dateRange, linesOf, lineNet,
 } from '@/lib/reports';
 
 /* /api/reports/pos-summary - read-only.
@@ -141,7 +141,8 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
-  const scope = scopeOf(sp);
+  const scope = await requireReportScope(session, sp);
+  if (!scope.ok) return scope.response;
   const denied = await screenDenial({ session, screen: SCREENS.POS_SUMMARY, action: PERM.READ, businessId: scope.businessId, label: 'the POS summary' });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
@@ -150,7 +151,9 @@ export async function GET(req) {
   }
 
   const invoiceScope = scopeFilter(scope);
-  delete invoiceScope.locationId;
+  if (scope.access?.unrestricted && !sp.get('locationId')) {
+    delete invoiceScope.locationId;
+  }
   const filter = {
     ...invoiceScope,
     ...dateRange(sp, 'date'),

@@ -5,6 +5,7 @@ import { requireSession } from '@/lib/session';
 import { escapeRegex } from '@/lib/validate';
 import { barcodeCandidates, linesAnswering, lineBarcodeSpellings } from '@/lib/inventory';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 const POS = { screen: SCREENS.POS, label: 'POS bills' };
 
@@ -32,26 +33,32 @@ export async function GET(req) {
 
   const sp = new URL(req.url).searchParams;
   const code = (sp.get('code') || '').trim();
-  if (!code) return json({ rows: [] });
 
   await dbConnect();
+
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: sp.get('business'),
+    locationId: sp.get('location'),
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
+  if (!code) return json({ rows: [] });
 
   /* Read OR create, not read alone: this is the till's exchange lookup, used
      while a sale is being rung up. A role allowed to bill but not to browse
      the day's sales would otherwise be unable to take a return against the
      bill it is allowed to raise. */
   let gate = await screenDenial({
-    session, ...POS, action: PERM.READ, businessId: sp.get('business'),
+    session, ...POS, action: PERM.READ, businessId: scope.businessId || sp.get('business'),
   });
   if (gate) {
     gate = await screenDenial({
-      session, ...POS, action: PERM.CREATE, businessId: sp.get('business'),
+      session, ...POS, action: PERM.CREATE, businessId: scope.businessId || sp.get('business'),
     });
   }
   if (gate) return json({ error: gate.message, code: gate.code }, 403);
 
-  const b = sp.get('business');
-  const l = sp.get('location');
+  const b = scope.businessId || sp.get('business');
 
   /* The line stores the unit's own number; the label in hand may carry its
      composed value or its old barcode. So the code is resolved to the units
@@ -68,8 +75,8 @@ export async function GET(req) {
     ],
   };
 
-  if (b && isValidObjectId(b)) filter.businessId = b;
-  if (l && isValidObjectId(l)) filter.locationId = l;
+  if (scope.businessFilter) filter.businessId = scope.businessFilter;
+  if (scope.locationFilter) filter.locationId = scope.locationFilter;
 
   const invoices = await PosInvoice.find(filter)
     .sort({ date: -1, createdAt: -1 })

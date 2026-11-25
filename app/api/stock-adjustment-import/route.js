@@ -9,6 +9,7 @@ import { withTransaction } from '@/lib/inventory';
 import { applyMovement, MOVEMENT_TYPES } from '@/lib/inventory';
 import { BarcodeLabel, BARCODE_STATUS } from '@/lib/barcodeLabel';
 import { randomBytes } from 'crypto';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 /* ==========================================================================
    STOCK ADJUSTMENT EXCEL IMPORT API
@@ -38,8 +39,11 @@ export const POST = handler(async (req) => {
   }
 
   // Require stock adjustment permission
-  const session = await requirePermission(PERMISSIONS.STOCK_ADJUSTMENT);
+  const session = await requirePermission(PERMISSIONS.STOCK_ADJUSTMENT, { locationId });
   await dbConnect();
+
+  const scope = await resolveAuthorizedScope(session, { businessId, locationId });
+  if (!scope.ok) return scopeErrorResponse(scope);
 
   // Validate business and location
   const business = await Business.findById(businessId).select('_id').lean();

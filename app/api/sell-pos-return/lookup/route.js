@@ -9,6 +9,7 @@ import { BarcodeLabel } from '@/lib/barcodeLabel';
 import { imageUrl, barcodeCandidates, lineBarcodeSpellings } from '@/lib/inventory';
 import { barcodeKey } from '@/lib/barcodeValue';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { resolveAuthorizedScope, scopeErrorResponse, assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 const POS_RETURN = { screen: SCREENS.POS_RETURN, label: 'POS returns' };
 
@@ -31,7 +32,12 @@ export const GET = handler(async (req) => {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
-  const business = sp.get('business');
+  const authScope = await resolveAuthorizedScope(session, {
+    businessId: sp.get('business'),
+    locationId: sp.get('location'),
+  });
+  if (!authScope.ok) return scopeErrorResponse(authScope);
+  const business = authScope.businessId || sp.get('business');
 
   /* Create OR read, not read alone: this is the counter's own lookup, used
      while a refund is being taken. A role allowed to process returns but not
@@ -49,6 +55,11 @@ export const GET = handler(async (req) => {
   const invoiceRef = (sp.get('invoice') || '').trim();
   const barcode = (sp.get('barcode') || '').trim();
 
+  const scopeFilter = {
+    ...(authScope.businessFilter ? { businessId: authScope.businessFilter } : {}),
+    ...(authScope.locationFilter ? { locationId: authScope.locationFilter } : {}),
+  };
+
   /* A THIRD WAY IN: the customer. The till passes the customer it has
      selected, and the return screen lists that customer's bills for the
      operator to tick one - no invoice number needed. Answers with the bills
@@ -56,8 +67,7 @@ export const GET = handler(async (req) => {
   const customer = (sp.get('customer') || '').trim();
   if (customer && !invoiceRef && !barcode) {
     if (!isValidObjectId(customer)) return json({ error: 'Unknown customer.', code: 'BAD_INPUT' }, 400);
-    const scopeBy = business && isValidObjectId(business) ? { businessId: business } : {};
-    const bills = await PosInvoice.find({ customerId: customer, ...scopeBy })
+    const bills = await PosInvoice.find({ customerId: customer, ...scopeFilter })
       .sort({ date: -1, createdAt: -1 })
       .limit(50)
       .select('invoiceNo date createdAt totalAmount paid items customerSnapshot customerContact')
@@ -104,7 +114,7 @@ export const GET = handler(async (req) => {
     return json({ error: 'Enter an invoice number or scan an item.', code: 'BAD_INPUT' }, 400);
   }
 
-  const scope = business && isValidObjectId(business) ? { businessId: business } : {};
+  const scope = scopeFilter;
 
   let invoice = null;
   if (invoiceRef) {
@@ -115,14 +125,7 @@ export const GET = handler(async (req) => {
         ...scope,
       }).lean();
   } else {
-    /* the barcode carries its own sale - billingNo is stamped on it when it
-       is sold, but the invoice is matched on the line so a unit that has
-       since been returned and re-sold still resolves to the right one.
-
-       The line stores the unit's own number; the label may carry its
-       composed value or its old barcode, so the code is resolved to the
-       units it may mean and the line matched on every spelling of both. */
-    const candidates = await barcodeCandidates([barcode], { businessId: scope.businessId });
+    const candidates = await barcodeCandidates([barcode], { businessId: authScope.businessId || null });
     invoice = await PosInvoice.findOne({
       'items.barcodeNo': { $in: lineBarcodeSpellings([barcode], candidates) },
       ...scope,
@@ -139,6 +142,9 @@ export const GET = handler(async (req) => {
       code: 'NOT_FOUND',
     }, 404);
   }
+
+  const invLocDenied = await assertDocumentLocationAccess(session, invoice);
+  if (invLocDenied) return invLocDenied;
 
   /* what earlier credits already took back */
   const priorReturns = await PosReturn.find({ parentInvoiceId: invoice._id })

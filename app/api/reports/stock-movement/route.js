@@ -5,7 +5,7 @@ import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { handler } from '@/lib/apiError';
 import StockMovement, { MOVEMENT_TYPES } from '@/models/StockMovement';
 import CompanyLocation from '@/models/CompanyLocation';
-import { json, r2, scopeOf, pageOf, paged } from '@/lib/reports';
+import { json, r2, requireReportScope, pageOf, paged } from '@/lib/reports';
 
 /* /api/reports/stock-movement - read-only.
 
@@ -35,7 +35,8 @@ export const GET = handler(async (req) => {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
-  const scope = scopeOf(sp);
+  const scope = await requireReportScope(session, sp);
+  if (!scope.ok) return scope.response;
   const denied = await screenDenial({
     session,
     screen: SCREENS.STOCK_MOVEMENT,
@@ -58,10 +59,14 @@ export const GET = handler(async (req) => {
   const match = { at: { $gte: start, $lte: end } };
   if (scope.businessId) match.businessId = toId(scope.businessId);
   if (scope.finYear) match.finYear = scope.finYear;
-  if (scope.locationId) {
+  const locOids = scope.locationIds?.length
+    ? scope.locationIds.map(toId)
+    : (scope.locationId ? [toId(scope.locationId)] : []);
+  const locVal = locOids.length === 1 ? locOids[0] : (locOids.length > 1 ? { $in: locOids } : null);
+  if (locVal) {
     match.$or = [
-      { fromLocationId: toId(scope.locationId) },
-      { toLocationId: toId(scope.locationId) },
+      { fromLocationId: locVal },
+      { toLocationId: locVal },
     ];
   }
   const type = sp.get('type');

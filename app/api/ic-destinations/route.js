@@ -3,6 +3,7 @@ import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
 import { allowedDestinations } from '@/lib/icRouting';
 import { screenDenialAny, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 /* /api/ic-destinations?business=<the branch I am standing in>
 
@@ -24,10 +25,15 @@ export async function GET(req) {
   if (!session) return json({ error: 'Unauthorized' }, 401);
 
   const sp = new URL(req.url).searchParams;
-  const business = sp.get('business');
-  if (!business || !isValidObjectId(business)) return json({ options: [] });
-
   await dbConnect();
+
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: sp.get('business'),
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
+  const business = scope.businessId || sp.get('business');
+  if (!business || !isValidObjectId(business)) return json({ options: [] });
 
   /* the companies a challan / IC invoice screen can pick (17-10-2026) -
      the challan form uses it while creating or editing, the Sales Invoice

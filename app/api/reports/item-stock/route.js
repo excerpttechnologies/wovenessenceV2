@@ -8,7 +8,7 @@ import StockMovement, { MOVEMENT_TYPES } from '@/models/StockMovement';
 import Item from '@/models/Item';
 import ProductGroup from '@/models/ProductGroup';
 import CompanyLocation from '@/models/CompanyLocation';
-import { json, num, r2, scopeOf, pageOf, paged } from '@/lib/reports';
+import { json, num, r2, requireReportScope, pageOf, paged } from '@/lib/reports';
 
 /* /api/reports/item-stock - read-only.
 
@@ -73,12 +73,10 @@ export const GET = handler(async (req) => {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
-  const scope = scopeOf(sp);
+  const scope = await requireReportScope(session, sp, { allowAllLocations: true });
+  if (!scope.ok) return scope.response;
   const denied = await screenDenial({ session, screen: SCREENS.ITEM_STOCK, action: PERM.READ, businessId: scope.businessId, label: 'the item stock report' });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
-  /* The report's own Location filter offers "All Locations"; choosing it must
-     override the location in the top bar, not fall back to it. */
-  if (sp.get('allLocations') === '1') scope.locationId = null;
 
   const { page, perPage } = pageOf(sp);
   const tab = ['detailed', 'itemwise', 'movementwise'].includes(sp.get('tab'))
@@ -102,11 +100,14 @@ export const GET = handler(async (req) => {
 
   /* A location is affected when it is the inbound destination or the outbound
      source - never merely the other end of a transfer. */
-  if (scope.locationId) {
-    const loc = toId(scope.locationId);
+  const locOids = scope.locationIds?.length
+    ? scope.locationIds.map(toId)
+    : (scope.locationId ? [toId(scope.locationId)] : []);
+  const locVal = locOids.length === 1 ? locOids[0] : (locOids.length > 1 ? { $in: locOids } : null);
+  if (locVal) {
     base.$or = [
-      { type: { $in: INBOUND }, toLocationId: loc },
-      { type: { $in: OUTBOUND }, fromLocationId: loc },
+      { type: { $in: INBOUND }, toLocationId: locVal },
+      { type: { $in: OUTBOUND }, fromLocationId: locVal },
     ];
   }
 
@@ -214,7 +215,7 @@ export const GET = handler(async (req) => {
         ...(scope.businessId ? { businessId: String(scope.businessId) } : {}),
         status: BARCODE_STATUS.IN_STOCK,
         itemCode: { $nin: ['', null] },
-        ...(scope.locationId ? { currentLocationId: toId(scope.locationId) } : {}),
+        ...(locVal ? { currentLocationId: locVal } : {}),
       },
     },
     {

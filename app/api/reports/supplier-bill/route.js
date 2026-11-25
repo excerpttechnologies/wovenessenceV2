@@ -7,7 +7,7 @@ import { Supplier } from '@/lib/contacts';
 import CompanyLocation from '@/models/CompanyLocation';
 import { BarcodeLabel, BARCODE_STATUS } from '@/lib/barcodeLabel';
 import {
-  json, num, r2, scopeOf, scopeFilter, dateRange, pageOf, linesOf, lineQty,
+  json, num, r2, requireReportScope, scopeFilter, dateRange, pageOf, linesOf, lineQty,
 } from '@/lib/reports';
 import { supplierKeysForFilters } from '@/lib/stockPosition';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
@@ -80,7 +80,8 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
-  const scope = scopeOf(sp);
+  const scope = await requireReportScope(session, sp, { allowAllLocations: true });
+  if (!scope.ok) return scope.response;
   const { page, perPage } = pageOf(sp);
 
   const denied = await screenDenial({
@@ -91,8 +92,6 @@ export async function GET(req) {
     businessId: scope.businessId,
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
-
-  if (sp.get('allLocations') === '1') scope.locationId = null;
 
   const from = s(sp.get('fromDate'));
   const to = s(sp.get('toDate'));

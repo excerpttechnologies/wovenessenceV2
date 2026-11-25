@@ -54,7 +54,7 @@ function hasActivity(row) {
 
 export default function TransactionSummaryView() {
   const router = useRouter();
-  const { business, location, finYear } = useScope();
+  const { business, location, finYear, isLocationLocked } = useScope();
   const locationOptions = useOptions('companylocations');
   const [filters, setFilters] = useState(() => makeFilters(location));
   const [applied, setApplied] = useState(() => makeFilters(location));
@@ -225,9 +225,10 @@ export default function TransactionSummaryView() {
                 <MultiSelect
                   mode="single"
                   options={locationOptions.options}
-                  value={filters.location}
-                  onChange={(value) => setFilters((current) => ({ ...current, location: value }))}
-                  placeholder="All Locations"
+                  disabled={isLocationLocked}
+                  value={isLocationLocked ? (location || locationOptions.options[0]?.value || '') : filters.location}
+                  onChange={(value) => { if (!isLocationLocked) setFilters((current) => ({ ...current, location: value })); }}
+                  placeholder={isLocationLocked ? (locationOptions.options[0]?.label || 'Assigned Location') : 'All Locations'}
                   loading={locationOptions.loading}
                   error={locationOptions.error}
                 />

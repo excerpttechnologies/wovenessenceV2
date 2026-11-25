@@ -32,6 +32,7 @@ export default function StockTransferPacketForm({ cfg, id }) {
   const isEdit = Boolean(id);
 
   const [locations, setLocations] = useState([]);
+  const [destLocations, setDestLocations] = useState([]);
   const [stockPoints, setStockPoints] = useState([]);
 
   const [fromLocationId, setFromLocationId] = useState('');
@@ -51,16 +52,20 @@ export default function StockTransferPacketForm({ cfg, id }) {
 
   /* ------------------------------------------------- locations in scope -- */
   useEffect(() => {
-    if (!scope.business) { setLocations([]); return; }
+    if (!scope.business) { setLocations([]); setDestLocations([]); return; }
     fetch('/api/options?ref=companylocations&business=' + scope.business)
       .then((r) => r.json())
       .then((d) => setLocations(d.options || []))
       .catch(() => setLocations([]));
+    fetch('/api/options?ref=companylocations&transferTarget=1&business=' + scope.business)
+      .then((r) => r.json())
+      .then((d) => setDestLocations(d.options || []))
+      .catch(() => setDestLocations([]));
   }, [scope.business]);
 
   useEffect(() => {
     if (!scope.business) { setStockPoints([]); return; }
-    fetch('/api/options?ref=stockpoint&business=' + scope.business)
+    fetch('/api/options?ref=stockpoint&transferTarget=1&business=' + scope.business)
       .then((r) => r.json())
       .then((d) => setStockPoints(d.options || []))
       .catch(() => setStockPoints([]));
@@ -72,10 +77,10 @@ export default function StockTransferPacketForm({ cfg, id }) {
   }, [scope.location, isEdit, fromLocationId]);
 
   /* GSTIN + address follow whichever location is chosen on each side */
-  const loadLocationInfo = useCallback(async (locId, set) => {
+  const loadLocationInfo = useCallback(async (locId, set, transferTarget = false) => {
     if (!locId) { set({ gstin: '', address: '' }); return; }
     try {
-      const r = await fetch('/api/company-location/' + locId);
+      const r = await fetch('/api/company-location/' + locId + (transferTarget ? '?transferTarget=1' : ''));
       const { doc } = await r.json();
       if (!doc) return;
       set({
@@ -85,8 +90,8 @@ export default function StockTransferPacketForm({ cfg, id }) {
     } catch { /* leave the two boxes as they are */ }
   }, []);
 
-  useEffect(() => { loadLocationInfo(fromLocationId, setFromInfo); }, [fromLocationId, loadLocationInfo]);
-  useEffect(() => { loadLocationInfo(toLocationId, setToInfo); }, [toLocationId, loadLocationInfo]);
+  useEffect(() => { loadLocationInfo(fromLocationId, setFromInfo, false); }, [fromLocationId, loadLocationInfo]);
+  useEffect(() => { loadLocationInfo(toLocationId, setToInfo, true); }, [toLocationId, loadLocationInfo]);
 
   /* ------------------------------------------------------- load on edit -- */
   useEffect(() => {
@@ -253,12 +258,13 @@ export default function StockTransferPacketForm({ cfg, id }) {
             onPick={(v) => { setFromLocationId(v); setErrors((e) => ({ ...e, fromLocationId: undefined })); }}
             gstn={fromInfo.gstin}
             address={fromInfo.address}
+            disabled={scope.isLocationLocked}
             error={errors.fromLocationId}
           />
 
           <TransferLocationPanel
             title="Transfer To"
-            locations={locations.filter((o) => o.value !== fromLocationId)}
+            locations={(destLocations.length ? destLocations : locations).filter((o) => o.value !== fromLocationId)}
             value={toLocationId}
             onPick={(v) => { setToLocationId(v); setErrors((e) => ({ ...e, toLocationId: undefined })); }}
             gstn={toInfo.gstin}

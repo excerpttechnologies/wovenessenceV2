@@ -4,6 +4,7 @@ import StockTransferLocation from '@/models/StockTransferLocation';
 import StockTransferReceived from '@/models/StockTransferReceived';
 import DeliveryChallan from '@/models/DeliveryChallan';
 import { nextDocNumber } from '@/lib/docnumber';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 const json = (d, s = 200) => Response.json(d, { status: s });
 
@@ -19,6 +20,10 @@ export async function POST(req) {
   try {
     const stl = await StockTransferLocation.findById(stockTransferLocationId).lean();
     if (!stl) return json({ error: 'Stock transfer location not found' }, 404);
+    const locDenied = await assertDocumentLocationAccess(session, stl, {
+      locationKeys: ['fromLocationId', 'toLocationId', 'locationId'],
+    });
+    if (locDenied) return locDenied;
 
     const received = await StockTransferReceived.findOne({
       stockTransferLocationId: stl._id,
@@ -96,6 +101,10 @@ export async function GET(req) {
     if (!challan) {
       return json({ challan: null });
     }
+    const locDenied = await assertDocumentLocationAccess(session, challan, {
+      locationKeys: ['fromLocationId', 'toLocationId', 'locationId'],
+    });
+    if (locDenied) return locDenied;
 
     return json({ challan });
   } catch (error) {

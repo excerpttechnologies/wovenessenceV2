@@ -5,6 +5,7 @@ import { requireSession } from '@/lib/session';
 import { validate } from '@/lib/validate';
 import { FIELDS, DERIVED_FIELDS, freightBreakdown } from '@/app/admin/transport/delivery/fields';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 /* /api/delivery/<id> - read one, update, delete. */
 
@@ -20,6 +21,8 @@ export async function GET(req, { params }) {
 
   const doc = await Delivery.findById(id).lean();
   if (!doc) return json({ doc: null }, 404);
+  const locDenied = await assertDocumentLocationAccess(session, doc);
+  if (locDenied) return locDenied;
   /* Roles & Permissions (17-10-2026): Goods Received -> Read */
   const denied = await screenDenial({ session, ...GR, action: PERM.READ, businessId: doc.businessId });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
@@ -36,8 +39,10 @@ export async function PUT(req, { params }) {
 
   /* Roles & Permissions (17-10-2026): Goods Received -> Update, against
      the record's own business (a missing record still answers 404 below) */
-  const existing = isValidObjectId(id) ? await Delivery.findById(id).select('businessId').lean() : null;
+  const existing = isValidObjectId(id) ? await Delivery.findById(id).select('businessId locationId').lean() : null;
   if (existing) {
+    const locDenied = await assertDocumentLocationAccess(session, existing);
+    if (locDenied) return locDenied;
     const denied = await screenDenial({ session, ...GR, action: PERM.UPDATE, businessId: existing.businessId });
     if (denied) return json({ error: denied.message, code: denied.code }, 403);
   }
@@ -88,8 +93,10 @@ export async function DELETE(req, { params }) {
   await dbConnect();
 
   /* Roles & Permissions (17-10-2026): Goods Received -> Delete */
-  const existing = isValidObjectId(id) ? await Delivery.findById(id).select('businessId').lean() : null;
+  const existing = isValidObjectId(id) ? await Delivery.findById(id).select('businessId locationId').lean() : null;
   if (existing) {
+    const locDenied = await assertDocumentLocationAccess(session, existing);
+    if (locDenied) return locDenied;
     const denied = await screenDenial({ session, ...GR, action: PERM.DELETE, businessId: existing.businessId });
     if (denied) return json({ error: denied.message, code: denied.code }, 403);
   }

@@ -22,7 +22,9 @@
 // //   const sp = new URL(req.url).searchParams;
 // //   await dbConnect();
 
-// //   const { businessId, locationId, finYear } = scopeOf(sp);
+// //   const scope = await requireReportScope(session, sp);
+// //   if (!scope.ok) return scope.response;
+// //   const { businessId, locationId, locationIds, locationFilter, finYear, access } = scope;
 // //   const { page, perPage } = pageOf(sp);
 
 // //   const itemCode = String(sp.get('itemCode') || '').trim();
@@ -139,7 +141,9 @@
 //   const sp = new URL(req.url).searchParams;
 //   await dbConnect();
 
-//   const { businessId, locationId, finYear } = scopeOf(sp);
+//   const scope = await requireReportScope(session, sp);
+//   if (!scope.ok) return scope.response;
+//   const { businessId, locationId, locationIds, locationFilter, finYear, access } = scope;
 //   const { page, perPage } = pageOf(sp);
 
 //   const itemCode = String(sp.get('itemCode') || '').trim();
@@ -285,7 +289,7 @@ import Grc from '@/models/Grc';
 import Item from '@/models/Item';
 import ProductGroup from '@/models/ProductGroup';
 import { Supplier } from '@/lib/contacts';
-import { json, num, r2, scopeOf, pageOf } from '@/lib/reports';
+import { json, num, r2, requireReportScope, pageOf } from '@/lib/reports';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { erpImageForBarcode, imageUrl } from '@/lib/inventory';
 
@@ -341,7 +345,9 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
-  const { businessId, locationId, finYear } = scopeOf(sp);
+  const scope = await requireReportScope(session, sp);
+  if (!scope.ok) return scope.response;
+  const { businessId, locationId, locationIds, locationFilter, finYear, access } = scope;
   /* a page number / size that is not one (0, "abc") is the first page of
      the usual size - never NaN or Infinity pages */
   const asked = pageOf(sp);
@@ -410,9 +416,23 @@ export async function GET(req) {
   if (itemCode) filter.itemCode = { $regex: escapeRegex(itemCode), $options: 'i' };
     if (supplierId) filter.supplierId = supplierId;
   if (finYear) filter.finYear = { $in: [finYear, '', null] };
-  if (locationId) filter.locationId = { $in: [String(locationId), '', null] };
 
-   const reportFilters = [];
+  const reportFilters = [];
+  if (access.isRestricted) {
+    const locList = locationId ? [String(locationId)] : locationIds.map(String);
+    if (locList.length) {
+      reportFilters.push({
+        $or: [
+          { currentLocationId: { $in: locList } },
+          { currentLocationId: null, locationId: { $in: locList } },
+          { currentLocationId: { $exists: false }, locationId: { $in: locList } },
+        ],
+      });
+    }
+  } else if (locationId) {
+    filter.locationId = { $in: [String(locationId), '', null] };
+  }
+
   if (itemBarcodeReport && itemId) {
     const item = await Item.findOne({ _id: itemId, businessId }).select('itemCode name').lean();
     const itemKeys = item ? [item.itemCode, item.name].filter(Boolean) : [];
@@ -421,7 +441,8 @@ export async function GET(req) {
       : { _id: null });
   }
   const grcScope = { businessId };
-  if (locationId) grcScope.locationId = locationId;
+  if (locationFilter) grcScope.locationId = locationFilter;
+  else if (locationId) grcScope.locationId = locationId;
   if (finYear) grcScope.finYear = { $in: [finYear, '', null] };
   if (grcNo) {
     const expression = { $regex: escapeRegex(grcNo), $options: 'i' };

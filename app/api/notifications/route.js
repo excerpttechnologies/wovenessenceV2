@@ -1,6 +1,7 @@
 import { isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 import Grc from '@/models/Grc';
 import Grt from '@/models/Grt';
@@ -136,10 +137,10 @@ const SOURCES = [
   },
 ];
 
-function scope({ business, location, finYear }) {
+function scope({ business, location, businessFilter, locationFilter, finYear }) {
   return {
-    ...(business ? { businessId: business } : {}),
-    ...(location ? { locationId: location } : {}),
+    ...(businessFilter ? { businessId: businessFilter } : business ? { businessId: business } : {}),
+    ...(locationFilter ? { locationId: locationFilter } : location ? { locationId: location } : {}),
     ...(finYear ? { finYear } : {}),
   };
 }
@@ -151,13 +152,19 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   const b = sp.get('business');
   const l = sp.get('location');
-  const ctx = {
-    business: b && isValidObjectId(b) ? b : null,
-    location: l && isValidObjectId(l) ? l : null,
-    finYear: sp.get('finYear') || '',
-  };
 
   await dbConnect();
+
+  const authScope = await resolveAuthorizedScope(session, { businessId: b, locationId: l });
+  if (!authScope.ok) return scopeErrorResponse(authScope);
+
+  const ctx = {
+    business: authScope.businessId || null,
+    location: authScope.locationId || null,
+    businessFilter: authScope.businessFilter,
+    locationFilter: authScope.locationFilter,
+    finYear: sp.get('finYear') || '',
+  };
 
   const counted = await Promise.all(SOURCES.map(async (s) => {
     const filter = s.where(ctx);

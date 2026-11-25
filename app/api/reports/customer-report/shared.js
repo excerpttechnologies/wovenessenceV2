@@ -3,6 +3,7 @@ import { Customer } from '@/lib/contacts';
 import CompanyLocation from '@/models/CompanyLocation';
 import PosInvoice from '@/models/PosInvoice';
 import SalesInvoice from '@/models/SalesInvoice';
+import { resolveAuthorizedScope } from '@/lib/locationAccess';
 
 const excludedDocument = {
   $and: [
@@ -76,13 +77,13 @@ function dateExpression(sp) {
     : {};
 }
 
-export function reportRequest(sp) {
+export function reportRequest(sp, { requireCustomer = true } = {}) {
   const business = sp.get('business');
   const customerId = sp.get('customerId');
   if (!business || !isValidObjectId(business)) {
     return { error: 'A valid company is required.', status: 400 };
   }
-  if (!customerId || !isValidObjectId(customerId)) {
+  if (requireCustomer && (!customerId || !isValidObjectId(customerId))) {
     return { error: 'A valid customer is required.', status: 400 };
   }
 
@@ -99,10 +100,28 @@ export function reportRequest(sp) {
 
   return {
     businessId: new Types.ObjectId(business),
-    customerId: new Types.ObjectId(customerId),
+    customerId: customerId && isValidObjectId(customerId) ? new Types.ObjectId(customerId) : null,
     locationId: location ? new Types.ObjectId(location) : null,
     finYear,
     dateMatch: dateExpression(sp),
+  };
+}
+
+export async function authorizedReportRequest(session, sp, opts = {}) {
+  const base = reportRequest(sp, opts);
+  if (base.error) return base;
+  const auth = await resolveAuthorizedScope(session, {
+    businessId: String(base.businessId),
+    locationId: sp.get('location') || '',
+    asObjectId: true,
+  });
+  if (!auth.ok) {
+    return { error: auth.error, status: auth.status || 403, code: auth.code };
+  }
+  return {
+    ...base,
+    locationFilter: auth.locationFilter,
+    locationId: auth.locationId || null,
   };
 }
 
@@ -112,11 +131,12 @@ export async function customerInBusiness(customerId, businessId) {
     .lean();
 }
 
-export function invoiceMatch({ businessId, customerId, locationId, finYear, dateMatch }) {
+export function invoiceMatch({ businessId, customerId, locationFilter, locationId, finYear, dateMatch }) {
+  const loc = locationFilter ?? locationId;
   return {
     businessId,
     customerId,
-    ...(locationId ? { locationId } : {}),
+    ...(loc ? { locationId: loc } : {}),
     ...(finYear ? { finYear } : {}),
     ...excludedDocument,
     ...dateMatch,

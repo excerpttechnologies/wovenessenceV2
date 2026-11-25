@@ -12,6 +12,7 @@ import { applyStoreTotals, GST_MODE } from '@/lib/storeSell';
 import { shipStoreStock, assertStoreStockAvailable, StoreStockError } from '@/lib/storeStock';
 import { isDestinationStore, businessOfLocation } from '@/lib/storeLocations';
 import { listStoreDocs } from '@/lib/storeDocList';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 /* /api/is-delivery-challan - list + create for Inter Store Sell.
 
@@ -54,8 +55,14 @@ export async function POST(req) {
   const body = await req.json();
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: body.business,
+    locationId: body.location,
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   const denied = await screenDenial({
-    session, ...SCREEN, action: PERM.CREATE, businessId: body.business,
+    session, ...SCREEN, action: PERM.CREATE, businessId: scope.businessId || body.business,
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 

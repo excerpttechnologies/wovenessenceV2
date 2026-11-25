@@ -4,7 +4,7 @@ import { requireSession } from '@/lib/session';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import Voucher from '@/models/Voucher';
 import {
-  json, num, r2, scopeOf, scopeFilter, dateRange, pageOf, paged,
+  json, num, r2, requireReportScope, scopeFilter, dateRange, pageOf, paged,
   ledgerBuckets, bucketFor,
 } from '@/lib/reports';
 
@@ -31,7 +31,8 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
-  const scope = scopeOf(sp);
+  const scope = await requireReportScope(session, sp);
+  if (!scope.ok) return scope.response;
   const denied = await screenDenial({ session, screen: SCREENS.PAYMENT_VOUCHER_REPORT, action: PERM.READ, businessId: scope.businessId, label: 'the payment voucher report' });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
   const { page, perPage } = pageOf(sp);

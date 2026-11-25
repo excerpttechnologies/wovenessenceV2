@@ -7,6 +7,7 @@ import { resolveRefLabels } from '@/lib/refLabels';
 import { escapeRegex } from '@/lib/validate';
 import { nextDocNumber } from '@/lib/docnumber';
 import { sortedPage } from '@/lib/listSort';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 /* /api/stock-transfer-received
 
@@ -34,12 +35,18 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: sp.get('business'),
+    locationId: sp.get('location'),
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   const page = Math.max(1, Number(sp.get('page') || 1));
   const perPage = Math.min(500, Number(sp.get('perPage') || PER_PAGE));
 
   const filter = {};
-  const b = sp.get('business'); if (b && isValidObjectId(b)) filter.businessId = b;
-  const l = sp.get('location'); if (l && isValidObjectId(l)) filter.locationId = l;
+  if (scope.businessFilter) filter.businessId = scope.businessFilter;
+  if (scope.locationFilter) filter.locationId = scope.locationFilter;
   const y = sp.get('finYear'); if (y) filter.finYear = y;
 
   const search = (sp.get('search') || '').trim();
@@ -79,13 +86,19 @@ export async function POST(req) {
   const body = await req.json();
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: body.business,
+    locationId: body.location,
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   const transferId = body.stockTransferLocationId;
   if (!transferId || !isValidObjectId(transferId)) {
     return json({ error: 'Pick a transfer to receive.' }, 422);
   }
 
-  const businessId = isValidObjectId(body.business) ? body.business : null;
-  const locationId = isValidObjectId(body.location) ? body.location : null;
+  const businessId = scope.businessId || (isValidObjectId(body.business) ? body.business : null);
+  const locationId = scope.locationId || (isValidObjectId(body.location) ? body.location : null);
   const finYear = body.finYear || '';
   if (!businessId) return json({ error: 'No business selected.' }, 422);
   if (!locationId) return json({ error: 'No location selected.' }, 422);

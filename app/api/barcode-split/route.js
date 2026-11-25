@@ -6,6 +6,7 @@ import { requirePermission, PERMISSIONS } from '@/lib/rbac';
 import { handler } from '@/lib/apiError';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { createSplit, splitListFilter } from '@/lib/barcodeSplit';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 /* /api/barcode-split - list splits and create one (Draft or Finalized). */
 
@@ -19,15 +20,23 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: sp.get('business'),
+    locationId: sp.get('location'),
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   const denied = await screenDenial({
     session, screen: SCREENS.BARCODE_SPLIT, action: PERM.READ,
-    businessId: sp.get('business'), label: 'barcode splits',
+    businessId: scope.businessId || sp.get('business'), label: 'barcode splits',
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const page = Math.max(1, Number(sp.get('page') || 1));
   const perPage = Math.min(200, Number(sp.get('perPage') || PER_PAGE));
   const filter = splitListFilter(sp);
+  if (scope.businessFilter) filter.businessId = scope.businessFilter;
+  if (scope.locationFilter) filter.locationId = scope.locationFilter;
 
   const total = await BarcodeSplit.countDocuments(filter);
   const rows = await BarcodeSplit.find(filter)
@@ -58,15 +67,21 @@ export const POST = handler(async (req) => {
   });
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: body.business,
+    locationId: body.location,
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   const denied = await screenDenial({
     session, screen: SCREENS.BARCODE_SPLIT, action: PERM.CREATE,
-    businessId: body.business, label: 'barcode splits',
+    businessId: scope.businessId || body.business, label: 'barcode splits',
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
-  const businessId = body.business && isValidObjectId(String(body.business))
+  const businessId = scope.businessId || (body.business && isValidObjectId(String(body.business))
     ? body.business
-    : session?.businessId || null;
+    : session?.businessId || null);
 
   const result = await createSplit({ businessId, body, session });
   return json({ ok: true, ...result }, 201);

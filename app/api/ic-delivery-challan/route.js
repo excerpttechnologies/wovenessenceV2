@@ -14,6 +14,7 @@ import { checkRoute } from '@/lib/icRouting';
 import { shipChallanStock, IcStockError } from '@/lib/icStock';
 import { FIELDS, TOTAL_KEYS, computeTotals } from '@/app/admin/transaction/intercompanysell/deliverychallan/fields';
 import { sortedPage } from '@/lib/listSort';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 /* /api/ic-delivery-challan - list + create. */
 
@@ -103,10 +104,16 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: sp.get('business'),
+    locationId: sp.get('location'),
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   /* Only refuses when this role has a saved permission matrix that withholds
      it - see lib/screenPermission.js. */
   const denied = await screenDenial({
-    session, ...IC_DC, action: PERM.READ, businessId: sp.get('business'),
+    session, ...IC_DC, action: PERM.READ, businessId: scope.businessId || sp.get('business'),
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
@@ -114,8 +121,8 @@ export async function GET(req) {
   const perPage = Math.min(500, Number(sp.get('perPage') || PER_PAGE));
 
   const filter = {};
-  const b = sp.get('business'); if (b && isValidObjectId(b)) filter.businessId = b;
-  const l = sp.get('location'); if (l && isValidObjectId(l)) filter.locationId = l;
+  if (scope.businessFilter) filter.businessId = scope.businessFilter;
+  if (scope.locationFilter) filter.locationId = scope.locationFilter;
   const y = sp.get('finYear'); if (y) filter.finYear = y;
 
   /* the Sales Invoice picker asks for one destination at a time */
@@ -199,11 +206,15 @@ export async function GET(req) {
      driver with no casting, so the same strings never match an ObjectId
      field. That is why the count was right while the quantity came back 0. */
   const idFields = ['businessId', 'locationId', 'toBusinessId', 'toLocationId'];
-  const matchIds = Object.fromEntries(Object.entries(summaryFilter).map(([k, v]) => (
-    idFields.includes(k) && typeof v === 'string' && isValidObjectId(v)
-      ? [k, new Types.ObjectId(v)]
-      : [k, v]
-  )));
+  const toOid = (v) => (typeof v === 'string' && isValidObjectId(v) ? new Types.ObjectId(v) : v);
+  const matchIds = Object.fromEntries(Object.entries(summaryFilter).map(([k, v]) => {
+    if (!idFields.includes(k)) return [k, v];
+    if (typeof v === 'string') return [k, toOid(v)];
+    if (v && typeof v === 'object' && Array.isArray(v.$in)) {
+      return [k, { ...v, $in: v.$in.map(toOid) }];
+    }
+    return [k, v];
+  }));
 
   const [sums] = await IcDeliveryChallan.aggregate([
     { $match: matchIds },
@@ -244,8 +255,14 @@ export async function POST(req) {
   const body = await req.json();
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: body.business,
+    locationId: body.location,
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   const denied = await screenDenial({
-    session, ...IC_DC, action: PERM.CREATE, businessId: body.business,
+    session, ...IC_DC, action: PERM.CREATE, businessId: scope.businessId || body.business,
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
@@ -256,8 +273,8 @@ export async function POST(req) {
     return json({ errors: { items: 'Add at least one item' } }, 422);
   }
 
-  if (body.business && isValidObjectId(body.business)) doc.businessId = body.business;
-  if (body.location && isValidObjectId(body.location)) doc.locationId = body.location;
+  if (scope.businessId) doc.businessId = scope.businessId;
+  if (scope.locationId) doc.locationId = scope.locationId;
   if (body.finYear) doc.finYear = body.finYear;
 
   /* Branch to branch, directly. Checked here as well as in the dropdown

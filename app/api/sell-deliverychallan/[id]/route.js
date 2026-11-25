@@ -5,6 +5,7 @@ import { requireSession } from '@/lib/session';
 import { validate } from '@/lib/validate';
 import { resolveRefLabels } from '@/lib/refLabels';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 /* Permission gate for this screen.
 
@@ -44,6 +45,9 @@ export async function GET(req, { params }) {
   const doc = await DeliveryChallan.findById(id).lean();
   if (!doc) return json({ doc: null }, 404);
 
+  const locDenied = await assertDocumentLocationAccess(session, doc);
+  if (locDenied) return locDenied;
+
   /* Scoped to the challan's own business, not to whichever business the
      screen happens to be switched to. */
   const denied = await screenDenial({
@@ -73,9 +77,12 @@ export async function PUT(req, { params }) {
   /* Read first only to learn which business owns it, then decide permission
      BEFORE validating. */
   const current = isValidObjectId(id)
-    ? await DeliveryChallan.findById(id, { businessId: 1 }).lean()
+    ? await DeliveryChallan.findById(id, { businessId: 1, locationId: 1 }).lean()
     : null;
   if (!current) return json({ error: 'Not found' }, 404);
+
+  const locDenied = await assertDocumentLocationAccess(session, current);
+  if (locDenied) return locDenied;
 
   const denied = await screenDenial({
     session, ...SELL_DC, action: PERM.UPDATE, businessId: body.business || current.businessId,
@@ -106,9 +113,12 @@ export async function DELETE(req, { params }) {
   /* Already gone is still a success, exactly as before - the guard only has
      something to say when there is a record to protect. */
   const existing = isValidObjectId(id)
-    ? await DeliveryChallan.findById(id, { businessId: 1 }).lean()
+    ? await DeliveryChallan.findById(id, { businessId: 1, locationId: 1 }).lean()
     : null;
   if (!existing) return json({ ok: true });
+
+  const locDenied = await assertDocumentLocationAccess(session, existing);
+  if (locDenied) return locDenied;
 
   const denied = await screenDenial({
     session, ...SELL_DC, action: PERM.DELETE, businessId: existing.businessId,

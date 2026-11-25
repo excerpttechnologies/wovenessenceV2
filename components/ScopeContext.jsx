@@ -101,8 +101,8 @@ const locationKey = (businessId) => 'orbit.location.' + businessId;
 export function ScopeProvider({ children }) {
   const [businesses, setBusinesses] = useState([]);
   const [locations, setLocations] = useState([]);
-  const [business, setBusiness] = useState('');
-  const [location, setLocation] = useState('');
+  const [business, setBusinessState] = useState('');
+  const [location, setLocationState] = useState('');
   const [finYear, setFinYear] = useState(FIN_YEARS[0]);
   const [user, setUser] = useState(null);
 
@@ -138,42 +138,48 @@ export function ScopeProvider({ children }) {
   const [locationsFor, setLocationsFor] = useState(null);
   const locationReady = locationsFor === business;
 
-  useEffect(() => {
-    fetch('/api/auth/me')
+  const isRestricted = Boolean(
+    user?.isRestricted || (Array.isArray(user?.locationIds) && user.locationIds.length > 0)
+  );
+  const isLocationLocked = Boolean(
+    user?.isLocationLocked ||
+    (isRestricted && ((locationsFor === business && locations.length <= 1) || (user?.allowedLocationIds?.length === 1)))
+  );
+  const isCompanyLocked = Boolean(
+    isRestricted && ((businessReady && businesses.length <= 1) || (user?.allowedBusinessIds?.length === 1))
+  );
+
+  const fetchMe = useCallback(() => (
+    fetch('/api/auth/me', { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : { user: null }))
       .then((d) => setUser(d.user))
       .catch(() => {})
-      .finally(() => setUserReady(true));
-  }, []);
+  ), []);
 
   useEffect(() => {
-    fetch('/api/options?ref=business')
+    fetchMe().finally(() => setUserReady(true));
+  }, [fetchMe]);
+
+  useEffect(() => {
+    fetch('/api/options?ref=business', { cache: 'no-store' })
       .then((r) => r.json())
       .then((d) => {
         const list = d.options || [];
         setBusinesses(list);
-        /* The branch the operator last selected wins, looked up by id in
-           the list that just came back. This provider is mounted by the
-           /admin layout, so it remounts on every hard load - a refresh, or
-           the redirect out of /login - and with no restore step each of those
-           silently re-selected the main branch. Switching to any other branch
-           therefore looked like it reverted on its own.
-
-           Only then the main branch: /api/options flags it with isDefault and
-           sorts it first, which is the right landing place on a first visit.
-           list[0] is the last resort, for a database where no branch carries
-           the flag. */
         const saved = localStorage.getItem(BUSINESS_KEY);
         const remembered = list.find((o) => o.value === saved)?.value;
+        if (saved && !remembered && list.length > 0) {
+          localStorage.removeItem(BUSINESS_KEY);
+        }
         const main = list.find((o) => o.isDefault);
-        setBusiness(remembered || main?.value || list[0]?.value || '');
+        setBusinessState(remembered || main?.value || list[0]?.value || '');
       })
       .catch(() => {})
       .finally(() => setBusinessReady(true));
   }, []);
 
   useEffect(() => {
-    if (!business) { setLocations([]); setLocation(''); setLocationsFor(business); return; }
+    if (!business) { setLocations([]); setLocationState(''); setLocationsFor(business); return; }
     let cancelled = false;
     setLocationsFor(null);
     fetch('/api/options?ref=companylocations&business=' + encodeURIComponent(business), { cache: 'no-store' })
@@ -183,34 +189,48 @@ export function ScopeProvider({ children }) {
         const list = Array.isArray(d.options) ? d.options : [];
         setLocations(list);
         const saved = localStorage.getItem(locationKey(business));
-        
-        /* Auto-select TEMPLE FABRICS WAREHOUSE on first load, but allow
-           switching to other locations. The saved location is restored if
-           it exists in the current business's location list. Otherwise,
-           default to TEMPLE FABRICS WAREHOUSE if available, or fall back
-           to the first location. */
+        if (saved && !list.some((o) => o.value === saved)) {
+          localStorage.removeItem(locationKey(business));
+        }
+
         let pick = '';
-        if (saved && list.some((o) => o.value === saved)) {
+        if (list.length === 1) {
+          pick = list[0].value;
+        } else if (saved && list.some((o) => o.value === saved)) {
           pick = saved;
+        } else if (user?.defaultLocationId && list.some((o) => o.value === user.defaultLocationId)) {
+          pick = user.defaultLocationId;
         } else {
-          const warehouse = list.find((o) => 
+          const warehouse = list.find((o) =>
             o.label && o.label.toUpperCase().includes('TEMPLE FABRICS WAREHOUSE')
           );
           pick = warehouse?.value || list[0]?.value || '';
         }
-        setLocation(pick);
+        setLocationState(pick);
       })
       .catch(() => {
         if (!cancelled) {
           setLocations([]);
-          setLocation('');
+          setLocationState('');
         }
       })
       .finally(() => {
         if (!cancelled) setLocationsFor(business);
       });
     return () => { cancelled = true; };
-  }, [business]);
+  }, [business, user?.defaultLocationId]);
+
+  const setBusiness = useCallback((next) => {
+    if (isCompanyLocked) return;
+    if (next && businesses.length > 0 && !businesses.some((b) => b.value === next)) return;
+    setBusinessState(next);
+  }, [isCompanyLocked, businesses]);
+
+  const setLocation = useCallback((next) => {
+    if (isLocationLocked) return;
+    if (next && locationsFor === business && locations.length > 0 && !locations.some((l) => l.value === next)) return;
+    setLocationState(next);
+  }, [isLocationLocked, locationsFor, business, locations]);
 
   /* Re-read on every business change: permissions are stored per business,
      so the same role can be allowed more in one branch than another. */
@@ -253,11 +273,12 @@ export function ScopeProvider({ children }) {
     const onVisibility = () => {
       if (document.visibilityState !== 'visible') return;
       if (Date.now() - lastPermFetchAt.current < 5000) return;
+      fetchMe();
       refreshPermissions({ showLoading: false });
     };
     document.addEventListener('visibilitychange', onVisibility);
     return () => document.removeEventListener('visibilitychange', onVisibility);
-  }, [businessReady, refreshPermissions]);
+  }, [businessReady, refreshPermissions, fetchMe]);
 
   useEffect(() => { if (business) localStorage.setItem(BUSINESS_KEY, business); }, [business]);
 
@@ -289,8 +310,9 @@ export function ScopeProvider({ children }) {
     user, userReady,
     businesses, locations, business, location, finYear,
     businessReady, locationReady, permsReady,
+    isRestricted, isLocationLocked, isCompanyLocked,
     setBusiness, setLocation, setFinYear,
-    perms, can, refreshPermissions,
+    perms, can, refreshPermissions, refreshScope: fetchMe,
     // appended to every list/save request
     query: () => new URLSearchParams({ business, location, finYear }).toString(),
   };

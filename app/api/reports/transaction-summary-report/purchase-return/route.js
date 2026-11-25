@@ -4,7 +4,7 @@ import { requireSession } from '@/lib/session';
 import Grt from '@/models/Grt';
 import { Supplier } from '@/lib/contacts';
 import { BarcodeLabel } from '@/lib/barcodeLabel';
-import { json, num, r2, scopeOf, scopeFilter, dateRange } from '@/lib/reports';
+import { json, num, r2, requireReportScope, scopeFilter, dateRange } from '@/lib/reports';
 
 function itemValue(item, qty, rate) {
   return r2(num(item.netAmount) || num(item.amount) || num(item.Amount) || qty * rate);
@@ -22,7 +22,9 @@ export async function GET(req) {
   if (!session) return json({ error: 'Unauthorized' }, 401);
 
   const sp = new URL(req.url).searchParams;
-  const scope = scopeOf(sp);
+  await dbConnect();
+  const scope = await requireReportScope(session, sp);
+  if (!scope.ok) return scope.response;
   if (!scope.businessId) return json({ error: 'Select a business to view purchase return lines.' }, 422);
 
   const fromDate = sp.get('fromDate');
@@ -32,7 +34,6 @@ export async function GET(req) {
     return json({ error: 'Enter valid report dates.' }, 422);
   }
 
-  await dbConnect();
   const documents = await Grt.find({
     ...scopeFilter(scope),
     ...dateRange(sp, 'grtDate'),

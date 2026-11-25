@@ -2,6 +2,7 @@ import dbConnect from '@/lib/db';
 import B2bInvoice from '@/models/B2bInvoice';
 import { requireSession } from '@/lib/session';
 import { validate } from '@/lib/validate';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 const FIELDS = [];
 
 /* /api/sell-b2binvoice/<id> - read one, update, delete. */
@@ -17,6 +18,8 @@ export async function GET(req, { params }) {
 
   const doc = await B2bInvoice.findById(id).lean();
   if (!doc) return json({ doc: null }, 404);
+  const locDenied = await assertDocumentLocationAccess(session, doc);
+  if (locDenied) return locDenied;
   return json({ doc: { ...doc, _id: String(doc._id) } });
 }
 
@@ -27,6 +30,11 @@ export async function PUT(req, { params }) {
   const { id } = await params;
   const body = await req.json();
   await dbConnect();
+
+  const existing = await B2bInvoice.findById(id).select('businessId locationId').lean();
+  if (!existing) return json({ error: 'Not found' }, 404);
+  const locDenied = await assertDocumentLocationAccess(session, existing);
+  if (locDenied) return locDenied;
 
   const { errors, doc, ok } = validate(FIELDS, body.data || {});
   if (!ok) return json({ errors }, 422);
@@ -48,6 +56,12 @@ export async function DELETE(req, { params }) {
 
   const { id } = await params;
   await dbConnect();
+
+  const existing = await B2bInvoice.findById(id).select('businessId locationId').lean();
+  if (existing) {
+    const locDenied = await assertDocumentLocationAccess(session, existing);
+    if (locDenied) return locDenied;
+  }
 
   await B2bInvoice.findByIdAndDelete(id);
   return json({ ok: true });

@@ -13,6 +13,7 @@ const VOUCHER_SCREENS = {
 import { nextSeriesNumber } from '@/lib/docnumber';
 import { SPECS, ROLE_SIDE, totalsOf, num, r2 } from '@/app/admin/voucher/fields';
 import { sortedPage } from '@/lib/listSort';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 /* /api/voucher?type=Receipt - list + create.
 
@@ -38,9 +39,15 @@ export async function GET(req) {
 
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: sp.get('business'),
+    locationId: sp.get('location'),
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   const screen = VOUCHER_SCREENS[type];
   if (screen) {
-    const denied = await screenDenial({ session, screen, action: PERM.READ, businessId: sp.get('business'), label: `${type} vouchers` });
+    const denied = await screenDenial({ session, screen, action: PERM.READ, businessId: scope.businessId || sp.get('business'), label: `${type} vouchers` });
     if (denied) return json({ error: denied.message, code: denied.code }, 403);
   }
 
@@ -48,8 +55,8 @@ export async function GET(req) {
   const perPage = Math.min(500, Number(sp.get('perPage') || PER_PAGE));
 
   const filter = { type };
-  const b = sp.get('business'); if (b && isValidObjectId(b)) filter.businessId = b;
-  const l = sp.get('location'); if (l && isValidObjectId(l)) filter.locationId = l;
+  if (scope.businessFilter) filter.businessId = scope.businessFilter;
+  if (scope.locationFilter) filter.locationId = scope.locationFilter;
   const y = sp.get('finYear'); if (y) filter.finYear = y;
 
   const no = (sp.get('voucherNo') || '').trim();
@@ -117,8 +124,17 @@ export async function POST(req) {
 
   await dbConnect();
 
-  const businessId = isValidObjectId(body.business) ? body.business : null;
-  const locationId = isValidObjectId(body.location) ? body.location : null;
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: body.business,
+    locationId: body.location,
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+  if (!scope.access.unrestricted && !scope.locationId) {
+    return json({ error: 'Please select an authorized location.', code: 'LOCATION_REQUIRED' }, 422);
+  }
+
+  const businessId = scope.businessId || (isValidObjectId(body.business) ? body.business : null);
+  const locationId = scope.locationId || (isValidObjectId(body.location) ? body.location : null);
   const finYear = body.finYear || '';
   if (!businessId) return json({ error: 'No business selected.' }, 422);
 

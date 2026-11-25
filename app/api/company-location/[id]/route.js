@@ -6,6 +6,7 @@ import { FIELDS } from '@/app/admin/setting/companylocations/fields';
 import {
   screenDenial, screenDenialAny, SCREENS, ACTIONS as PERM, LOCATION_HEADER_SCREENS,
 } from '@/lib/screenPermission';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 const LOCATION = { screen: SCREENS.COMPANY_LOCATION, label: 'company locations' };
 
@@ -18,10 +19,37 @@ export async function GET(req, { params }) {
   if (!session) return json({ error: 'Unauthorized' }, 401);
 
   const { id } = await params;
+  const sp = new URL(req.url).searchParams;
   await dbConnect();
 
   const doc = await CompanyLocation.findById(id).lean();
   if (!doc) return json({ doc: null }, 404);
+
+  if (sp.get('transferTarget') === '1') {
+    const denied = await screenDenialAny({
+      session, screens: LOCATION_HEADER_SCREENS, action: PERM.READ,
+      businessId: doc.businessId, label: 'company locations',
+    });
+    if (denied) return json({ error: denied.message, code: denied.code }, 403);
+    return json({
+      doc: {
+        _id: String(doc._id),
+        name: doc.name,
+        businessId: doc.businessId ? String(doc.businessId) : '',
+        gstin: doc.gstin || '',
+        addressLine1: doc.addressLine1 || '',
+        addressLine2: doc.addressLine2 || '',
+        city: doc.city || '',
+        stateCode: doc.stateCode || '',
+      },
+    });
+  }
+
+  const locDenied = await assertDocumentLocationAccess(session, {
+    locationId: doc._id,
+    businessId: doc.businessId,
+  });
+  if (locDenied) return locDenied;
 
   /* READING ONE LOCATION IS ALSO A DOCUMENT HEADER. The stock-transfer packet
      and location forms fetch the branch by id to print its address, so this
@@ -51,6 +79,12 @@ export async function PUT(req, { params }) {
   const target = await CompanyLocation.findById(id).select('businessId').lean();
   if (!target) return json({ error: 'Not found' }, 404);
 
+  const locDenied = await assertDocumentLocationAccess(session, {
+    locationId: id,
+    businessId: target.businessId,
+  });
+  if (locDenied) return locDenied;
+
   const denied = await screenDenial({
     session, ...LOCATION, action: PERM.UPDATE, businessId: target.businessId,
   });
@@ -74,6 +108,12 @@ export async function DELETE(req, { params }) {
 
   const target = await CompanyLocation.findById(id).select('businessId').lean();
   if (!target) return json({ ok: true });
+
+  const locDenied = await assertDocumentLocationAccess(session, {
+    locationId: id,
+    businessId: target.businessId,
+  });
+  if (locDenied) return locDenied;
 
   const denied = await screenDenial({
     session, ...LOCATION, action: PERM.DELETE, businessId: target.businessId,

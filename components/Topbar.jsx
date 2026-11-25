@@ -136,15 +136,24 @@ import { useScope, FIN_YEARS } from "./ScopeContext";
    carries the full name, since the visible text is cut off. */
 function ScopeControls() {
   const {
+    user,
     businesses,
     locations,
     business,
     location,
     finYear,
+    locationReady,
+    isLocationLocked,
+    isCompanyLocked,
     setBusiness,
     setLocation,
     setFinYear,
   } = useScope();
+
+  const activeLocationLabel =
+    locations.find((l) => l.value === location)?.label ||
+    user?.allowedLocations?.[0]?.name ||
+    (locationReady ? "No Location Assigned" : "Loading...");
 
   return (
     <>
@@ -152,8 +161,9 @@ function ScopeControls() {
         <span className="tb-field-label">Company</span>
         <div className="tb-select-wrapper">
           <select
-            className="tb-select"
+            className={"tb-select" + (isCompanyLocked ? " tb-select-locked" : "")}
             aria-label="Company"
+            disabled={isCompanyLocked}
             title={
               businesses.find((b) => b.value === business)?.label ||
               "Select Business"
@@ -176,25 +186,36 @@ function ScopeControls() {
       <div className="tb-field">
         <span className="tb-field-label">Location</span>
         <div className="tb-select-wrapper">
-          <select
-            className="tb-select"
-            aria-label="Location"
-            title={
-              locations.find((l) => l.value === location)?.label ||
-              "Select Location"
-            }
-            value={location}
-            onChange={(e) => setLocation(e.target.value)}
-          >
-            {locations.length === 0 && (
-              <option value="">Select Location</option>
-            )}
-            {locations.map((l) => (
-              <option key={l.value} value={l.value}>
-                {l.label}
-              </option>
-            ))}
-          </select>
+          {isLocationLocked ? (
+            <div
+              className="tb-select tb-select-locked"
+              aria-label="Location"
+              aria-readonly="true"
+              title={activeLocationLabel}
+            >
+              <span className="truncate">{activeLocationLabel}</span>
+            </div>
+          ) : (
+            <select
+              className="tb-select"
+              aria-label="Location"
+              title={
+                locations.find((l) => l.value === location)?.label ||
+                "Select Location"
+              }
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+            >
+              {locations.length === 0 && (
+                <option value="">Select Location</option>
+              )}
+              {locations.map((l) => (
+                <option key={l.value} value={l.value}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
       </div>
 

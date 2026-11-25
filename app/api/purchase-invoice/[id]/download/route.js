@@ -6,6 +6,7 @@ import { Supplier } from '@/lib/contacts';
 import PurchaseTerm from '@/models/PurchaseTerm';
 import { requireSession } from '@/lib/session';
 import { amountInWords } from '@/lib/amountWords';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 /* /api/purchase-invoice/<id>/download
    Downloads the purchase invoice as a standalone HTML file that can be
@@ -63,6 +64,8 @@ export async function GET(req, { params }) {
 
   const inv = await PurchaseInvoice.findById(id).lean();
   if (!inv) return Response.json({ error: 'Not found' }, { status: 404 });
+  const locDenied = await assertDocumentLocationAccess(session, inv);
+  if (locDenied) return locDenied;
 
   const [business, location, supplier, term] = await Promise.all([
     inv.businessId ? Business.findById(inv.businessId).lean() : null,

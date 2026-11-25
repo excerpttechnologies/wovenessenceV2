@@ -55,7 +55,7 @@ function ItemImageCell({ row }) {
 }
 
 export default function ItemBarcodeReportView() {
-  const { business, finYear } = useScope();
+  const { business, location, finYear, isLocationLocked } = useScope();
   const [draft, setDraft] = useState(EMPTY_FILTERS);
   const [applied, setApplied] = useState(null);
   const [result, setResult] = useState(null);
@@ -72,7 +72,7 @@ export default function ItemBarcodeReportView() {
     const params = new URLSearchParams({
       reportType: 'item-barcode',
       business,
-      location: applied.location,
+      location: (isLocationLocked ? location : applied.location) || '',
       finYear: finYear || '',
       page: String(page),
       perPage: '15',
@@ -142,9 +142,10 @@ export default function ItemBarcodeReportView() {
                 options={locations.options}
                 loading={locations.loading}
                 error={locations.error}
-                value={draft.location}
-                placeholder="All Locations"
-                onChange={(value) => setFilter('location', value)}
+                disabled={isLocationLocked}
+                value={isLocationLocked ? (location || locations.options[0]?.value || '') : draft.location}
+                placeholder={isLocationLocked ? (locations.options[0]?.label || 'Assigned Location') : 'All Locations'}
+                onChange={(value) => { if (!isLocationLocked) setFilter('location', value); }}
               />
             </Field>
             <Field label="Items">

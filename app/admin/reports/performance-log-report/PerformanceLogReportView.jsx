@@ -84,7 +84,7 @@ function ToggleGroup({ options, value, onChange }) {
 }
 
 export default function PerformanceLogReportView() {
-  const { business, finYear } = useScope();
+  const { business, location, finYear, isLocationLocked } = useScope();
   const [draft, setDraft] = useState(initialFilters);
   const [applied, setApplied] = useState(initialFilters);
   const [data, setData] = useState(null);
@@ -204,7 +204,7 @@ export default function PerformanceLogReportView() {
     const controller = new AbortController();
     const params = new URLSearchParams({
       business,
-      location: applied.location,
+      location: (isLocationLocked ? location : applied.location) || '',
       finYear: finYear || '',
       fromDate: applied.fromDate,
       toDate: applied.toDate,
@@ -336,8 +336,11 @@ export default function PerformanceLogReportView() {
               <input className="f-input" type="date" value={draft.toDate} onChange={(event) => setFilter('toDate', event.target.value)} required />
             </SelectField>
             <SelectField label="Business Location">
-              <MultiSelect mode="single" options={locations.options} value={draft.location}
-                onChange={(value) => setFilter('location', value)} placeholder="All Locations"
+              <MultiSelect mode="single" options={locations.options}
+                disabled={isLocationLocked}
+                value={isLocationLocked ? (location || locations.options[0]?.value || '') : draft.location}
+                onChange={(value) => { if (!isLocationLocked) setFilter('location', value); }}
+                placeholder={isLocationLocked ? (locations.options[0]?.label || 'Assigned Location') : 'All Locations'}
                 loading={locations.loading} error={locations.error} />
             </SelectField>
             <SelectField label="City Group">

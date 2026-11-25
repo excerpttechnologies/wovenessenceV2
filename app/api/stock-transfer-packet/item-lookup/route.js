@@ -10,6 +10,7 @@ import { BarcodeLabel } from '@/lib/barcodeLabel';
 import { barcodeFilter } from '@/lib/inventory';
 import { requireSession } from '@/lib/session';
 import { escapeRegex } from '@/lib/validate';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 /* /api/stock-transfer-packet/item-lookup?code=<item code>&business=&fromLocation=
    &toLocation=&finYear=
@@ -104,8 +105,14 @@ export async function GET(req) {
 
   await dbConnect();
 
-  const business = sp.get('business');
-  const fromLocation = sp.get('fromLocation');
+  const authScope = await resolveAuthorizedScope(session, {
+    businessId: sp.get('business'),
+    locationId: sp.get('fromLocation'),
+  });
+  if (!authScope.ok) return scopeErrorResponse(authScope);
+
+  const business = authScope.businessId || sp.get('business');
+  const fromLocation = authScope.locationId || sp.get('fromLocation');
   const toLocation = sp.get('toLocation');
 
   const scope = {

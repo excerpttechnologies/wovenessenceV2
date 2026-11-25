@@ -8,7 +8,7 @@ import { imageUrl } from '@/lib/inventory';
 import { requireSession } from '@/lib/session';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import {
-  json, num, r2, scopeOf, pageOf, salesDocuments, lineQty, lineItemCode, lineItemName,
+  json, num, r2, requireReportScope, pageOf, salesDocuments, lineQty, lineItemCode, lineItemName,
 } from '@/lib/reports';
 
 const text = (value) => String(value ?? '').trim();
@@ -77,9 +77,10 @@ export async function GET(req) {
   if (!session) return json({ error: 'Unauthorized' }, 401);
 
   const sp = new URL(req.url).searchParams;
-  const scope = scopeOf(sp);
-  if (!scope.businessId) return json({ error: 'Select a business to run this report.' }, 422);
   await dbConnect();
+  const scope = await requireReportScope(session, sp);
+  if (!scope.ok) return scope.response;
+  if (!scope.businessId) return json({ error: 'Select a business to run this report.' }, 422);
   const denied = await screenDenial({ session, screen: SCREENS.SALES_IMAGE_REPORT, action: PERM.READ, businessId: scope.businessId, label: 'the sales image report' });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
@@ -149,10 +150,19 @@ export async function GET(req) {
   }
   if (codes.length) labelOr.push({ itemCode: { $in: codes } }, { itemName: { $in: codes } });
 
+  const labelLocClause = scope.access.isRestricted && scope.locationIds.length
+    ? {
+        $or: [
+          { currentLocationId: { $in: scope.locationIds } },
+          { currentLocationId: null, locationId: { $in: scope.locationIds } },
+          { currentLocationId: { $exists: false }, locationId: { $in: scope.locationIds } },
+        ],
+      }
+    : (scope.locationId ? { locationId: { $in: [String(scope.locationId), '', null] } } : {});
   const labelFilter = {
     businessId: String(scope.businessId),
     ...(scope.finYear ? { finYear: { $in: [scope.finYear, '', null] } } : {}),
-    ...(scope.locationId ? { locationId: { $in: [String(scope.locationId), '', null] } } : {}),
+    ...labelLocClause,
     $or: labelOr.length ? labelOr : [{ _id: null }],
   };
   const labels = await BarcodeLabel.find(labelFilter)

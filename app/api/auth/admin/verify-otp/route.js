@@ -129,6 +129,8 @@ export async function POST(req) {
     }
 
     // Create admin session (same structure as email/password login)
+    const locationIds = (user.locationIds || []).map(String);
+    const businessId = user.businessId ? String(user.businessId) : '';
     const jar = await cookies();
     jar.set(
       COOKIE,
@@ -137,7 +139,8 @@ export async function POST(req) {
         name: user.name,
         email: user.email,
         role: user.role,
-        locationIds: (user.locationIds || []).map(String),
+        businessId,
+        locationIds,
         allow: user.allow || [],
         deny: user.deny || [],
       }),
@@ -147,10 +150,12 @@ export async function POST(req) {
     return json({
       ok: true,
       user: {
+        id: String(user._id),
         name: user.name,
         email: user.email,
         role: user.role,
-        locationIds: (user.locationIds || []).map(String),
+        businessId,
+        locationIds,
       },
       message: 'Login successful',
     });

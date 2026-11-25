@@ -5,6 +5,7 @@ import { screenDenialAnyAction, SCREENS, ACTIONS as PERM } from '@/lib/screenPer
 import { BarcodeLabel, BARCODE_STATUS } from '@/lib/barcodeLabel';
 import { resolveGstRate } from '@/lib/storeGst';
 import { escapeRegex } from '@/lib/validate';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 /* /api/is-delivery-challan/item-lookup?business=&location=&barcode=
 
@@ -37,13 +38,20 @@ export async function GET(req) {
   if (!session) return json({ error: 'Unauthorized' }, 401);
 
   const sp = new URL(req.url).searchParams;
-  const business = sp.get('business');
-  const location = sp.get('location');
   const barcode = (sp.get('barcode') || '').trim();
 
-  if (!barcode) return json({ found: null });
-
   await dbConnect();
+
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: sp.get('business'),
+    locationId: sp.get('location'),
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
+  const business = scope.businessId || sp.get('business');
+  const location = scope.locationId || sp.get('location');
+
+  if (!barcode) return json({ found: null });
 
   /* a lookup on an Add form must work for a role that may create but was not
      given Read */

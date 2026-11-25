@@ -69,7 +69,7 @@
   }
 
   export default function GstReportView() {
-    const { business, location, finYear } = useScope();
+    const { business, location, finYear, isLocationLocked } = useScope();
     const locationOptions = useOptions('companylocations');
     const [filters, setFilters] = useState(() => defaultFilters(location));
     const [applied, setApplied] = useState(() => defaultFilters(location));
@@ -269,9 +269,10 @@
                   <MultiSelect
                     mode="single"
                     options={locationOptions.options}
-                    value={filters.location}
-                    onChange={(value) => setFilters((current) => ({ ...current, location: value }))}
-                    placeholder="All Locations"
+                    disabled={isLocationLocked}
+                    value={isLocationLocked ? (location || locationOptions.options[0]?.value || '') : filters.location}
+                    onChange={(value) => { if (!isLocationLocked) setFilters((current) => ({ ...current, location: value })); }}
+                    placeholder={isLocationLocked ? (locationOptions.options[0]?.label || 'Assigned Location') : 'All Locations'}
                     loading={locationOptions.loading}
                     error={locationOptions.error}
                   />

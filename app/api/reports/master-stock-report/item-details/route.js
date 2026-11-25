@@ -2,6 +2,7 @@ import { isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { resolveAuthorizedScope } from '@/lib/locationAccess';
 import { BarcodeLabel } from '@/lib/barcodeLabel';
 import Item from '@/models/Item';
 import ProductGroup from '@/models/ProductGroup';
@@ -29,8 +30,14 @@ export async function GET(req) {
 
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: business,
+    locationId: str(sp.get('location')),
+  });
+  if (!scope.ok) return json({ error: scope.error, code: scope.code }, scope.status || 403);
+
   /* Roles & Permissions (17-10-2026): Master Stock Report -> Read */
-  const denied = await screenDenial({ session, screen: SCREENS.MASTER_STOCK_REPORT, label: 'the master stock report', action: PERM.READ, businessId: business });
+  const denied = await screenDenial({ session, screen: SCREENS.MASTER_STOCK_REPORT, label: 'the master stock report', action: PERM.READ, businessId: scope.businessId || business });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const identity = itemId && isValidObjectId(itemId)
@@ -58,6 +65,17 @@ export async function GET(req) {
 
   const barcodeFilter = {
     businessId: business,
+    ...(scope.access.isRestricted && scope.locationIds.length
+      ? {
+          $and: [{
+            $or: [
+              { currentLocationId: { $in: scope.locationIds } },
+              { currentLocationId: null, locationId: { $in: scope.locationIds } },
+              { currentLocationId: { $exists: false }, locationId: { $in: scope.locationIds } },
+            ],
+          }],
+        }
+      : {}),
     ...(itemId && isValidObjectId(itemId)
       ? { $or: [{ itemId }, ...(itemCode ? [{ itemCode }] : []), ...(itemName ? [{ itemName }] : [])] }
       : { $or: [...(itemCode ? [{ itemCode }] : []), ...(itemName ? [{ itemName }] : [])] }),

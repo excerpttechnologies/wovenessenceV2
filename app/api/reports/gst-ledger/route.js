@@ -1,7 +1,7 @@
 import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
 import { screenDenial, SCREENS, ACTIONS } from '@/lib/screenPermission';
-import { json, scopeOf } from '@/lib/reports';
+import { json, requireReportScope } from '@/lib/reports';
 import { gstLedgerFor } from '@/lib/accounting/books';
 import { defaultRange, fyBounds } from '@/lib/accounting/calc';
 
@@ -22,7 +22,8 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
-  const scope = scopeOf(sp);
+  const scope = await requireReportScope(session, sp);
+  if (!scope.ok) return scope.response;
   const denied = await screenDenial({
     session,
     screen: SCREENS.ACCOUNTS_GST_LEDGER,

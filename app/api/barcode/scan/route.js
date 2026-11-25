@@ -3,6 +3,7 @@ import { requireUser } from '@/lib/rbac';
 import { handler, json } from '@/lib/apiError';
 import { scanBarcode, shape } from '@/lib/inventory';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 /* POST /api/barcode/scan
    { code, business, location, intent, invoiceId, transferId, scanned: [] }
@@ -30,6 +31,12 @@ export const POST = handler(async (req) => {
     invoiceId = null, transferId = null, scanned = [],
   } = body || {};
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: business,
+    locationId: location,
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   /* Roles & Permissions (17-10-2026): ONLY the POS till's scans - a sale
      (SELL) or an exchange (POS_RETURN) - answer to the POS screen: Read,
      Create OR Update lets them through. Every other intent (LOOKUP, TRANSFER,
@@ -37,7 +44,7 @@ export const POST = handler(async (req) => {
   if (intent === 'SELL' || intent === 'POS_RETURN') {
     let denied = null;
     for (const action of [PERM.READ, PERM.CREATE, PERM.UPDATE]) {
-      denied = await screenDenial({ session, screen: SCREENS.POS, label: 'POS', action, businessId: business });
+      denied = await screenDenial({ session, screen: SCREENS.POS, label: 'POS', action, businessId: scope.businessId || business });
       if (!denied) break;
     }
     if (denied) return json({ error: denied.message, code: denied.code }, 403);
@@ -45,8 +52,8 @@ export const POST = handler(async (req) => {
 
   const unit = await scanBarcode({
     code,
-    businessId: business,
-    locationId: location,
+    businessId: scope.businessId || business,
+    locationId: scope.locationId || location,
     intent,
     invoiceId,
     transferId,

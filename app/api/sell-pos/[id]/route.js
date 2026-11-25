@@ -10,6 +10,7 @@ import { requireSession } from '@/lib/session';
 import { validate } from '@/lib/validate';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { normaliseSalesChannel } from '@/lib/salesChannel';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 const POS = { screen: SCREENS.POS, label: 'POS bills' };
 const FIELDS = [];
@@ -27,6 +28,9 @@ export async function GET(req, { params }) {
 
   const doc = await PosInvoice.findById(id).lean();
   if (!doc) return json({ doc: null }, 404);
+
+  const locDenied = await assertDocumentLocationAccess(session, doc);
+  if (locDenied) return locDenied;
 
   /* Scoped to the bill's own business, not to whichever business the screen
      happens to be switched to - otherwise a restricted role could read a
@@ -107,8 +111,11 @@ export async function PUT(req, { params }) {
   /* Before validate(), and scoped on the stored bill rather than on the body,
      so the caller cannot name a business it is allowed to edit and then save
      over one it is not. */
-  const target = await PosInvoice.findById(id).select('businessId').lean();
+  const target = await PosInvoice.findById(id).select('businessId locationId').lean();
   if (!target) return json({ error: 'Not found' }, 404);
+
+  const locDenied = await assertDocumentLocationAccess(session, target);
+  if (locDenied) return locDenied;
 
   const denied = await screenDenial({
     session, ...POS, action: PERM.UPDATE, businessId: target.businessId,
@@ -154,8 +161,11 @@ export async function DELETE(req, { params }) {
   const { id } = await params;
   await dbConnect();
 
-  const target = await PosInvoice.findById(id).select('businessId').lean();
+  const target = await PosInvoice.findById(id).select('businessId locationId').lean();
   if (!target) return json({ ok: true });
+
+  const locDenied = await assertDocumentLocationAccess(session, target);
+  if (locDenied) return locDenied;
 
   const denied = await screenDenial({
     session, ...POS, action: PERM.DELETE, businessId: target.businessId,

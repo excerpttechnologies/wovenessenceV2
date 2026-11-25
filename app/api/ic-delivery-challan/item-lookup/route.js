@@ -269,10 +269,15 @@ export async function GET(req) {
     if (!denied) break;
   }
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
-  const location = sp.get('location');
+  const authScope = await resolveAuthorizedScope(session, {
+    businessId: business,
+    locationId: sp.get('location'),
+  });
+  if (!authScope.ok) return scopeErrorResponse(authScope);
+
   const scope = {
-    businessId: business && isValidObjectId(business) ? business : null,
-    locationId: location && isValidObjectId(location) ? location : null,
+    businessId: authScope.businessId || (business && isValidObjectId(business) ? business : null),
+    locationId: authScope.locationId || (sp.get('location') && isValidObjectId(sp.get('location')) ? sp.get('location') : null),
     finYear: sp.get('finYear') || '',
   };
 

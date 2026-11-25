@@ -5,6 +5,7 @@ import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import StoreDeliveryChallan, { DC_STATUS } from '@/models/StoreDeliveryChallan';
 import { receiveStoreStock } from '@/lib/storeStock';
 import { groupBusinessIds } from '@/lib/storeLocations';
+import { resolveAuthorizedScope, scopeErrorResponse, assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 /* POST /api/is-delivery-challan/<id>/receive
 
@@ -41,6 +42,17 @@ export async function POST(req, { params }) {
      required, because a request that names neither can prove nothing. */
   let body = {};
   try { body = await req.json(); } catch { body = {}; }
+
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: body.business,
+    locationId: body.location,
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
+  const locDenied = await assertDocumentLocationAccess(session, challan, {
+    locationKeys: ['toLocationId', 'locationId'],
+  });
+  if (locDenied) return locDenied;
 
   if (!isValidObjectId(body.business)) return json({ error: 'Select a business in the top bar first.' }, 422);
   if (!isValidObjectId(body.location)) {

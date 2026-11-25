@@ -61,6 +61,7 @@ import Delivery from '@/models/Delivery';
 import { requireSession } from '@/lib/session';
 import { validate } from '@/lib/validate';
 import { EDIT_FIELDS } from '@/app/admin/transport/dispatch/fields';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 /* /api/dispatch/<id> - read one, update, delete.
 
@@ -79,6 +80,8 @@ export async function GET(req, { params }) {
 
   const doc = await Dispatch.findById(id).lean();
   if (!doc) return json({ doc: null }, 404);
+  const locDenied = await assertDocumentLocationAccess(session, doc);
+  if (locDenied) return locDenied;
   return json({ doc: { ...doc, _id: String(doc._id) } });
 }
 
@@ -89,6 +92,11 @@ export async function PUT(req, { params }) {
   const { id } = await params;
   const body = await req.json();
   await dbConnect();
+
+  const existing = await Dispatch.findById(id).select('businessId locationId').lean();
+  if (!existing) return json({ error: 'Not found' }, 404);
+  const locDenied = await assertDocumentLocationAccess(session, existing);
+  if (locDenied) return locDenied;
 
   /* EDIT_FIELDS excludes deliveryIds, so validate() never emits it and the
      claimed consignments, docNo and the summed totals are all left alone. */
@@ -110,6 +118,8 @@ export async function DELETE(req, { params }) {
 
   const existing = await Dispatch.findById(id).lean();
   if (!existing) return json({ ok: true });
+  const locDenied = await assertDocumentLocationAccess(session, existing);
+  if (locDenied) return locDenied;
 
   /* release first, then remove: if the delete failed after the release the
      consignments would simply look available again, which is recoverable -

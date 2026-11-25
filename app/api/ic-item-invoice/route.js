@@ -11,6 +11,7 @@ import { nextDocNumber } from '@/lib/docnumber';
 import { sameBarcode } from '@/lib/barcodeValue';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { computeLine, num, r2 } from '@/app/admin/transaction/intercompanysell/deliverychallan/fields';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 /* /api/ic-item-invoice - the SENDER's consignment billing.
 
@@ -181,7 +182,13 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
-  const business = sp.get('business');
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: sp.get('business'),
+    locationId: sp.get('location'),
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
+  const business = scope.businessId || sp.get('business');
   if (!business || !isValidObjectId(business)) return json({ rows: [] });
 
   const denied = await screenDenial({
@@ -191,7 +198,10 @@ export async function GET(req) {
 
   /* ------------------------------------------------------- billed ------ */
   if (sp.get('view') === 'billed') {
-    const invoices = await IcItemInvoice.find({ businessId: business })
+    const invoices = await IcItemInvoice.find({
+      businessId: business,
+      ...(scope.locationFilter ? { locationId: scope.locationFilter } : {}),
+    })
       .sort({ createdAt: -1 })
       .limit(100)
       .lean();
@@ -229,7 +239,11 @@ export async function GET(req) {
   /* ---------------------------------------------------- not billed ----- */
   /* every challan this sender has raised */
   const finYear = sp.get('finYear');
-  const challanFilter = { businessId: business, ...(finYear ? { finYear } : {}) };
+  const challanFilter = {
+    businessId: business,
+    ...(scope.locationFilter ? { locationId: scope.locationFilter } : {}),
+    ...(finYear ? { finYear } : {}),
+  };
   const challanIds = (await IcDeliveryChallan.find(challanFilter).select('_id').lean())
     .map((c) => String(c._id));
   if (!challanIds.length) return json({ rows: [] });
@@ -278,8 +292,14 @@ export async function POST(req) {
   const body = await req.json().catch(() => ({}));
   await dbConnect();
 
-  const businessId = isValidObjectId(body.business) ? body.business : null;
-  const locationId = isValidObjectId(body.location) ? body.location : null;
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: body.business,
+    locationId: body.location,
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
+  const businessId = scope.businessId || (isValidObjectId(body.business) ? body.business : null);
+  const locationId = scope.locationId || (isValidObjectId(body.location) ? body.location : null);
   const finYear = body.finYear || '';
   if (!businessId) return json({ error: 'No business selected.' }, 422);
 

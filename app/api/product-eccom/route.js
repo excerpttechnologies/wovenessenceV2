@@ -3430,6 +3430,7 @@ import { barcodeFilter as inventoryBarcodeFilter, erpImageForBarcode, imageUrl, 
 import { BARCODE_STATUS } from '@/lib/barcodeLabel';
 import { classificationOptionsById, listClassificationOptions } from '@/lib/classificationCollections';
 import { Agent, Supplier } from '@/lib/contacts';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 /* /api/product-eccom - list only, read-only (19-10-2026).
 
@@ -4316,11 +4317,21 @@ export async function GET(req) {
 
   const sp = new URL(req.url).searchParams;
   await dbConnect();
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: sp.get('business'),
+    locationId: sp.get('location'),
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   const col = mongoose.connection.db.collection(COLLECTION);
 
   const filter = {};
-  const b = sp.get('business');
-  if (b && isValidObjectId(b)) filter.businessId = idMatch(b);
+  const b = scope.businessId || sp.get('business');
+  if (b && isValidObjectId(b)) {
+    filter.businessId = idMatch(b);
+  } else if (scope.businessIds?.length) {
+    filter.businessId = { $in: scope.businessIds.flatMap((id) => [id, new Types.ObjectId(id)]) };
+  }
 
   if (sp.get('barcodeOptions') === '1') {
     if (!b || !isValidObjectId(b)) {
@@ -5466,7 +5477,15 @@ export async function PATCH(req) {
   if (!session) return json({ error: 'Unauthorized' }, 401);
 
   const body = await req.json().catch(() => ({}));
-  let business = body.business;
+  await dbConnect();
+
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: body.business,
+    locationId: body.location,
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
+  let business = scope.businessId || body.business;
   if (business && !isValidObjectId(business)) return json({ error: 'Invalid business.' }, 400);
 
   const publish = parseEcommerceVisibility(body.isPublished);
@@ -5893,6 +5912,13 @@ export async function POST(req) {
   if (!data.itemId || !isValidObjectId(data.itemId)) return json({ errors: { itemId: 'Select the item this product is for.' }, error: 'Select the item this product is for.' }, 422);
 
   await dbConnect();
+
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: business,
+    locationId: body.location,
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   const col = mongoose.connection.db.collection(COLLECTION);
   const productFilter = {
     businessId: idMatch(business),

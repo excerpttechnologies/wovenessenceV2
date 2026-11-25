@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import connectDB from '@/lib/db';
 import Grc from '@/models/Grc';
 import Contact from '@/models/Contact';
+import { requireSession } from '@/lib/session';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 /**
  * GET /api/delivery/grc-details
@@ -16,21 +18,27 @@ import Contact from '@/models/Contact';
  */
 export async function GET(req) {
   try {
+    const session = await requireSession();
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
     await connectDB();
 
     const { searchParams } = new URL(req.url);
     const supplierId = searchParams.get('supplierId');
     const lrTransactionId = searchParams.get('lrTransactionId');
     const grcId = searchParams.get('grcId');
-    const businessId = searchParams.get('businessId');
-    const locationId = searchParams.get('locationId');
+    const businessId = searchParams.get('businessId') || searchParams.get('business');
+    const locationId = searchParams.get('locationId') || searchParams.get('location');
     const finYear = searchParams.get('finYear');
+
+    const scope = await resolveAuthorizedScope(session, { businessId, locationId });
+    if (!scope.ok) return scopeErrorResponse(scope);
 
     // Build query
     const query = {};
-    
-    if (businessId) query.businessId = businessId;
-    if (locationId) query.locationId = locationId;
+
+    if (scope.businessFilter) query.businessId = scope.businessFilter;
+    if (scope.locationFilter) query.locationId = scope.locationFilter;
     if (finYear) query.finYear = finYear;
 
     // Specific GRC lookup

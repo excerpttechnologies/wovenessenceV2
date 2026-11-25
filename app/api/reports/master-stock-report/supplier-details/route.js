@@ -6,6 +6,7 @@ import CompanyLocation from '@/models/CompanyLocation';
 import StockPoint from '@/models/StockPoint';
 import { requireSession } from '@/lib/session';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { resolveAuthorizedScope } from '@/lib/locationAccess';
 
 const json = (data, status = 200) => Response.json(data, { status });
 const str = (value) => String(value ?? '').trim();
@@ -32,8 +33,14 @@ export async function GET(req) {
 
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: business,
+    locationId: str(sp.get('location')),
+  });
+  if (!scope.ok) return json({ error: scope.error, code: scope.code }, scope.status || 403);
+
   /* Roles & Permissions (17-10-2026): Master Stock Report -> Read */
-  const denied = await screenDenial({ session, screen: SCREENS.MASTER_STOCK_REPORT, label: 'the master stock report', action: PERM.READ, businessId: business });
+  const denied = await screenDenial({ session, screen: SCREENS.MASTER_STOCK_REPORT, label: 'the master stock report', action: PERM.READ, businessId: scope.businessId || business });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   /* Supplier codes are globally unique, and a placeholder vendor can appear
@@ -50,7 +57,11 @@ export async function GET(req) {
   const contactName = [str(supplier.prefix), str(supplier.firstName), str(supplier.middleName), str(supplier.lastName)]
     .filter(Boolean).join(' ');
   const legalName = str(supplier.businessName) || contactName;
-  const filter = { businessId: business, supplierId: supplier._id };
+  const filter = {
+    businessId: business,
+    supplierId: supplier._id,
+    ...(scope.locationFilter ? { locationId: scope.locationFilter } : {}),
+  };
   const total = await Grc.countDocuments(filter);
   const grcs = await Grc.find(filter)
     .select('locationId grcNumber grcDate stockPointId stockPointName')

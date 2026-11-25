@@ -5,6 +5,7 @@ import { screenDenialAnyAction, SCREENS, ACTIONS as PERM } from '@/lib/screenPer
 import { requireSession } from '@/lib/session';
 import { reverseGrcPosting } from '@/lib/accounting/posting';
 import { checkGrcDependencies } from '@/lib/grcDependencies';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 /* /api/purchase-grc/<id>/cancel - CANCEL a non-latest GRC */
 
@@ -13,8 +14,10 @@ const json = (d, s = 200) => Response.json(d, { status: s });
 /* Roles & Permissions: judged against the record's own business.
    Cancel requires DELETE permission since it's a destructive operation. */
 async function grcDenied(session, id, actions) {
-  const rec = isValidObjectId(id) ? await Grc.findById(id).select('businessId').lean() : null;
+  const rec = isValidObjectId(id) ? await Grc.findById(id).select('businessId locationId').lean() : null;
   if (!rec) return null;
+  const locDenied = await assertDocumentLocationAccess(session, rec);
+  if (locDenied) return locDenied;
   const denied = await screenDenialAnyAction({ 
     session, 
     screens: [SCREENS.GRC], 

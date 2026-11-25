@@ -3,6 +3,7 @@ import IcAutoPurchaseReceived from '@/models/IcAutoPurchaseReceived';
 import IcSalesInvoice from '@/models/IcSalesInvoice';
 import Grc from '@/models/Grc';
 import { requireSession } from '@/lib/session';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 /* /api/ic-auto-purchase-received/<id> - read one, reverse.
 
@@ -26,6 +27,8 @@ export async function GET(req, { params }) {
 
   const doc = await IcAutoPurchaseReceived.findById(id).lean();
   if (!doc) return json({ doc: null }, 404);
+  const locDenied = await assertDocumentLocationAccess(session, doc);
+  if (locDenied) return locDenied;
   return json({ doc: { ...doc, _id: String(doc._id) } });
 }
 
@@ -38,6 +41,8 @@ export async function DELETE(req, { params }) {
 
   const existing = await IcAutoPurchaseReceived.findById(id).lean();
   if (!existing) return json({ ok: true });
+  const locDenied = await assertDocumentLocationAccess(session, existing);
+  if (locDenied) return locDenied;
 
   if (existing.grcId) {
     const grc = await Grc.findById(existing.grcId).select('purchaseInvoiceId').lean();

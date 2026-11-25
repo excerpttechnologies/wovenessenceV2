@@ -7,6 +7,7 @@ import { requirePermission, PERMISSIONS } from '@/lib/rbac';
 import { handler } from '@/lib/apiError';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { finalizeMerge, updateDraftMerge, cancelMerge } from '@/lib/barcodeMerge';
+import { resolveAuthorizedScope, scopeErrorResponse, assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 /* /api/barcode-merge/[id] - detail, draft update, finalize and cancel. */
 
@@ -21,17 +22,25 @@ export async function GET(req, { params }) {
   await dbConnect();
 
   const sp = new URL(req.url).searchParams;
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: sp.get('business'),
+    locationId: sp.get('location'),
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   const denied = await screenDenial({
     session, screen: SCREENS.BARCODE_MERGE, action: PERM.READ,
-    businessId: sp.get('business'), label: 'barcode merges',
+    businessId: scope.businessId || sp.get('business'), label: 'barcode merges',
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const merge = await BarcodeMerge.findOne({
     _id: id,
-    ...(sp.get('business') && isValidObjectId(sp.get('business')) ? { businessId: sp.get('business') } : {}),
+    ...(scope.businessFilter ? { businessId: scope.businessFilter } : {}),
   }).lean();
   if (!merge) return json({ error: 'Merge not found.', code: 'NOT_FOUND' }, 404);
+  const locDenied = await assertDocumentLocationAccess(session, merge);
+  if (locDenied) return locDenied;
 
   const sourceIds = (merge.sources || []).map((s) => s.barcodeId).filter(Boolean);
   const sourceRows = sourceIds.length
@@ -67,16 +76,27 @@ export const PATCH = handler(async (req, { params }) => {
 
   const body = await req.json().catch(() => ({}));
 
-  const session = await requirePermission(PERMISSIONS.BARCODE_GENERATE, { locationId: null });
+  const session = await requirePermission(PERMISSIONS.BARCODE_GENERATE, { locationId: body.location || null });
   await dbConnect();
+
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: body.business,
+    locationId: body.location,
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
+  const target = await BarcodeMerge.findById(id).select('businessId locationId').lean();
+  if (!target) return json({ error: 'Merge not found.', code: 'NOT_FOUND' }, 404);
+  const locDenied = await assertDocumentLocationAccess(session, target);
+  if (locDenied) return locDenied;
 
   const denied = await screenDenial({
     session, screen: SCREENS.BARCODE_MERGE, action: PERM.UPDATE,
-    businessId: body.business, label: 'barcode merges',
+    businessId: target.businessId || scope.businessId || body.business, label: 'barcode merges',
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
-  const businessId = body.business && isValidObjectId(String(body.business)) ? body.business : null;
+  const businessId = scope.businessId || (body.business && isValidObjectId(String(body.business)) ? body.business : null);
   const action = String(body.action || '').toLowerCase();
 
   if (action === 'cancel') {

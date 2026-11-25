@@ -4,6 +4,7 @@ import Grc from '@/models/Grc';
 import { screenDenialAnyAction, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { requireSession } from '@/lib/session';
 import { checkGrcDependencies } from '@/lib/grcDependencies';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 /* /api/purchase-grc/<id>/cancel/check - CHECK if GRC can be cancelled
    
@@ -14,8 +15,10 @@ import { checkGrcDependencies } from '@/lib/grcDependencies';
 const json = (d, s = 200) => Response.json(d, { status: s });
 
 async function grcDenied(session, id, actions) {
-  const rec = isValidObjectId(id) ? await Grc.findById(id).select('businessId').lean() : null;
+  const rec = isValidObjectId(id) ? await Grc.findById(id).select('businessId locationId').lean() : null;
   if (!rec) return null;
+  const locDenied = await assertDocumentLocationAccess(session, rec);
+  if (locDenied) return locDenied;
   const denied = await screenDenialAnyAction({ 
     session, 
     screens: [SCREENS.GRC], 

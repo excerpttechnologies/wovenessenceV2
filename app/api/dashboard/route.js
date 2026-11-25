@@ -15,6 +15,7 @@ import Ledger from '@/models/Ledger';
 import LedgerGroup from '@/models/LedgerGroup';
 import Business from '@/models/Business';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 /* ==========================================================================
    Dashboard aggregates.
@@ -82,23 +83,30 @@ export async function GET(req) {
 
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: businessRaw,
+    locationId: locationRaw,
+    asObjectId: true,
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   const denied = await screenDenial({
     session,
     screen: SCREENS.DASHBOARD,
     action: PERM.READ,
-    businessId: businessRaw,
+    businessId: scope.businessId || businessRaw,
     label: 'the dashboard',
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   /* transaction docs carry business + location + finYear */
   const txScope = {
-    ...(business ? { businessId: business } : {}),
-    ...(location ? { locationId: location } : {}),
+    ...(scope.businessFilter ? { businessId: scope.businessFilter } : {}),
+    ...(scope.locationFilter ? { locationId: scope.locationFilter } : {}),
     ...(finYear ? { finYear } : {}),
   };
   /* ledgers carry business only */
-  const ledgerScope = business ? { businessId: business } : {};
+  const ledgerScope = scope.businessFilter ? { businessId: scope.businessFilter } : {};
 
   const sum = async (Model, match, field) => {
     const r = await Model.aggregate([
@@ -229,8 +237,8 @@ export async function GET(req) {
      company selected, each company that has sales gets its own. */
   const TZ = 'Asia/Kolkata';
   const chartScope = {
-    ...(business ? { businessId: business } : {}),
-    ...(location ? { locationId: location } : {}),
+    ...(scope.businessFilter ? { businessId: scope.businessFilter } : {}),
+    ...(scope.locationFilter ? { locationId: scope.locationFilter } : {}),
   };
 
   const dayKey = (d) => d.toLocaleDateString('en-CA', { timeZone: TZ }); /* YYYY-MM-DD */
@@ -269,8 +277,8 @@ export async function GET(req) {
 
   /* which companies get a line */
   const withSales = new Set([...last30Raw, ...byMonthRaw].map((r) => String(r._id.businessId)));
-  const businesses = business
-    ? await Business.find({ _id: business }).lean()
+  const businesses = scope.businessFilter
+    ? await Business.find({ _id: scope.businessFilter }).lean()
     : (await Business.find({}).lean()).filter((b) => withSales.has(String(b._id)));
   const seriesNames = businesses.map((b) => b.name || 'Business');
 

@@ -4,6 +4,7 @@ import { isValidObjectId } from 'mongoose';
 import { requireSession } from '@/lib/session';
 import { json } from '@/lib/reports';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { resolveAuthorizedScope } from '@/lib/locationAccess';
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -20,18 +21,24 @@ export async function GET(req) {
     : 25;
   if (!isValidObjectId(business)) return json({ error: 'A valid company is required.' }, 400);
 
+  await dbConnect();
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: business,
+    locationId: sp.get('location') || '',
+  });
+  if (!scope.ok) return json({ error: scope.error, code: scope.code }, scope.status || 403);
+
   const denied = await screenDenial({
     session,
     screen: SCREENS.CUSTOMER_REPORT,
     label: 'the customer report',
     action: PERM.READ,
-    businessId: business,
+    businessId: scope.businessId || business,
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
   if (q.length < 2) return json([]);
 
   try {
-    await dbConnect();
     const expression = { $regex: escapeRegex(q), $options: 'i' };
     const rows = await Customer.find({
       businessId: business,

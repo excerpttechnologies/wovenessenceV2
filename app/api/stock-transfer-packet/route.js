@@ -8,6 +8,7 @@ import { validate, escapeRegex } from '@/lib/validate';
 import { nextDocNumber } from '@/lib/docnumber';
 import { FIELDS, computeTotals } from '@/app/admin/transaction/stocktransfers/transferstockpacket/fields';
 import { sortedPage } from '@/lib/listSort';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 /* /api/stock-transfer-packet - list + create. */
 
@@ -54,16 +55,27 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: sp.get('business'),
+    locationId: sp.get('location'),
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   const page = Math.max(1, Number(sp.get('page') || 1));
   const perPage = Math.min(500, Number(sp.get('perPage') || PER_PAGE));
 
   const filter = {};
-  const b = sp.get('business'); if (b && isValidObjectId(b)) filter.businessId = b;
+  if (scope.businessFilter) filter.businessId = scope.businessFilter;
   const y = sp.get('finYear'); if (y) filter.finYear = y;
 
   /* the Add Location picker asks for one From -> To pair at a time */
   const fl = sp.get('fromLocationId'); if (fl && isValidObjectId(fl)) filter.fromLocationId = fl;
   const tl = sp.get('toLocationId'); if (tl && isValidObjectId(tl)) filter.toLocationId = tl;
+  if (scope.access.isRestricted) {
+    filter.$and = [...(filter.$and || []), {
+      $or: [{ fromLocationId: scope.locationFilter }, { toLocationId: scope.locationFilter }],
+    }];
+  }
 
   /* "unconverted" packets: no stock transfer location raised yet.
      $eq: null matches missing AND null - passing '' here would be cast
@@ -116,6 +128,12 @@ export async function POST(req) {
   const { errors, doc, ok } = validate(FIELDS, body.data || {});
   if (!ok) return json({ errors }, 422);
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: body.business,
+    locationId: doc.fromLocationId || body.location,
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   if (!Array.isArray(body.data?.items) || body.data.items.length === 0) {
     return json({ errors: { items: 'Add at least one item' } }, 422);
   }
@@ -127,8 +145,10 @@ export async function POST(req) {
     }, 422);
   }
 
-  if (body.business && isValidObjectId(body.business)) doc.businessId = body.business;
-  if (body.location && isValidObjectId(body.location)) doc.locationId = body.location;
+  if (scope.businessId) doc.businessId = scope.businessId;
+  if (scope.locationId || (body.location && isValidObjectId(body.location))) {
+    doc.locationId = scope.locationId || body.location;
+  }
   if (body.finYear) doc.finYear = body.finYear;
 
   applyTotals(doc, body);

@@ -10,7 +10,7 @@ import SalesReturn from '@/models/SalesReturn';
 import PosInvoice from '@/models/PosInvoice';
 import PosReturn from '@/models/PosReturn';
 import {
-  json, num, r2, scopeOf, scopeFilter, dateRange, docValue, docQty,
+  json, num, r2, requireReportScope, scopeFilter, dateRange, docValue, docQty,
   linesOf, lineNet,
 } from '@/lib/reports';
 
@@ -46,7 +46,8 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
-  const scope = scopeOf(sp);
+  const scope = await requireReportScope(session, sp);
+  if (!scope.ok) return scope.response;
   const denied = await screenDenial({ session, screen: SCREENS.SALES_PERSON_REPORT, action: PERM.READ, businessId: scope.businessId, label: 'the sales person report' });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
   const tab = sp.get('tab') === 'billwise' ? 'billwise' : 'general';

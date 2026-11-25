@@ -3,6 +3,7 @@ import IcSalesInvoice from '@/models/IcSalesInvoice';
 import Business from '@/models/Business';
 import CompanyLocation from '@/models/CompanyLocation';
 import { requireSession } from '@/lib/session';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 /* /api/ic-sales-invoice/<id>/print
 
@@ -27,6 +28,10 @@ export async function GET(req, { params }) {
 
   const inv = await IcSalesInvoice.findById(id).lean();
   if (!inv) return json({ error: 'Not found' }, 404);
+  const locDenied = await assertDocumentLocationAccess(session, inv, {
+    locationKeys: ['locationId', 'toLocationId'],
+  });
+  if (locDenied) return locDenied;
 
   const [seller, sellerLoc, buyer] = await Promise.all([
     inv.businessId ? Business.findById(inv.businessId).lean() : null,

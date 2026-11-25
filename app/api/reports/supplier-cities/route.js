@@ -4,6 +4,7 @@ import { requireSession } from '@/lib/session';
 import { escapeRegex } from '@/lib/validate';
 import { Supplier } from '@/lib/contacts';
 import { isSplitContactStorage } from '@/lib/contactStorage';
+import { resolveAuthorizedScope } from '@/lib/locationAccess';
 
 /* /api/reports/supplier-cities?q=<part>&business=<id>
 
@@ -32,10 +33,17 @@ export async function GET(req) {
   await dbConnect();
 
   const q = String(sp.get('q') || '').trim();
-  const business = sp.get('business');
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: sp.get('business') || '',
+    locationId: sp.get('location') || '',
+    asObjectId: true,
+  });
+  if (!scope.ok) return json({ error: scope.error, code: scope.code }, scope.status || 403);
+  const business = scope.businessId;
 
   const match = {};
-  if (business && isValidObjectId(business)) match.businessId = new Types.ObjectId(business);
+  if (scope.businessFilter) match.businessId = scope.businessFilter;
+  else if (business && isValidObjectId(business)) match.businessId = new Types.ObjectId(business);
   /* the shared `contact` collection holds customers and agents too */
   if (!isSplitContactStorage()) match.contactKind = 'Supplier';
 

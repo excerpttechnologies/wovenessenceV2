@@ -43,7 +43,8 @@ export default function StockTransferForm({
   const router = useRouter();
   const scope = useScope();
   const { options: locations } = useOptions('companylocations');
-  const { options: stockPoints } = useOptions('stockpoint');
+  const { options: destLocations } = useOptions('companylocations', { transferTarget: '1' });
+  const { options: stockPoints } = useOptions('stockpoint', { transferTarget: '1' });
 
   const [fromLocationId, setFromLocationId] = useState('');
   const [toLocationId, setToLocationId] = useState('');
@@ -75,8 +76,8 @@ export default function StockTransferForm({
   /* Destinations exclude the source: a transfer to itself is not a transfer,
      and offering it only produces a validation error later. */
   const destinations = useMemo(
-    () => locations.filter((l) => String(l.value) !== String(fromLocationId)),
-    [locations, fromLocationId]
+    () => (destLocations.length ? destLocations : locations).filter((l) => String(l.value) !== String(fromLocationId)),
+    [destLocations, locations, fromLocationId]
   );
 
   /* ---------------------------------------------------------- scanning -- */
@@ -227,6 +228,7 @@ export default function StockTransferForm({
             <select
               className="f-input"
               value={fromLocationId}
+              disabled={scope.isLocationLocked}
               onChange={(e) => { setFromLocationId(e.target.value); setLines([]); }}
             >
               <option value="">Select...</option>

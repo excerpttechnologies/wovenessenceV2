@@ -8,7 +8,7 @@ import CityGroup from '@/models/CityGroup';
 import Item from '@/models/Item';
 import ProductGroup from '@/models/ProductGroup';
 import {
-  json, num, r2, scopeOf, salesDocuments, lineQty, lineItemCode, lineItemName, lineTax,
+  json, num, r2, requireReportScope, salesDocuments, lineQty, lineItemCode, lineItemName, lineTax,
 } from '@/lib/reports';
 
 const text = (value) => String(value ?? '').trim();
@@ -109,9 +109,10 @@ export async function GET(req) {
   if (!session) return json({ error: 'Unauthorized' }, 401);
 
   const sp = new URL(req.url).searchParams;
-  const scope = scopeOf(sp);
-  if (!scope.businessId) return json({ error: 'Select a business to run this report.' }, 422);
   await dbConnect();
+  const scope = await requireReportScope(session, sp);
+  if (!scope.ok) return scope.response;
+  if (!scope.businessId) return json({ error: 'Select a business to run this report.' }, 422);
   const denied = await screenDenial({ session, screen: SCREENS.PERFORMANCE_LOG_REPORT, action: PERM.READ, businessId: scope.businessId, label: 'the performance log report' });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 

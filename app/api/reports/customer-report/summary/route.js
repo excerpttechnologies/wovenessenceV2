@@ -4,10 +4,10 @@ import { json } from '@/lib/reports';
 import SalesInvoice from '@/models/SalesInvoice';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import {
+  authorizedReportRequest,
   billPipeline,
   customerInBusiness,
   locationNames,
-  reportRequest,
 } from '../shared';
 
 export async function GET(req) {
@@ -15,8 +15,9 @@ export async function GET(req) {
   if (!session) return json({ error: 'Unauthorized' }, 401);
 
   const sp = new URL(req.url).searchParams;
-  const scope = reportRequest(sp);
-  if (scope.error) return json({ error: scope.error }, scope.status);
+  await dbConnect();
+  const scope = await authorizedReportRequest(session, sp);
+  if (scope.error) return json({ error: scope.error, ...(scope.code ? { code: scope.code } : {}) }, scope.status);
 
   const denied = await screenDenial({
     session,
@@ -28,7 +29,6 @@ export async function GET(req) {
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   try {
-    await dbConnect();
     const customer = await customerInBusiness(scope.customerId, scope.businessId);
     if (!customer) return json({ error: 'Customer not found.' }, 404);
 

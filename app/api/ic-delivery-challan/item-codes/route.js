@@ -4,6 +4,7 @@ import { BarcodeLabel, BARCODE_STATUS } from '@/lib/barcodeLabel';
 import { requireSession } from '@/lib/session';
 import { escapeRegex } from '@/lib/validate';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 /* /api/ic-delivery-challan/item-codes?search=&business=&location=
 
@@ -34,8 +35,12 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
 
   const search = (sp.get('search') || '').trim();
-  const business = sp.get('business');
-  const location = sp.get('location');
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: sp.get('business'),
+    locationId: sp.get('location'),
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+  const business = scope.businessId || sp.get('business');
 
   /* the Delivery Challan form's suggestions (17-10-2026) - used while
      creating or editing a challan, so Read, Create OR Update on that screen
@@ -50,8 +55,8 @@ export async function GET(req) {
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const match = { status: BARCODE_STATUS.IN_STOCK };
-  if (business && isValidObjectId(business)) match.businessId = String(business);
-  if (location && isValidObjectId(location)) match.locationId = String(location);
+  if (scope.businessFilter) match.businessId = scope.businessFilter;
+  if (scope.locationFilter) match.locationId = scope.locationFilter;
 
   /* unanchored: barcodes and item codes are both compound (10-PF-CTNSLK),
      so operators search by the fragment they remember rather than by the

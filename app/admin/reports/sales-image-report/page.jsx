@@ -112,7 +112,7 @@ function ResultCard({ row }) {
 }
 
 export default function SalesImagePage() {
-  const { business, finYear } = useScope();
+  const { business, location, finYear, isLocationLocked } = useScope();
   const [filters, setFilters] = useState(initialFilters);
   const [applied, setApplied] = useState(null);
   const [result, setResult] = useState(null);
@@ -243,9 +243,10 @@ export default function SalesImagePage() {
             <MultiSelect
               mode="single"
               options={locations.options}
-              value={filters.location}
-              onChange={(value) => set('location', value)}
-              placeholder="Select..."
+              disabled={isLocationLocked}
+              value={isLocationLocked ? (location || locations.options[0]?.value || '') : filters.location}
+              onChange={(value) => { if (!isLocationLocked) set('location', value); }}
+              placeholder={isLocationLocked ? (locations.options[0]?.label || 'Assigned Location') : 'Select...'}
               loading={locations.loading}
               error={locations.error}
             />

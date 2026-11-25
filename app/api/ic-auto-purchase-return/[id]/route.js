@@ -3,6 +3,7 @@ import IcAutoPurchaseReturn from '@/models/IcAutoPurchaseReturn';
 import { requireSession } from '@/lib/session';
 import { validate } from '@/lib/validate';
 import { FIELDS, computeTotals } from '@/app/admin/transaction/intercompanysell/auto-purchases-return/fields';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 /* /api/ic-auto-purchase-return/<id> - read one, update, delete.
 
@@ -40,6 +41,10 @@ export async function GET(req, { params }) {
 
   const doc = await IcAutoPurchaseReturn.findById(id).lean();
   if (!doc) return json({ doc: null }, 404);
+  const locDenied = await assertDocumentLocationAccess(session, doc, {
+    locationKeys: ['locationId', 'toLocationId'],
+  });
+  if (locDenied) return locDenied;
   return json({ doc: { ...doc, _id: String(doc._id) } });
 }
 
@@ -51,8 +56,10 @@ export async function PUT(req, { params }) {
   const body = await req.json();
   await dbConnect();
 
-  const existing = await IcAutoPurchaseReturn.findById(id).select('icSalesReturnId').lean();
+  const existing = await IcAutoPurchaseReturn.findById(id).select('icSalesReturnId businessId locationId').lean();
   if (!existing) return json({ error: 'Not found' }, 404);
+  const locDenied = await assertDocumentLocationAccess(session, existing);
+  if (locDenied) return locDenied;
   if (existing.icSalesReturnId) {
     return json(
       { error: 'This return has already been accepted by the destination branch and cannot be edited.' },
@@ -81,8 +88,10 @@ export async function DELETE(req, { params }) {
   const { id } = await params;
   await dbConnect();
 
-  const existing = await IcAutoPurchaseReturn.findById(id).select('icSalesReturnId').lean();
+  const existing = await IcAutoPurchaseReturn.findById(id).select('icSalesReturnId businessId locationId').lean();
   if (!existing) return json({ ok: true });
+  const locDenied = await assertDocumentLocationAccess(session, existing);
+  if (locDenied) return locDenied;
   if (existing.icSalesReturnId) {
     return json(
       { error: 'This return has been accepted by the destination branch. Reverse it there first.' },

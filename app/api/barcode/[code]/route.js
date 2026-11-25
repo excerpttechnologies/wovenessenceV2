@@ -6,6 +6,7 @@ import { barcodeHistory, barcodeFilter, unitFor, shape, InventoryError, SCAN_ERR
 import CompanyLocation from '@/models/CompanyLocation';
 import { Supplier } from '@/lib/contacts';
 import Grc from '@/models/Grc';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 /* GET /api/barcode/<code>
    The full traceable life of one barcode: what it is, where it is now, and
@@ -35,6 +36,11 @@ export const GET = handler(async (req, { params }) => {
     throw new InventoryError(SCAN_ERRORS.NOT_FOUND,
       'Barcode ' + text + ' is not in the system.', { status: 404 });
   }
+
+  const locDenied = await assertDocumentLocationAccess(session, unit, {
+    locationKeys: ['currentLocationId', 'locationId'],
+  });
+  if (locDenied) return locDenied;
 
   const events = await barcodeHistory(unit.barcodeNo || unit.barcodeGenerated, { barcodeId: unit._id });
 

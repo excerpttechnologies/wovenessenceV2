@@ -6,7 +6,7 @@ import PurchaseInvoice from '@/models/PurchaseInvoice';
 import DebitNote from '@/models/DebitNote';
 import { Supplier } from '@/lib/contacts';
 import {
-  json, num, r2, scopeOf, scopeFilter, dateRange, pageOf,
+  json, num, r2, requireReportScope, scopeFilter, dateRange, pageOf,
 } from '@/lib/reports';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 
@@ -73,7 +73,8 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
-  const scope = scopeOf(sp);
+  const scope = await requireReportScope(session, sp, { asObjectId: true, allowAllLocations: true });
+  if (!scope.ok) return scope.response;
   const { page, perPage } = pageOf(sp);
   const tab = sp.get('tab') === 'detailed' ? 'detailed' : 'summary';
 
@@ -86,8 +87,6 @@ export async function GET(req) {
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
-  if (sp.get('allLocations') === '1') scope.locationId = null;
-
   if (!sp.get('fromDate') || !sp.get('toDate')) {
     return json({ error: 'Date From and Date To are required.' }, 422);
   }
@@ -98,11 +97,9 @@ export async function GET(req) {
   /* CAST: an aggregate does not go through the schema, so a string id would
      compare against an ObjectId and match nothing */
   const aggBase = {};
-  const biz = oid(base.businessId);
-  const loc = oid(base.locationId);
   const sup = supplierId && isValidObjectId(supplierId) ? oid(supplierId) : null;
-  if (biz) aggBase.businessId = biz;
-  if (loc) aggBase.locationId = loc;
+  if (scope.businessFilter) aggBase.businessId = scope.businessFilter;
+  if (scope.locationFilter) aggBase.locationId = scope.locationFilter;
   if (base.finYear) aggBase.finYear = base.finYear;
   if (sup) aggBase.supplierId = sup;
 

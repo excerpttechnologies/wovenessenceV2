@@ -2,6 +2,7 @@ import { requireSession } from '@/lib/session';
 import { screenDenialAnyAction, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { loadGrcPrintPayload } from '@/lib/grcPrintData';
 import { buildGrcPrintHtml } from '@/lib/grcPrintLayout';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 /* /api/grc/<id>/download
 
@@ -18,6 +19,12 @@ export async function GET(_req, { params }) {
   const { id } = await params;
   const payload = await loadGrcPrintPayload(id);
   if (!payload) return json({ error: 'GRC not found' }, 404);
+
+  const locDenied = await assertDocumentLocationAccess(session, {
+    businessId: payload.grc?.businessId || payload.branch?.businessId,
+    locationId: payload.grc?.locationId || payload.branch?.locationId,
+  });
+  if (locDenied) return locDenied;
 
   /* Roles & Permissions (17-10-2026): printing a GRC - GRC Read, Create or
      Update, exactly as this route has always required. */

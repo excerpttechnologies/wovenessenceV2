@@ -43,7 +43,7 @@ function amount(value) {
 
 export default function GstSummaryView() {
   const router = useRouter();
-  const { business, finYear } = useScope();
+  const { business, location, finYear, isLocationLocked } = useScope();
   const locationOptions = useOptions('companylocations');
   const defaults = useMemo(() => defaultFilters(), []);
   const [filters, setFilters] = useState(defaults);
@@ -94,7 +94,7 @@ export default function GstSummaryView() {
     }
     const params = new URLSearchParams({
       business,
-      location: applied.location || '',
+      location: (isLocationLocked ? location : applied.location) || '',
       finYear: finYear || '',
       fromDate: applied.fromDate,
       toDate: applied.toDate,
@@ -226,8 +226,9 @@ export default function GstSummaryView() {
             <label className="block text-[13px] text-ink">
               <span className="mb-1 block">Business Location</span>
               <MultiSelect mode="single" options={locationOptions.options}
-                value={filters.location}
-                onChange={(value) => setFilters((current) => ({ ...current, location: value }))}
+                disabled={isLocationLocked}
+                value={isLocationLocked ? (location || locationOptions.options[0]?.value || '') : filters.location}
+                onChange={(value) => { if (!isLocationLocked) setFilters((current) => ({ ...current, location: value })); }}
                 placeholder="All Locations" loading={locationOptions.loading} error={locationOptions.error} />
             </label>
             <label className="block text-[13px] text-ink">

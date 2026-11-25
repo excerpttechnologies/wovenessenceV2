@@ -1058,6 +1058,7 @@ import { computeReturnableBreakdown, loadReturnedQuantities } from '@/lib/grtRet
 import {
   masterIndex, normaliseItemCode, rowItemIssues, itemValidationSummary, itemValidationMessage,
 } from '@/lib/itemMasterValidation';
+import { resolveAuthorizedScope, scopeErrorResponse, assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 /* /api/barcode-generation
 
@@ -1084,6 +1085,12 @@ export const GET = handler(async (req) => {
   await dbConnect();
   const sp = new URL(req.url).searchParams;
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: sp.get('business'),
+    locationId: sp.get('location'),
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   /* The generated barcode rows. Answers to Print Label, GRC or GRT read -
      this one list is what Print Label prints from AND what the GRT vendor
      items picker chooses from, so gating it on Print Label alone would break
@@ -1091,7 +1098,7 @@ export const GET = handler(async (req) => {
      withholds all three. See lib/screenPermission.js. */
   const denied = await screenDenialAny({
     session, screens: BARCODE_ROW_SCREENS, action: PERM.READ,
-    businessId: sp.get('business'), label: 'barcode rows',
+    businessId: scope.businessId || sp.get('business'), label: 'barcode rows',
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
@@ -1099,15 +1106,15 @@ export const GET = handler(async (req) => {
   const perPage = Math.min(1000, Number(sp.get('perPage') || PER_PAGE));
 
   const filter = {};
-  const business = sp.get('business');
-  const location = sp.get('location');
+  const business = scope.businessId || sp.get('business');
+  const location = scope.locationId || sp.get('location');
   const finYear = sp.get('finYear');
   const grcId = sp.get('grcId');
   const supplier = sp.get('supplier');
   const returnableOnly = sp.get('returnableOnly') === '1' || Boolean(supplier);
   const excludeGrtId = sp.get('excludeGrtId') || '';
-  if (business) filter.businessId = business;
-  if (location) filter.locationId = location;
+  if (scope.businessFilter) filter.businessId = scope.businessFilter;
+  if (scope.locationFilter) filter.locationId = scope.locationFilter;
   if (finYear) filter.finYear = finYear;
   if (grcId) filter.grcId = grcId;
   if (supplier) filter.supplierId = supplier;
@@ -1263,10 +1270,16 @@ export const POST = handler(async (req) => {
   const session = await requirePermission(PERMISSIONS.BARCODE_GENERATE, { locationId: location });
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: business,
+    locationId: location,
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   /* Roles & Permissions (17-10-2026): saving barcode rows is part of a GRC -
      a new GRC is its Create, an existing one its Update; either is enough */
   {
-    const denied = await screenDenialAnyAction({ session, screens: [SCREENS.GRC], actions: [PERM.CREATE, PERM.UPDATE], businessId: business, label: 'GRC' });
+    const denied = await screenDenialAnyAction({ session, screens: [SCREENS.GRC], actions: [PERM.CREATE, PERM.UPDATE], businessId: scope.businessId || business, label: 'GRC' });
     if (denied) return json({ error: denied.message, code: denied.code }, 403);
   }
 
@@ -1782,18 +1795,24 @@ export const DELETE = handler(async (req) => {
      row off a GRC -> GRC Update or Delete. Nothing found -> no check, the
      route answers as before. */
   {
-    let businessId = null;
+    let targetDoc = null;
     let actions = null;
     if (body?.grcId && isValidObjectId(String(body.grcId))) {
-      businessId = (await Grc.findById(body.grcId).select('businessId').lean())?.businessId;
+      targetDoc = await Grc.findById(body.grcId).select('businessId locationId').lean();
       actions = [PERM.DELETE];
     } else if (body?.id && isValidObjectId(String(body.id))) {
-      businessId = (await BarcodeLabel.findById(body.id).select('businessId').lean())?.businessId;
+      targetDoc = await BarcodeLabel.findById(body.id).select('businessId locationId currentLocationId').lean();
       actions = [PERM.UPDATE, PERM.DELETE];
     }
-    if (businessId) {
-      const denied = await screenDenialAnyAction({ session, screens: [SCREENS.GRC], actions, businessId, label: 'GRC' });
-      if (denied) return json({ error: denied.message, code: denied.code }, 403);
+    if (targetDoc) {
+      const locDenied = await assertDocumentLocationAccess(session, targetDoc, {
+        locationKeys: ['locationId', 'currentLocationId'],
+      });
+      if (locDenied) return locDenied;
+      if (targetDoc.businessId) {
+        const denied = await screenDenialAnyAction({ session, screens: [SCREENS.GRC], actions, businessId: targetDoc.businessId, label: 'GRC' });
+        if (denied) return json({ error: denied.message, code: denied.code }, 403);
+      }
     }
   }
 

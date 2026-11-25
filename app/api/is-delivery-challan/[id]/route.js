@@ -4,6 +4,7 @@ import { requireSession } from '@/lib/session';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import StoreDeliveryChallan from '@/models/StoreDeliveryChallan';
 import { restoreDespatchedStock } from '@/lib/storeStock';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 /* /api/is-delivery-challan/<id> - read one, edit its header, delete one. */
 
@@ -20,6 +21,11 @@ export async function GET(req, { params }) {
   await dbConnect();
   const doc = await StoreDeliveryChallan.findById(id).lean();
   if (!doc) return json({ doc: null }, 404);
+
+  const locDenied = await assertDocumentLocationAccess(session, doc, {
+    locationKeys: ['locationId', 'toLocationId', 'fromLocationId'],
+  });
+  if (locDenied) return locDenied;
 
   const denied = await screenDenial({
     session, ...SCREEN, action: PERM.READ, businessId: doc.businessId,
@@ -49,6 +55,11 @@ export async function PUT(req, { params }) {
 
   const existing = await StoreDeliveryChallan.findById(id).lean();
   if (!existing) return json({ error: 'Not found' }, 404);
+
+  const locDenied = await assertDocumentLocationAccess(session, existing, {
+    locationKeys: ['locationId', 'toLocationId', 'fromLocationId'],
+  });
+  if (locDenied) return locDenied;
 
   const denied = await screenDenial({
     session, ...SCREEN, action: PERM.UPDATE, businessId: body.business || existing.businessId,
@@ -86,6 +97,11 @@ export async function DELETE(req, { params }) {
   await dbConnect();
   const existing = await StoreDeliveryChallan.findById(id).lean();
   if (!existing) return json({ ok: true });
+
+  const locDenied = await assertDocumentLocationAccess(session, existing, {
+    locationKeys: ['locationId', 'toLocationId', 'fromLocationId'],
+  });
+  if (locDenied) return locDenied;
 
   const denied = await screenDenial({
     session, ...SCREEN, action: PERM.DELETE, businessId: existing.businessId,

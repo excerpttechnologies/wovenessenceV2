@@ -8,7 +8,7 @@ import StockMovement from '@/models/StockMovement';
 import CompanyLocation from '@/models/CompanyLocation';
 import Item from '@/models/Item';
 import ProductGroup from '@/models/ProductGroup';
-import { json, num, r2, scopeOf, pageOf } from '@/lib/reports';
+import { json, num, r2, requireReportScope, pageOf } from '@/lib/reports';
 
 const toId = (value) => new Types.ObjectId(String(value));
 
@@ -16,7 +16,8 @@ export const GET = handler(async (req) => {
   const session = await requireUser();
   const sp = new URL(req.url).searchParams;
   await dbConnect();
-  const scope = scopeOf(sp);
+  const scope = await requireReportScope(session, sp);
+  if (!scope.ok) return scope.response;
   const { page, perPage } = pageOf(sp);
   const asOnDate = sp.get('asOnDate');
   if (!scope.businessId) return json({ error: 'Select a business to run the Stock Summary Report.' }, 422);
@@ -50,11 +51,20 @@ export const GET = handler(async (req) => {
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
   const isCurrentStock = end >= todayStart;
+  const locOids = scope.locationIds?.length
+    ? scope.locationIds.map(toId)
+    : (scope.locationId ? [toId(scope.locationId)] : []);
+  const locVal = locOids.length === 1 ? locOids[0] : (locOids.length > 1 ? { $in: locOids } : null);
+  const allowedLocSet = new Set(
+    scope.locationIds?.length
+      ? scope.locationIds.map(String)
+      : (scope.locationId ? [String(scope.locationId)] : [])
+  );
   const [allLabels, lastMovements, locations] = await Promise.all([
     BarcodeLabel.find({
       businessId,
       ...(isCurrentStock ? { status: BARCODE_STATUS.IN_STOCK } : {}),
-      ...(isCurrentStock && scope.locationId ? { currentLocationId: toId(scope.locationId) } : {}),
+      ...(isCurrentStock && locVal ? { currentLocationId: locVal } : {}),
     })
       .select('_id itemId itemCode itemName groupId qtyNum goodsType finalNet purRate retailPrice wspPrice wsp currentLocationId status createdAt barcodeNo barcodeGenerated printDescription customFields.ecomId customFields.consignment customFields.attribute')
       .lean(),
@@ -133,7 +143,7 @@ export const GET = handler(async (req) => {
     const item = itemById.get(String(label.itemId || ''))
       || itemByCode.get(String(label.itemCode || ''));
     const { group, subGroup } = classify(label, item);
-    if (scope.locationId && locationId !== String(scope.locationId)) return false;
+    if (allowedLocSet.size && !allowedLocSet.has(locationId)) return false;
     if (filtersGroup && String(group?._id || '') !== filtersGroup) return false;
     if (filtersSubGroup && (!subGroup?.parentId || String(subGroup._id) !== filtersSubGroup)) return false;
     if (filtersStockType && String(label.goodsType || '') !== filtersStockType) return false;

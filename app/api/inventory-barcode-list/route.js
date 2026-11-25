@@ -9,6 +9,7 @@ import { escapeRegex } from '@/lib/validate';
 import { imageUrl } from '@/lib/inventory';
 import { barcodeSearchPattern } from '@/lib/barcodeValue';
 import { sortedPage } from '@/lib/listSort';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 /* /api/inventory-barcode-list - read-only list for Inventory > Barcode Item.
    Separate from /api/barcodeitem on purpose (that route/model is left
@@ -31,22 +32,25 @@ export async function GET(req) {
   const business = sp.get('business');
   const location = sp.get('location');
 
+  const scope = await resolveAuthorizedScope(session, { businessId: business, locationId: location });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   /* Barcode Item read, or POS read - see BARCODE_LIST_SCREENS. Only
      refuses when the role has a saved matrix withholding both.
      lib/screenPermission.js. */
   const denied = await screenDenialAny({
     session, screens: BARCODE_LIST_SCREENS, action: PERM.READ,
-    businessId: sp.get('business'), label: 'barcode items',
+    businessId: scope.businessId || sp.get('business'), label: 'barcode items',
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const filter = {};
-  if (business && isValidObjectId(business)) filter.businessId = business;
-  if (location && isValidObjectId(location)) filter.locationId = location;
+  if (scope.businessFilter) filter.businessId = scope.businessFilter;
+  if (scope.locationFilter) filter.locationId = scope.locationFilter;
 
   const returnedFilter = {};
-  if (business && isValidObjectId(business)) returnedFilter.businessId = business;
-  if (location && isValidObjectId(location)) returnedFilter.locationId = location;
+  if (scope.businessFilter) returnedFilter.businessId = scope.businessFilter;
+  if (scope.locationFilter) returnedFilter.locationId = scope.locationFilter;
   const returnedGrts = await Grt.find(returnedFilter).select('items').lean();
   const returnedItems = returnedGrts.flatMap((grt) => Array.isArray(grt.items) ? grt.items : []);
   const returnedIds = returnedItems.map((item) => String(item._id || '')).filter(Boolean);
@@ -119,8 +123,8 @@ export async function GET(req) {
     const grcFilter = {};
     if (supplierId && isValidObjectId(supplierId)) grcFilter.supplierId = supplierId;
     if (grcNo) grcFilter.grcNumber = { $regex: escapeRegex(grcNo), $options: 'i' };
-    if (business && isValidObjectId(business)) grcFilter.businessId = business;
-    if (location && isValidObjectId(location)) grcFilter.locationId = location;
+    if (scope.businessFilter) grcFilter.businessId = scope.businessFilter;
+    if (scope.locationFilter) grcFilter.locationId = scope.locationFilter;
 
     const matches = await Grc.find(grcFilter).select('_id').lean();
     filter.grcId = { $in: matches.map((g) => String(g._id)) };

@@ -3,6 +3,7 @@ import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import StoreSalesReturn from '@/models/StoreSalesReturn';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 /* /api/is-sales-return/<id> - read one.
 
@@ -25,6 +26,11 @@ export async function GET(req, { params }) {
   const doc = await StoreSalesReturn.findById(id).lean();
   if (!doc) return json({ doc: null }, 404);
 
+  const locDenied = await assertDocumentLocationAccess(session, doc, {
+    locationKeys: ['locationId', 'toLocationId', 'fromLocationId'],
+  });
+  if (locDenied) return locDenied;
+
   const denied = await screenDenial({
     session, ...SCREEN, action: PERM.READ, businessId: doc.businessId,
   });
@@ -40,8 +46,13 @@ export async function DELETE(req, { params }) {
   const { id } = await params;
   await dbConnect();
 
-  const doc = await StoreSalesReturn.findById(id).select('businessId').lean();
+  const doc = await StoreSalesReturn.findById(id).select('businessId locationId fromLocationId toLocationId').lean();
   if (!doc) return json({ ok: true });
+
+  const locDenied = await assertDocumentLocationAccess(session, doc, {
+    locationKeys: ['locationId', 'toLocationId', 'fromLocationId'],
+  });
+  if (locDenied) return locDenied;
 
   const denied = await screenDenial({
     session, ...SCREEN, action: PERM.DELETE, businessId: doc.businessId,

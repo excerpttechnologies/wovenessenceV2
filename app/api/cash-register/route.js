@@ -4,6 +4,7 @@ import CashRegister, { OPEN } from '@/models/CashRegister';
 import { requireSession } from '@/lib/session';
 import { screenDenialAny, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { sortedPage } from '@/lib/listSort';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 /* /api/cash-register - list + open a register.
 
@@ -31,18 +32,27 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: sp.get('business'),
+    locationId: sp.get('location'),
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   const denied = await screenDenialAny({
     session,
     screens: [SCREENS.CASH_REGISTER, SCREENS.OPEN_REGISTER],
     action: PERM.READ,
-    businessId: sp.get('business'),
+    businessId: scope.businessId || sp.get('business'),
     label: 'cash registers',
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const page = Math.max(1, Number(sp.get('page') || 1));
   const perPage = Math.min(500, Number(sp.get('perPage') || PER_PAGE));
-  const filter = scopeOf(sp);
+  const baseFilter = scopeOf(sp);
+  if (scope.businessFilter) baseFilter.businessId = scope.businessFilter;
+  if (scope.locationFilter) baseFilter.locationId = scope.locationFilter;
+  const filter = { ...baseFilter };
 
   /* ?status=Open backs the /cashregister/open screen */
   const status = sp.get('status');
@@ -62,7 +72,7 @@ export async function GET(req) {
     .lean();
 
   /* the list needs to know whether ADD should be offered at all */
-  const openCount = await CashRegister.countDocuments({ ...scopeOf(sp), status: OPEN });
+  const openCount = await CashRegister.countDocuments({ ...baseFilter, status: OPEN });
 
   return json({
     rows: rows.map((r) => ({ ...r, _id: String(r._id) })),
@@ -82,8 +92,14 @@ export async function POST(req) {
   const body = await req.json();
   await dbConnect();
 
-  const businessId = isValidObjectId(body.business) ? body.business : null;
-  const locationId = isValidObjectId(body.location) ? body.location : null;
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: body.business,
+    locationId: body.location,
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
+  const businessId = scope.businessId || (isValidObjectId(body.business) ? body.business : null);
+  const locationId = scope.locationId || (isValidObjectId(body.location) ? body.location : null);
   const finYear = body.finYear || '';
 
   if (!businessId) return json({ error: 'No business selected.' }, 422);

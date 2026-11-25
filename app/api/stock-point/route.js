@@ -7,6 +7,7 @@ import { validate, escapeRegex } from '@/lib/validate';
 import { FIELDS } from '@/app/admin/setting/stockpoint/fields';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { sortedPage } from '@/lib/listSort';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 /* Permission gate for this screen.
 
@@ -28,6 +29,12 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: sp.get('business'),
+    locationId: sp.get('location'),
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   const page = Math.max(1, Number(sp.get('page') || 1));
   const perPage = Math.min(500, Number(sp.get('perPage') || PER_PAGE));
   const search = (sp.get('search') || '').trim();
@@ -35,13 +42,13 @@ export async function GET(req) {
   /* Only refuses when this role has a saved permission matrix that
      withholds it - see lib/screenPermission.js. */
   const denied = await screenDenial({
-    session, ...STOCK_POINT, action: PERM.READ, businessId: sp.get('business'),
+    session, ...STOCK_POINT, action: PERM.READ, businessId: scope.businessId || sp.get('business'),
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const filter = {};
-  const b = sp.get('business'); if (b && isValidObjectId(b)) filter.businessId = b;
-  const l = sp.get('location'); if (l && isValidObjectId(l)) filter.locationId = l;
+  if (scope.businessFilter) filter.businessId = scope.businessFilter;
+  if (scope.locationFilter) filter.locationId = scope.locationFilter;
 
   if (search) {
     const rx = { $regex: escapeRegex(search), $options: 'i' };
@@ -81,17 +88,26 @@ export async function POST(req) {
   const body = await req.json();
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: body.business,
+    locationId: body.location,
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+  if (!scope.access.unrestricted && !scope.locationId) {
+    return json({ error: 'Please select an authorized location.', code: 'LOCATION_REQUIRED' }, 422);
+  }
+
   /* Ahead of validate(), so a refused stock point comes back as 403 "not
      allowed" rather than 422 "your form is wrong". */
   const denied = await screenDenial({
-    session, ...STOCK_POINT, action: PERM.CREATE, businessId: body.business,
+    session, ...STOCK_POINT, action: PERM.CREATE, businessId: scope.businessId || body.business,
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const { errors, doc, ok } = validate(FIELDS, body.data || {});
   if (!ok) return json({ errors }, 422);
-  if (body.business && isValidObjectId(body.business)) doc.businessId = body.business;
-  if (body.location && isValidObjectId(body.location)) doc.locationId = body.location;
+  if (scope.businessId) doc.businessId = scope.businessId;
+  if (scope.locationId) doc.locationId = scope.locationId;
 
   const created = await StockPoint.create(doc);
   return json({ ok: true, id: String(created._id) });

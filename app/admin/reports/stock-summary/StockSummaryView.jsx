@@ -56,7 +56,7 @@ function amount(value) {
 }
 
 export default function StockSummaryView() {
-  const { business, location, finYear } = useScope();
+  const { business, location, finYear, isLocationLocked } = useScope();
   const locationOptions = useOptions('companylocations');
   const [filters, setFilters] = useState({
     location: location || '',
@@ -193,10 +193,11 @@ export default function StockSummaryView() {
               <span className="mb-1 block">Business Location <b className="text-danger">*</b></span>
               <MultiSelect
                 mode="single"
-                options={[{ value: '', label: 'All' }, ...locationOptions.options]}
-                value={filters.location}
-                onChange={(value) => setFilters((current) => ({ ...current, location: value }))}
-                placeholder="All"
+                options={isLocationLocked ? locationOptions.options : [{ value: '', label: 'All' }, ...locationOptions.options]}
+                disabled={isLocationLocked}
+                value={isLocationLocked ? (location || locationOptions.options[0]?.value || '') : filters.location}
+                onChange={(value) => { if (!isLocationLocked) setFilters((current) => ({ ...current, location: value })); }}
+                placeholder={isLocationLocked ? (locationOptions.options[0]?.label || 'Assigned Location') : 'All'}
                 loading={locationOptions.loading}
                 error={locationOptions.error}
               />

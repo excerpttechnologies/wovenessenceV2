@@ -6,6 +6,7 @@ import { Customer } from '@/lib/contacts';
 import PosCounter from '@/models/PosCounter';
 import SalesPerson from '@/models/SalesPerson';
 import { requireSession } from '@/lib/session';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 /* GET /api/pos-archive/<id>  (21-10-2026)
 
@@ -26,6 +27,9 @@ export async function GET(req, { params }) {
 
   const doc = await mongoose.connection.db.collection('posinvoicearchive').findOne({ _id: new Types.ObjectId(id) });
   if (!doc) return json({ doc: null }, 404);
+
+  const locDenied = await assertDocumentLocationAccess(session, doc);
+  if (locDenied) return locDenied;
 
   const [business, location, customer, counter] = await Promise.all([
     doc.businessId ? Business.findById(doc.businessId).lean() : null,

@@ -6,7 +6,7 @@ import PosInvoice from '@/models/PosInvoice';
 import PosReturn from '@/models/PosReturn';
 import { Customer } from '@/lib/contacts';
 import {
-  json, num, r2, scopeOf, scopeFilter, dateRange, pageOf,
+  json, num, r2, requireReportScope, scopeFilter, dateRange, pageOf,
 } from '@/lib/reports';
 
 /* /api/reports/customer-outstanding - read-only.
@@ -47,15 +47,12 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
-  const scope = scopeOf(sp);
+  const scope = await requireReportScope(session, sp, { asObjectId: true, allowAllLocations: true });
+  if (!scope.ok) return scope.response;
   const denied = await screenDenial({ session, screen: SCREENS.CUSTOMER_OUTSTANDING, action: PERM.READ, businessId: scope.businessId, label: 'the customer outstanding report' });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
   const { page, perPage } = pageOf(sp);
   const tab = sp.get('tab') === 'detailed' ? 'detailed' : 'summary';
-
-  /* the report's own Location filter says All Locations -> the top-bar
-     location must not be applied on top of it */
-  if (sp.get('allLocations') === '1') scope.locationId = null;
 
   if (!sp.get('fromDate') || !sp.get('toDate')) {
     return json({ error: 'Date From and Date To are required.' }, 422);
@@ -65,11 +62,9 @@ export async function GET(req) {
   const customerId = sp.get('customerId');
 
   const aggBase = {};
-  const biz = oid(base.businessId);
-  const loc = oid(base.locationId);
   const cust = customerId && isValidObjectId(customerId) ? oid(customerId) : null;
-  if (biz) aggBase.businessId = biz;
-  if (loc) aggBase.locationId = loc;
+  if (scope.businessFilter) aggBase.businessId = scope.businessFilter;
+  if (scope.locationFilter) aggBase.locationId = scope.locationFilter;
   if (base.finYear) aggBase.finYear = base.finYear;
   if (cust) aggBase.customerId = cust;
 

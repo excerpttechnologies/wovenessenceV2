@@ -2,6 +2,7 @@ import dbConnect from '@/lib/db';
 import StockTransferLocation from '@/models/StockTransferLocation';
 import StockTransferPacket from '@/models/StockTransferPacket';
 import { requireSession } from '@/lib/session';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 /* /api/stock-transfer-location/<id> - read one, delete.
 
@@ -22,6 +23,10 @@ export async function GET(req, { params }) {
 
   const doc = await StockTransferLocation.findById(id).lean();
   if (!doc) return json({ doc: null }, 404);
+  const locDenied = await assertDocumentLocationAccess(session, doc, {
+    locationKeys: ['fromLocationId', 'toLocationId', 'locationId'],
+  });
+  if (locDenied) return locDenied;
   return json({ doc: { ...doc, _id: String(doc._id) } });
 }
 
@@ -32,8 +37,12 @@ export async function DELETE(req, { params }) {
   const { id } = await params;
   await dbConnect();
 
-  const existing = await StockTransferLocation.findById(id).select('receivedId').lean();
+  const existing = await StockTransferLocation.findById(id).select('receivedId businessId fromLocationId toLocationId locationId').lean();
   if (!existing) return json({ ok: true });
+  const locDenied = await assertDocumentLocationAccess(session, existing, {
+    locationKeys: ['fromLocationId', 'locationId', 'toLocationId'],
+  });
+  if (locDenied) return locDenied;
 
   /* Once the destination has taken it into stock there is a receipt on the
      other side referencing it. Reverse that first. */

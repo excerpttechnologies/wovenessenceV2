@@ -2,6 +2,7 @@ import dbConnect from '@/lib/db';
 import { handler, json } from '@/lib/apiError';
 import { requireUser } from '@/lib/rbac';
 import { lockHolder } from '@/lib/locks';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 /* GET /api/stock-transfer/lock?business=&from=&to=
 
@@ -16,11 +17,17 @@ import { lockHolder } from '@/lib/locks';
    working between A and B. */
 
 export const GET = handler(async (req) => {
-  await requireUser();
+  const session = await requireUser();
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
-  const holder = await lockHolder(sp.get('business'), sp.get('from'), sp.get('to'));
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: sp.get('business'),
+    locationId: sp.get('from'),
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
+  const holder = await lockHolder(scope.businessId || sp.get('business'), scope.locationId || sp.get('from'), sp.get('to'));
 
   return json({
     ok: true,

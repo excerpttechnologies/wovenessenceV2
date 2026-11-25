@@ -47,7 +47,7 @@ export default function EccomProductFilterCard({
   onSearch,
   loading = false,
 }) {
-  const { business, location: scopeLocation, locationReady, setLocation } = useScope();
+  const { business, location: scopeLocation, locationReady, setLocation, isLocationLocked, isCompanyLocked } = useScope();
   const [selectedCompany, setSelectedCompany] = useState(business || '');
   const [companyLocations, setCompanyLocations] = useState([]);
   const [locationsLoading, setLocationsLoading] = useState(false);
@@ -73,8 +73,8 @@ export default function EccomProductFilterCard({
   }, [selectedCompany]);
 
   const customLocationOptions = useMemo(() => {
-    const seen = new Set(['']);
-    const out = [{ value: '', label: 'All Locations' }];
+    const seen = new Set(isLocationLocked ? [] : ['']);
+    const out = isLocationLocked ? [] : [{ value: '', label: 'All Locations' }];
     (companyLocations || []).forEach((opt) => {
       const val = String(opt?.value ?? '');
       if (seen.has(val)) return;
@@ -85,7 +85,7 @@ export default function EccomProductFilterCard({
       });
     });
     return out;
-  }, [companyLocations]);
+  }, [companyLocations, isLocationLocked]);
 
   const [draft, setDraft] = useState(() => filterDefaults(filters));
   const byKey = useMemo(() => new Map(filters.map((f) => [f.k, f])), [filters]);
@@ -172,6 +172,7 @@ export default function EccomProductFilterCard({
   };
 
   const handleCompanyChange = (newBusinessId) => {
+    if (isCompanyLocked) return;
     const val = newBusinessId || '';
     if (val === selectedCompany) return;
     setSelectedCompany(val);

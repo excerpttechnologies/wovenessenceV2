@@ -52,7 +52,7 @@
 
 //   useEffect(() => {
 //     if (readOnly || !toBusinessId) { setLocations([]); return; }
-//     fetch('/api/options?ref=companylocations&business=' + toBusinessId)
+//     fetch('/api/options?ref=companylocations&transferTarget=1&business=' + toBusinessId)
 //       .then((r) => r.json())
 //       .then((d) => setLocations(d.options || []))
 //       .catch(() => setLocations([]));
@@ -454,7 +454,7 @@ export default function IcSalesInvoiceForm({ cfg, id }) {
 
   useEffect(() => {
     if (readOnly || !toBusinessId) { setLocations([]); return; }
-    fetch('/api/options?ref=companylocations&business=' + toBusinessId)
+    fetch('/api/options?ref=companylocations&transferTarget=1&business=' + toBusinessId)
       .then((r) => r.json())
       .then((d) => setLocations(d.options || []))
       .catch(() => setLocations([]));

@@ -31,6 +31,7 @@ import {
 import { barcodeKey, sameBarcode } from '@/lib/barcodeValue';
 import { BarcodeLabel } from '@/lib/barcodeLabel';
 import { sortedPage } from '@/lib/listSort';
+import { resolveAuthorizedScope, scopeErrorResponse, assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 /* /api/sell-pos-return - list + create. */
 
@@ -44,19 +45,25 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: sp.get('business'),
+    locationId: sp.get('location'),
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   const page = Math.max(1, Number(sp.get('page') || 1));
   const perPage = Math.min(500, Number(sp.get('perPage') || PER_PAGE));
 
   /* Only refuses when this role has a saved permission matrix that
      withholds it - see lib/screenPermission.js. */
   const denied = await screenDenial({
-    session, ...POS_RETURN, action: PERM.READ, businessId: sp.get('business'),
+    session, ...POS_RETURN, action: PERM.READ, businessId: scope.businessId || sp.get('business'),
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const filter = {};
-  const b = sp.get('business'); if (b && isValidObjectId(b)) filter.businessId = b;
-  const l = sp.get('location'); if (l && isValidObjectId(l)) filter.locationId = l;
+  if (scope.businessFilter) filter.businessId = scope.businessFilter;
+  if (scope.locationFilter) filter.locationId = scope.locationFilter;
   const y = sp.get('finYear'); if (y) filter.finYear = y;
 
   /* Date range — mirrors the pattern in /api/sell-pos. Falls back to
@@ -139,18 +146,27 @@ export async function GET(req) {
 export const POST = handler(async (req) => {
   const body = await req.json().catch(() => ({}));
   const data = body?.data || {};
-  const session = await requirePermission(PERMISSIONS.POS_RETURN, { locationId: body.business ? data.locationId : null });
+  const session = await requirePermission(PERMISSIONS.POS_RETURN, { locationId: body.location || data.locationId || null });
   await dbConnect();
+
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: body.business,
+    locationId: body.location || data.locationId,
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+  if (!scope.access.unrestricted && !scope.locationId) {
+    return json({ error: 'Please select an authorized location.', code: 'LOCATION_REQUIRED' }, 422);
+  }
 
   /* Ahead of every field check below, so a refused refund comes back as 403
      "not allowed" rather than 422 "pick an invoice first". */
   const denied = await screenDenial({
-    session, ...POS_RETURN, action: PERM.CREATE, businessId: body.business,
+    session, ...POS_RETURN, action: PERM.CREATE, businessId: scope.businessId || body.business,
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
-  const businessId = isValidObjectId(body.business) ? body.business : null;
-  const locationId = isValidObjectId(body.location) ? body.location : null;
+  const businessId = scope.businessId || (isValidObjectId(body.business) ? body.business : null);
+  const locationId = scope.locationId || (isValidObjectId(body.location) ? body.location : null);
 
   const parentId = data.parentInvoiceId;
   if (!isValidObjectId(parentId)) {
@@ -167,6 +183,8 @@ export const POST = handler(async (req) => {
 
   const invoice = await PosInvoice.findById(parentId).lean();
   if (!invoice) return json({ errors: { parentInvoiceId: 'That invoice was not found.' } }, 422);
+  const invDenied = await assertDocumentLocationAccess(session, invoice);
+  if (invDenied) return invDenied;
   if (businessId && String(invoice.businessId) !== String(businessId)) {
     return json({ errors: { parentInvoiceId: 'That invoice belongs to a different business.' } }, 422);
   }

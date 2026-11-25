@@ -88,7 +88,7 @@
 //   /* locations of whichever business is picked on THIS form */
 //   useEffect(() => {
 //     if (!data.toBusinessId) { setLocations([]); return; }
-//     fetch('/api/options?ref=companylocations&business=' + data.toBusinessId)
+//     fetch('/api/options?ref=companylocations&transferTarget=1&business=' + data.toBusinessId)
 //       .then((r) => r.json())
 //       .then((d) => setLocations(d.options || []))
 //       .catch(() => setLocations([]));
@@ -654,7 +654,7 @@ export default function IcChallanForm({ cfg, id }) {
     if (!data.toBusinessId) { setLocations([]); return undefined; }
 
     let off = false;
-    fetch('/api/options?ref=companylocations&business=' + data.toBusinessId)
+    fetch('/api/options?ref=companylocations&transferTarget=1&business=' + data.toBusinessId)
       .then((r) => r.json())
       .then((d) => {
         if (off) return;

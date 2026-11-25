@@ -10,7 +10,7 @@ import PosInvoice from '@/models/PosInvoice';
 import PosReturn from '@/models/PosReturn';
 import ProductGroup from '@/models/ProductGroup';
 import {
-  json, r2, scopeOf, scopeFilter, dateRange, docValue, docQty,
+  json, r2, requireReportScope, scopeFilter, dateRange, docValue, docQty,
   linesOf, lineItemCode, lineItemName, lineQty, lineNet,
 } from '@/lib/reports';
 
@@ -41,8 +41,8 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
-  const scope = scopeOf(sp);
-  if (sp.get('allLocations') === '1') scope.locationId = null;
+  const scope = await requireReportScope(session, sp, { allowAllLocations: true });
+  if (!scope.ok) return scope.response;
 
   const denied = await screenDenial({
     session,

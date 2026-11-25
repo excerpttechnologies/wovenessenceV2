@@ -54,6 +54,7 @@ import { LABEL_MODE, resolveBarcodeType, resolveBarcodeLabelCount } from '@/lib/
 import { TABS as SUPPLIER_TABS } from '@/app/admin/contact/supplier/tabs';
 import { priceSetupFieldDefs, buildSupplierPriceSetup } from '@/lib/supplierPriceSetup';
 import { screenDenial, screenDenialAnyAction, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 const json = (data, status = 200) => Response.json(data, { status });
 
@@ -74,6 +75,9 @@ export async function GET(_req, { params }) {
 
   const grc = await Grc.findById(id).lean();
   if (!grc) return json({ error: 'GRC not found' }, 404);
+
+  const locDenied = await assertDocumentLocationAccess(session, grc);
+  if (locDenied) return locDenied;
 
   /* Roles & Permissions (17-10-2026): one GRC with its barcode rows - read
      by the GRC edit / print / barcode-generation pages (GRC Read, Create or
@@ -168,8 +172,10 @@ export async function DELETE(_req, { params }) {
 
   /* Roles & Permissions (17-10-2026): GRC -> Delete (a missing GRC still
      answers ok, exactly as before) */
-  const existing = isValidObjectId(id) ? await Grc.findById(id).select('businessId').lean() : null;
+  const existing = isValidObjectId(id) ? await Grc.findById(id).select('businessId locationId').lean() : null;
   if (existing) {
+    const locDenied = await assertDocumentLocationAccess(session, existing);
+    if (locDenied) return locDenied;
     const denied = await screenDenial({ session, screen: SCREENS.GRC, label: 'GRC', action: PERM.DELETE, businessId: existing.businessId });
     if (denied) return json({ error: denied.message, code: denied.code }, 403);
   }
@@ -190,8 +196,10 @@ export async function PUT(req, { params }) {
   const body = await req.json();
   /* Roles & Permissions (17-10-2026): GRC -> Update */
   {
-    const existing = isValidObjectId(id) ? await Grc.findById(id).select('businessId').lean() : null;
+    const existing = isValidObjectId(id) ? await Grc.findById(id).select('businessId locationId').lean() : null;
     if (existing) {
+      const locDenied = await assertDocumentLocationAccess(session, existing);
+      if (locDenied) return locDenied;
       const denied = await screenDenial({ session, screen: SCREENS.GRC, label: 'GRC', action: PERM.UPDATE, businessId: existing.businessId });
       if (denied) return json({ error: denied.message, code: denied.code }, 403);
     }

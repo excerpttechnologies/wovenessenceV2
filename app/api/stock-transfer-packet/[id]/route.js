@@ -4,6 +4,7 @@ import CompanyLocation from '@/models/CompanyLocation';
 import { requireSession } from '@/lib/session';
 import { validate } from '@/lib/validate';
 import { FIELDS, computeTotals } from '@/app/admin/transaction/stocktransfers/transferstockpacket/fields';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 /* /api/stock-transfer-packet/<id> - read one, update, delete.
 
@@ -51,6 +52,10 @@ export async function GET(req, { params }) {
 
   const doc = await StockTransferPacket.findById(id).lean();
   if (!doc) return json({ doc: null }, 404);
+  const locDenied = await assertDocumentLocationAccess(session, doc, {
+    locationKeys: ['fromLocationId', 'toLocationId', 'locationId'],
+  });
+  if (locDenied) return locDenied;
   return json({ doc: { ...doc, _id: String(doc._id) } });
 }
 
@@ -62,8 +67,12 @@ export async function PUT(req, { params }) {
   const body = await req.json();
   await dbConnect();
 
-  const existing = await StockTransferPacket.findById(id).select('stockTransferLocationId').lean();
+  const existing = await StockTransferPacket.findById(id).select('stockTransferLocationId businessId fromLocationId toLocationId locationId').lean();
   if (!existing) return json({ error: 'Not found' }, 404);
+  const locDenied = await assertDocumentLocationAccess(session, existing, {
+    locationKeys: ['fromLocationId', 'locationId', 'toLocationId'],
+  });
+  if (locDenied) return locDenied;
   if (existing.stockTransferLocationId) {
     return json(
       { error: 'This packet is already on a stock transfer location and cannot be edited.' },
@@ -101,8 +110,12 @@ export async function DELETE(req, { params }) {
   const { id } = await params;
   await dbConnect();
 
-  const existing = await StockTransferPacket.findById(id).select('stockTransferLocationId').lean();
+  const existing = await StockTransferPacket.findById(id).select('stockTransferLocationId businessId fromLocationId toLocationId locationId').lean();
   if (!existing) return json({ ok: true });
+  const locDenied = await assertDocumentLocationAccess(session, existing, {
+    locationKeys: ['fromLocationId', 'locationId', 'toLocationId'],
+  });
+  if (locDenied) return locDenied;
   if (existing.stockTransferLocationId) {
     return json(
       { error: 'This packet is on a stock transfer location. Delete that transfer first.' },

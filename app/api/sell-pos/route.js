@@ -26,6 +26,7 @@ import { sortedPage } from '@/lib/listSort';
 import {
   loyaltyRules, pointsBalance, allowedRedemption, redemptionValue, saleLedgerRows,
 } from '@/lib/loyalty';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 /* Permission gate for this screen.
 
@@ -56,19 +57,25 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: sp.get('business'),
+    locationId: sp.get('location'),
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   const page = Math.max(1, Number(sp.get('page') || 1));
   const perPage = Math.min(500, Number(sp.get('perPage') || PER_PAGE));
 
   /* Only refuses when this role has a saved permission matrix that
      withholds it - see lib/screenPermission.js. */
   const denied = await screenDenial({
-    session, ...POS, action: PERM.READ, businessId: sp.get('business'),
+    session, ...POS, action: PERM.READ, businessId: scope.businessId || sp.get('business'),
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const filter = {};
-  const b = sp.get('business'); if (b && isValidObjectId(b)) filter.businessId = b;
-  const l = sp.get('location'); if (l && isValidObjectId(l)) filter.locationId = l;
+  if (scope.businessFilter) filter.businessId = scope.businessFilter;
+  if (scope.locationFilter) filter.locationId = scope.locationFilter;
   const y = sp.get('finYear'); if (y) filter.finYear = y;
 
 
@@ -125,11 +132,15 @@ export async function GET(req) {
   const summaryCount = hasRange ? total : await PosInvoice.countDocuments(summaryFilter);
 
   const idFields = ['businessId', 'locationId', 'customerId', 'counterId'];
-  const matchIds = Object.fromEntries(Object.entries(summaryFilter).map(([k, v]) => (
-    idFields.includes(k) && typeof v === 'string' && isValidObjectId(v)
-      ? [k, new Types.ObjectId(v)]
-      : [k, v]
-  )));
+  const toOid = (v) => (typeof v === 'string' && isValidObjectId(v) ? new Types.ObjectId(v) : v);
+  const matchIds = Object.fromEntries(Object.entries(summaryFilter).map(([k, v]) => {
+    if (!idFields.includes(k)) return [k, v];
+    if (typeof v === 'string') return [k, toOid(v)];
+    if (v && typeof v === 'object' && Array.isArray(v.$in)) {
+      return [k, { ...v, $in: v.$in.map(toOid) }];
+    }
+    return [k, v];
+  }));
 
   /* Quantity is summed out of the line items, which are Mixed - a qty may be
      stored as a number or as a string depending on how the line reached the
@@ -421,17 +432,26 @@ export const POST = handler(async (req) => {
   const body = await req.json();
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: body.business,
+    locationId: body.location,
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+  if (!scope.access.unrestricted && !scope.locationId) {
+    return json({ error: 'Please select an authorized location.', code: 'LOCATION_REQUIRED' }, 422);
+  }
+
   /* Ahead of validate(), so a refused sale comes back as 403 "not allowed"
      rather than 422 "your cart is wrong". */
   const denied = await screenDenial({
-    session, ...POS, action: PERM.CREATE, businessId: body.business,
+    session, ...POS, action: PERM.CREATE, businessId: scope.businessId || body.business,
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const { errors, doc, ok } = validate(FIELDS, body.data || {});
   if (!ok) return json({ errors }, 422);
-  if (body.business && isValidObjectId(body.business)) doc.businessId = body.business;
-  if (body.location && isValidObjectId(body.location)) doc.locationId = body.location;
+  if (scope.businessId) doc.businessId = scope.businessId;
+  if (scope.locationId) doc.locationId = scope.locationId;
   if (body.finYear) doc.finYear = body.finYear;
 
   doc.date = body.data?.date ? new Date(body.data.date) : new Date();

@@ -214,7 +214,7 @@ import CompanyLocation from '@/models/CompanyLocation';
 import SalesPerson from '@/models/SalesPerson';
 import { Customer } from '@/lib/contacts';
 import {
-  json, num, r2, scopeOf, scopeFilter, dateRange, pageOf, paged,
+  json, num, r2, requireReportScope, scopeFilter, dateRange, pageOf, paged,
   linesOf, lineItemCode, lineItemName, lineQty,
 } from '@/lib/reports';
 
@@ -300,7 +300,8 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
-  const scope = scopeOf(sp);
+  const scope = await requireReportScope(session, sp);
+  if (!scope.ok) return scope.response;
   const denied = await screenDenial({ session, screen: SCREENS.POS_REPORT, action: PERM.READ, businessId: scope.businessId, label: 'the POS report' });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
   const { page, perPage } = pageOf(sp);
@@ -311,7 +312,9 @@ export async function GET(req) {
   }
 
   const invoiceScope = scopeFilter(scope);
-  delete invoiceScope.locationId;
+  if (scope.access?.unrestricted && !sp.get('locationId')) {
+    delete invoiceScope.locationId;
+  }
   const filter = {
     ...invoiceScope,
     ...dateRange(sp, 'date'),

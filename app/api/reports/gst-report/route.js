@@ -15,7 +15,7 @@ import CompanyLocation from '@/models/CompanyLocation';
 import Hsn from '@/models/Hsn';
 import { Customer, Supplier } from '@/lib/contacts';
 import {
-  json, num, r2, scopeOf, scopeFilter, dateRange, pageOf,
+  json, num, r2, requireReportScope, scopeFilter, dateRange, pageOf,
 } from '@/lib/reports';
 
 const ALL_TYPES = [
@@ -188,7 +188,9 @@ export async function GET(req) {
   if (!session) return json({ error: 'Unauthorized' }, 401);
 
   const sp = new URL(req.url).searchParams;
-  const scope = scopeOf(sp);
+  await dbConnect();
+  const scope = await requireReportScope(session, sp);
+  if (!scope.ok) return scope.response;
   if (!scope.businessId) return json({ error: 'Select a business to run the GST report.' }, 422);
   if (!sp.get('fromDate') || !sp.get('toDate')) {
     return json({ error: 'Date From and Date To are required.' }, 422);
@@ -197,7 +199,6 @@ export async function GET(req) {
     return json({ error: 'Enter valid report dates.' }, 422);
   }
 
-  await dbConnect();
   const denied = await screenDenialAny({
     session,
     screens: [SCREENS.GST_REPORT, SCREENS.GST_SUMMARY, SCREENS.HSN_SUMMARY],

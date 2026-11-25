@@ -8,6 +8,7 @@ import { resolveRefLabels } from '@/lib/refLabels';
 import { validate, escapeRegex } from '@/lib/validate';
 import { nextDocNumber } from '@/lib/docnumber';
 import { FIELDS, linesFromChallans, invoiceTotals } from '@/app/admin/transaction/intercompanysell/salesinvoice/fields';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 /* /api/ic-sales-invoice - list + create.
 
@@ -27,12 +28,18 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: sp.get('inbox') || sp.get('business'),
+    locationId: sp.get('inbox') ? '' : sp.get('location'),
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   const page = Math.max(1, Number(sp.get('page') || 1));
   const perPage = Math.min(500, Number(sp.get('perPage') || PER_PAGE));
 
   const filter = {};
-  const b = sp.get('business'); if (b && isValidObjectId(b)) filter.businessId = b;
-  const l = sp.get('location'); if (l && isValidObjectId(l)) filter.locationId = l;
+  if (scope.businessFilter) filter.businessId = scope.businessFilter;
+  if (scope.locationFilter && !sp.get('inbox')) filter.locationId = scope.locationFilter;
   const y = sp.get('finYear'); if (y) filter.finYear = y;
 
   const tb = sp.get('toBusinessId'); if (tb && isValidObjectId(tb)) filter.toBusinessId = tb;
@@ -45,6 +52,7 @@ export async function GET(req) {
     delete filter.businessId;
     delete filter.locationId;
     filter.toBusinessId = inbox;
+    if (scope.locationFilter) filter.toLocationId = scope.locationFilter;
   }
 
   const unconverted = sp.get('unconverted');
@@ -85,11 +93,17 @@ export async function POST(req) {
   const body = await req.json();
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: body.business,
+    locationId: body.location,
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   const { errors, doc, ok } = validate(FIELDS, body.data || {});
   if (!ok) return json({ errors }, 422);
 
-  if (body.business && isValidObjectId(body.business)) doc.businessId = body.business;
-  if (body.location && isValidObjectId(body.location)) doc.locationId = body.location;
+  if (scope.businessId) doc.businessId = scope.businessId;
+  if (scope.locationId) doc.locationId = scope.locationId;
   if (body.finYear) doc.finYear = body.finYear;
 
   const ids = (body.data?.icDeliveryChallanIds || []).filter((v) => isValidObjectId(v));

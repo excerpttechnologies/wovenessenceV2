@@ -10,6 +10,7 @@ import { BarcodeLabel } from '@/lib/barcodeLabel';
 import { requireSession } from '@/lib/session';
 import { nextDocNumber } from '@/lib/docnumber';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 /* /api/ic-purchase-received - the RECEIVER's Auto Purchases Receiveds.
 
@@ -89,18 +90,25 @@ export async function GET(req) {
   if (!session) return json({ error: 'Unauthorized' }, 401);
 
   const sp = new URL(req.url).searchParams;
-  const business = sp.get('business');
-  const location = sp.get('location');
+  await dbConnect();
+
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: sp.get('business'),
+    locationId: sp.get('location'),
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
+  const business = scope.businessId || sp.get('business');
+  const location = scope.locationId || sp.get('location');
   if (!business || !isValidObjectId(business)) return json({ rows: [] });
 
-  await dbConnect();
   const denied = await screenDenial({ session, ...IC_PR, action: PERM.READ, businessId: business });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   /* ------------------------------------------------------ received ----- */
   if (sp.get('view') === 'received') {
-    const filter = { businessId: business };
-    if (location && isValidObjectId(location)) filter.locationId = location;
+    const filter = { businessId: scope.businessFilter || business };
+    if (scope.locationFilter) filter.locationId = scope.locationFilter;
     const rows = await IcPurchaseReceived.find(filter).sort({ createdAt: -1 }).limit(200).lean();
     return json({ rows: rows.map((r) => ({ ...r, _id: str(r._id) })) });
   }
@@ -108,7 +116,11 @@ export async function GET(req) {
   /* ------------------------------------------------------- pending ----- */
   const match = { toBusinessId: oid(business), 'einvoice.status': 'GENERATED' };
   /* this receiver location's invoices, plus any raised without a location */
-  if (location && isValidObjectId(location)) match.toLocationId = { $in: [oid(location), null] };
+  if (scope.locationIds?.length) {
+    match.toLocationId = { $in: [...scope.locationIds.map(oid), null] };
+  } else if (location && isValidObjectId(location)) {
+    match.toLocationId = { $in: [oid(location), null] };
+  }
   const invoices = await IcItemInvoice.collection.find(match).sort({ createdAt: -1 }).limit(200).toArray();
 
   const done = new Set((await IcPurchaseReceived.find({ icItemInvoiceId: { $in: invoices.map((i) => i._id) } })
@@ -145,14 +157,21 @@ export async function POST(req) {
   if (!session) return json({ error: 'Unauthorized' }, 401);
 
   const body = await req.json().catch(() => ({}));
-  const business = isValidObjectId(body.business) ? body.business : null;
-  const location = isValidObjectId(body.location) ? body.location : null;
+  await dbConnect();
+
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: body.business,
+    locationId: body.location,
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
+  const business = scope.businessId || (isValidObjectId(body.business) ? body.business : null);
+  const location = scope.locationId || (isValidObjectId(body.location) ? body.location : null);
   const finYear = body.finYear || '';
   const invoiceId = body.data?.invoiceId;
   if (!business) return json({ error: 'No business selected.' }, 422);
   if (!isValidObjectId(invoiceId)) return json({ error: 'No invoice chosen.' }, 422);
 
-  await dbConnect();
   const denied = await screenDenial({ session, ...IC_PR, action: PERM.CREATE, businessId: business });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 

@@ -3,6 +3,7 @@ import dbConnect from '@/lib/db';
 import PosHold from '@/models/PosHold';
 import { requireSession } from '@/lib/session';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 /* A PARKED BILL IS PART OF MAKING A SALE, not a document of its own, so it
    answers to the POS screen rather than to one of its own. Parking needs
@@ -29,19 +30,25 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: sp.get('business'),
+    locationId: sp.get('location'),
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   let gate = await screenDenial({
-    session, ...POS, action: PERM.READ, businessId: sp.get('business'),
+    session, ...POS, action: PERM.READ, businessId: scope.businessId || sp.get('business'),
   });
   if (gate) {
     gate = await screenDenial({
-      session, ...POS, action: PERM.CREATE, businessId: sp.get('business'),
+      session, ...POS, action: PERM.CREATE, businessId: scope.businessId || sp.get('business'),
     });
   }
   if (gate) return json({ error: gate.message, code: gate.code }, 403);
 
   const filter = {};
-  const b = sp.get('business'); if (b && isValidObjectId(b)) filter.businessId = b;
-  const l = sp.get('location'); if (l && isValidObjectId(l)) filter.locationId = l;
+  if (scope.businessFilter) filter.businessId = scope.businessFilter;
+  if (scope.locationFilter) filter.locationId = scope.locationFilter;
   const y = sp.get('finYear'); if (y) filter.finYear = y;
 
   const rows = await PosHold.find(filter).sort({ createdAt: -1 }).limit(50).lean();
@@ -59,10 +66,19 @@ export async function POST(req) {
   const body = await req.json();
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: body.business,
+    locationId: body.location,
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+  if (!scope.access.unrestricted && !scope.locationId) {
+    return json({ error: 'Please select an authorized location.', code: 'LOCATION_REQUIRED' }, 422);
+  }
+
   /* Ahead of the empty-cart check, so a refused hold reads as 403 rather
      than as a complaint about the cart. */
   const denied = await screenDenial({
-    session, ...POS, action: PERM.CREATE, businessId: body.business,
+    session, ...POS, action: PERM.CREATE, businessId: scope.businessId || body.business,
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
@@ -74,8 +90,8 @@ export async function POST(req) {
   if (!items.length) return json({ error: 'Add an item before holding the bill.' }, 422);
 
   const doc = {
-    businessId: body.business && isValidObjectId(body.business) ? body.business : null,
-    locationId: body.location && isValidObjectId(body.location) ? body.location : null,
+    businessId: scope.businessId || (body.business && isValidObjectId(body.business) ? body.business : null),
+    locationId: scope.locationId || (body.location && isValidObjectId(body.location) ? body.location : null),
     finYear: body.finYear || '',
 
     /* Time-of-day label, which is how a cashier actually refers to a parked

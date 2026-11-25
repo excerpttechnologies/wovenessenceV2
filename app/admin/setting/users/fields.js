@@ -64,7 +64,7 @@ export const CONFIG = {
   note: [
     'Permissions are enforced on the server, not by hiding buttons - a restricted account cannot reach '
     + 'another location’s stock even by editing the address bar.',
-    'Changes to an account’s role or locations take effect the next time that person signs in.',
+    'Changes to an account’s role or locations take effect immediately on their next request.',
   ],
 };
 

@@ -4,6 +4,7 @@ import { requireSession } from '@/lib/session';
 import { escapeRegex } from '@/lib/validate';
 import { Customer } from '@/lib/contacts';
 import PosCounter from '@/models/PosCounter';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 /* GET /api/pos-archive  (21-10-2026)
 
@@ -14,7 +15,11 @@ import PosCounter from '@/models/PosCounter';
 const json = (d, s = 200) => Response.json(d, { status: s });
 const PER_PAGE = 10;
 /* ids may be stored as ObjectId or as a string */
-const idMatch = (id) => ({ $in: [id, new Types.ObjectId(id)] });
+const idMatch = (ids) => {
+  const list = Array.isArray(ids) ? ids : [ids];
+  const expanded = list.flatMap((id) => (isValidObjectId(id) ? [String(id), new Types.ObjectId(String(id))] : [id]));
+  return { $in: expanded };
+};
 
 export async function GET(req) {
   const session = await requireSession();
@@ -22,14 +27,20 @@ export async function GET(req) {
 
   const sp = new URL(req.url).searchParams;
   await dbConnect();
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: sp.get('business'),
+    locationId: sp.get('location'),
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   const col = mongoose.connection.db.collection('posinvoicearchive');
 
   const page = Math.max(1, Number(sp.get('page') || 1));
   const perPage = Math.min(500, Number(sp.get('perPage') || PER_PAGE));
 
   const filter = {};
-  const b = sp.get('business'); if (b && isValidObjectId(b)) filter.businessId = idMatch(b);
-  const l = sp.get('location'); if (l && isValidObjectId(l)) filter.locationId = idMatch(l);
+  if (scope.businessIds?.length) filter.businessId = idMatch(scope.businessIds);
+  if (scope.locationIds?.length) filter.locationId = idMatch(scope.locationIds);
   const y = sp.get('finYear'); if (y) filter.finYear = y;
   const search = (sp.get('search') || '').trim();
   if (search) filter.invoiceNo = { $regex: escapeRegex(search), $options: 'i' };

@@ -12,6 +12,7 @@ import {
 } from '@/lib/inventory';
 import { barcodeSearchPattern, unitAnswersTo } from '@/lib/barcodeValue';
 import { sortedPage } from '@/lib/listSort';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 /* /api/stock-transfer - list + despatch.
 
@@ -29,11 +30,17 @@ export const GET = handler(async (req) => {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: sp.get('business'),
+    locationId: sp.get('location'),
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   const page = Math.max(1, Number(sp.get('page') || 1));
   const perPage = Math.min(500, Number(sp.get('perPage') || PER_PAGE));
 
   const filter = {};
-  const b = sp.get('business'); if (b && isValidObjectId(b)) filter.businessId = b;
+  if (scope.businessFilter) filter.businessId = scope.businessFilter;
   const y = sp.get('finYear'); if (y) filter.finYear = y;
   const status = sp.get('status'); if (status) filter.status = status;
   const src = sp.get('source'); if (src) filter.source = src;
@@ -108,6 +115,12 @@ export const POST = handler(async (req) => {
 
   const session = await requirePermission(PERMISSIONS.TRANSFER_DESPATCH, { locationId: fromLocationId });
   await dbConnect();
+
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: business,
+    locationId: fromLocationId,
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
 
   if (!isValidObjectId(fromLocationId)) {
     return json({ errors: { fromLocationId: 'Choose the source location.' } }, 422);

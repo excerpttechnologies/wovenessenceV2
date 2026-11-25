@@ -7,6 +7,7 @@ import { buildPayload, loadParties } from '@/lib/einvoice/payload';
 import {
   einvoiceMode, generateIrn, cancelIrn, parseIrpStamp, CANCEL_REASONS,
 } from '@/lib/einvoice/provider';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 /* /api/ic-item-invoice/<id>/einvoice - GST e-Invoice (IRN) for one
    consignment sales invoice.
@@ -61,6 +62,11 @@ async function load(req, params, action) {
 
   const inv = await IcItemInvoice.collection.findOne({ _id: new Types.ObjectId(id) });
   if (!inv) return { fail: json({ error: 'Not found' }, 404) };
+
+  const locDenied = await assertDocumentLocationAccess(session, inv, {
+    locationKeys: ['locationId', 'toLocationId'],
+  });
+  if (locDenied) return { fail: locDenied };
 
   const denied = await screenDenial({ session, ...IC_SI, action, businessId: inv.businessId });
   if (denied) return { fail: json({ error: denied.message, code: denied.code }, 403) };

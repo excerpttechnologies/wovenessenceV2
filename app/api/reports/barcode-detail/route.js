@@ -369,6 +369,7 @@ import { barcodeFilter, unitFor, imageUrl, withTransaction, MOVEMENT_TYPES } fro
 import { handler } from '@/lib/apiError';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac';
 import { screenDenial, screenDenialAny, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { resolveAuthorizedScope, assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 /* /api/reports/barcode-detail?barcodeNo=<no>&business=<id>
 
@@ -402,6 +403,18 @@ export const PATCH = handler(async (req) => {
   await requirePermission(PERMISSIONS.BARCODE_GENERATE, {
     locationId: String(initial.currentLocationId || initial.locationId || '') || undefined,
   });
+
+  const locDeny = await assertDocumentLocationAccess(session, initial, {
+    locationKeys: ['currentLocationId', 'locationId'],
+  });
+  if (locDeny) return locDeny;
+  if (body.currentLocationId) {
+    const dstCheck = await resolveAuthorizedScope(session, {
+      businessId: String(body.companyId || initial.businessId || ''),
+      locationId: String(body.currentLocationId),
+    });
+    if (!dstCheck.ok) return json({ error: dstCheck.error, code: dstCheck.code }, dstCheck.status || 403);
+  }
 
   /* Roles & Permissions (17-10-2026): editing a barcode on its Details view
      also needs Barcode Report -> Update */
@@ -1028,6 +1041,11 @@ export async function GET(req) {
   await dbConnect();
 
   const business = sp.get('business');
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: business || '',
+    locationId: sp.get('location') || '',
+  });
+  if (!scope.ok) return json({ error: scope.error, code: scope.code }, scope.status || 403);
 
   /* Roles & Permissions (17-10-2026): the Details view is opened from the
      Barcode Report and from the Master Stock Report's barcode links - Read
@@ -1036,7 +1054,7 @@ export async function GET(req) {
     session,
     screens: [SCREENS.BARCODE_REPORT, SCREENS.MASTER_STOCK_REPORT],
     action: PERM.READ,
-    businessId: business,
+    businessId: scope.businessId || business,
     label: 'the barcode report',
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
@@ -1050,11 +1068,15 @@ export async function GET(req) {
      is the one this number belongs to, never an arbitrary one. */
   const matches = await BarcodeLabel.find({
     ...barcodeFilter([code]),
-    ...(business && isValidObjectId(business) ? { businessId: business } : {}),
+    ...(scope.businessFilter ? { businessId: scope.businessFilter } : (business && isValidObjectId(business) ? { businessId: business } : {})),
   }).limit(50).lean();
   const unit = unitFor(matches, code) || matches[0] || null;
 
   if (!unit) return json({ error: 'Barcode ' + code + ' was not found.' }, 404);
+  const unitLocDeny = await assertDocumentLocationAccess(session, unit, {
+    locationKeys: ['currentLocationId', 'locationId'],
+  });
+  if (unitLocDeny) return unitLocDeny;
 
   /* The labels behind the ids. Each is optional: a row whose item or location
      has since been deleted still has to render, so a missing name falls back

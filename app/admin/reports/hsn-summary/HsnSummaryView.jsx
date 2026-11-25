@@ -80,7 +80,7 @@ function summarize(rows) {
 }
 
 export default function HsnSummaryView() {
-  const { business, finYear } = useScope();
+  const { business, location, finYear, isLocationLocked } = useScope();
   const locationOptions = useOptions('companylocations');
   const hsnMasterOptions = useOptions('hsn');
   const hsnCodeOptions = useMemo(() => hsnMasterOptions.options.map((option) => ({
@@ -293,9 +293,10 @@ export default function HsnSummaryView() {
                 <label className="block text-[13px] text-ink">
                   <span className="mb-1 block">Business Location</span>
               <MultiSelect mode="single" options={locationOptions.options}
-                value={filters.location}
-                onChange={(value) => setFilters((current) => ({ ...current, location: value }))}
-                placeholder="All Locations" loading={locationOptions.loading} error={locationOptions.error} />
+                disabled={isLocationLocked}
+                value={isLocationLocked ? (location || locationOptions.options[0]?.value || '') : filters.location}
+                onChange={(value) => { if (!isLocationLocked) setFilters((current) => ({ ...current, location: value })); }}
+                placeholder={isLocationLocked ? (locationOptions.options[0]?.label || 'Assigned Location') : 'All Locations'} loading={locationOptions.loading} error={locationOptions.error} />
             </label>
             <label className="block text-[13px] text-ink">
               <span className="mb-1 block">Date From <b className="text-danger">*</b></span>

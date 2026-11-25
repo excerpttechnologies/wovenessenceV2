@@ -2,6 +2,7 @@ import dbConnect from '@/lib/db';
 import PosHold from '@/models/PosHold';
 import { requireSession } from '@/lib/session';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 const POS = { screen: SCREENS.POS, label: 'POS bills' };
 
@@ -39,6 +40,9 @@ export async function GET(req, { params }) {
   const doc = await PosHold.findById(id).lean();
   if (!doc) return json({ doc: null }, 404);
 
+  const locDenied = await assertDocumentLocationAccess(session, doc);
+  if (locDenied) return locDenied;
+
   let gate = await holdGate(session, doc, PERM.CREATE);
   if (gate) gate = await holdGate(session, doc, PERM.READ);
   if (gate) return json({ error: gate.message, code: gate.code }, 403);
@@ -53,8 +57,11 @@ export async function DELETE(req, { params }) {
   const { id } = await params;
   await dbConnect();
 
-  const doc = await PosHold.findById(id).select('businessId').lean();
+  const doc = await PosHold.findById(id).select('businessId locationId').lean();
   if (!doc) return json({ ok: true });
+
+  const locDenied = await assertDocumentLocationAccess(session, doc);
+  if (locDenied) return locDenied;
 
   let gate = await holdGate(session, doc, PERM.CREATE);
   if (gate) gate = await holdGate(session, doc, PERM.DELETE);

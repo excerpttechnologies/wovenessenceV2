@@ -6,6 +6,7 @@ import { resolveRefLabels } from '@/lib/refLabels';
 import { validate, escapeRegex } from '@/lib/validate';
 import { FIELDS } from '@/app/admin/setting/companylocations/fields';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 import { sortedPage } from '@/lib/listSort';
 
 /* Permission gate for this screen.
@@ -41,7 +42,11 @@ export async function GET(req) {
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const filter = {};
-  const b = sp.get('business'); if (b && isValidObjectId(b)) filter.businessId = b;
+  const b = sp.get('business');
+  const authScope = await resolveAuthorizedScope(session, { businessId: b });
+  if (!authScope.ok) return scopeErrorResponse(authScope);
+  if (authScope.businessFilter) filter.businessId = authScope.businessFilter;
+  if (authScope.access.isRestricted) filter._id = { $in: authScope.allowedLocationIds };
 
   if (search) {
     const rx = { $regex: escapeRegex(search), $options: 'i' };

@@ -2,7 +2,7 @@ import { isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
 import Grc from '@/models/Grc';
 import { requireSession } from '@/lib/session';
-import { json, scopeOf, pageOf } from '@/lib/reports';
+import { json, requireReportScope, pageOf } from '@/lib/reports';
 import {
   stockPosition, stockTotals, supplierKeysForFilters, loadSupplierMap,
 } from '@/lib/stockPosition';
@@ -49,7 +49,8 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
-  const scope = scopeOf(sp);
+  const scope = await requireReportScope(session, sp, { allowAllLocations: true });
+  if (!scope.ok) return scope.response;
   const { page, perPage } = pageOf(sp);
 
   const denied = await screenDenial({
@@ -60,8 +61,6 @@ export async function GET(req) {
     businessId: scope.businessId,
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
-
-  if (sp.get('allLocations') === '1') scope.locationId = null;
 
   const from = s(sp.get('fromDate'));
   const to = s(sp.get('toDate'));
@@ -107,7 +106,7 @@ export async function GET(req) {
   if (billPicks.length) {
     const grcFilter = {};
     if (scope.businessId) grcFilter.businessId = scope.businessId;
-    if (scope.locationId) grcFilter.locationId = scope.locationId;
+    if (scope.locationFilter) grcFilter.locationId = scope.locationFilter;
     const supplierIds = (supplierKeys || []).filter((k) => isValidObjectId(k));
     if (supplierIds.length) grcFilter.supplierId = { $in: supplierIds };
     grcFilter.$or = billPicks.map((v) => ({
@@ -119,6 +118,7 @@ export async function GET(req) {
   const { rows, coverage } = await stockPosition({
     businessId: scope.businessId,
     locationId: scope.locationId,
+    locationIds: scope.access.isRestricted ? scope.locationIds : null,
     finYear: scope.finYear,
     from,
     to,

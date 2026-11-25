@@ -1,6 +1,7 @@
 import { requireSession } from '@/lib/session';
 import { screenDenialAnyAction, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { loadGrcPrintPayload } from '@/lib/grcPrintData';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 /* /api/purchase-grc/<id>/print
 
@@ -24,6 +25,12 @@ export async function GET(_req, { params }) {
   const { id } = await params;
   const payload = await loadGrcPrintPayload(id);
   if (!payload) return json({ error: 'Not found' }, 404);
+
+  const locDenied = await assertDocumentLocationAccess(session, {
+    businessId: payload.grc?.businessId || payload.branch?.businessId,
+    locationId: payload.grc?.locationId || payload.branch?.locationId,
+  });
+  if (locDenied) return locDenied;
 
   /* Roles & Permissions (17-10-2026): printing a GRC - its Read (or Update,
      printed from the edit page) */

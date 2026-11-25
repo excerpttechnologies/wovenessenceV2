@@ -4,6 +4,7 @@ import { requireSession } from '@/lib/session';
 import { validate } from '@/lib/validate';
 import { FIELDS } from '@/app/admin/setting/stockpoint/fields';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 const STOCK_POINT = { screen: SCREENS.STOCK_POINT, label: 'stock points' };
 
@@ -20,6 +21,9 @@ export async function GET(req, { params }) {
 
   const doc = await StockPoint.findById(id).lean();
   if (!doc) return json({ doc: null }, 404);
+
+  const locDenied = await assertDocumentLocationAccess(session, doc);
+  if (locDenied) return locDenied;
 
   /* Scoped to the stock point's own business, not to whichever business the
      screen happens to be switched to. */
@@ -41,8 +45,11 @@ export async function PUT(req, { params }) {
 
   /* Before validate(), and scoped on the stored record rather than on the
      body. */
-  const target = await StockPoint.findById(id).select('businessId').lean();
+  const target = await StockPoint.findById(id).select('businessId locationId').lean();
   if (!target) return json({ error: 'Not found' }, 404);
+
+  const locDenied = await assertDocumentLocationAccess(session, target);
+  if (locDenied) return locDenied;
 
   const denied = await screenDenial({
     session, ...STOCK_POINT, action: PERM.UPDATE, businessId: target.businessId,
@@ -65,8 +72,11 @@ export async function DELETE(req, { params }) {
   const { id } = await params;
   await dbConnect();
 
-  const target = await StockPoint.findById(id).select('businessId').lean();
+  const target = await StockPoint.findById(id).select('businessId locationId').lean();
   if (!target) return json({ ok: true });
+
+  const locDenied = await assertDocumentLocationAccess(session, target);
+  if (locDenied) return locDenied;
 
   const denied = await screenDenial({
     session, ...STOCK_POINT, action: PERM.DELETE, businessId: target.businessId,

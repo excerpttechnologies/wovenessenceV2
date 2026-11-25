@@ -2,6 +2,7 @@ import dbConnect from '@/lib/db';
 import StockTransferReceived from '@/models/StockTransferReceived';
 import StockTransferLocation from '@/models/StockTransferLocation';
 import { requireSession } from '@/lib/session';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 /* /api/stock-transfer-received/<id> - read one, reverse.
 
@@ -23,6 +24,10 @@ export async function GET(req, { params }) {
 
   const doc = await StockTransferReceived.findById(id).lean();
   if (!doc) return json({ doc: null }, 404);
+  const locDenied = await assertDocumentLocationAccess(session, doc, {
+    locationKeys: ['locationId', 'toLocationId', 'fromLocationId'],
+  });
+  if (locDenied) return locDenied;
   return json({ doc: { ...doc, _id: String(doc._id) } });
 }
 
@@ -35,6 +40,10 @@ export async function DELETE(req, { params }) {
 
   const existing = await StockTransferReceived.findById(id).lean();
   if (!existing) return json({ ok: true });
+  const locDenied = await assertDocumentLocationAccess(session, existing, {
+    locationKeys: ['locationId', 'toLocationId', 'fromLocationId'],
+  });
+  if (locDenied) return locDenied;
 
   /* release first, then remove: if the delete failed after the release the
      transfer would simply reappear as pending, which is recoverable - the

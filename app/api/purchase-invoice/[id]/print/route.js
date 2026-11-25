@@ -5,6 +5,7 @@ import CompanyLocation from '@/models/CompanyLocation';
 import { Supplier } from '@/lib/contacts';
 import PurchaseTerm from '@/models/PurchaseTerm';
 import { requireSession } from '@/lib/session';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 /* /api/purchase-invoice/<id>/print
 
@@ -24,6 +25,8 @@ export async function GET(req, { params }) {
 
   const inv = await PurchaseInvoice.findById(id).lean();
   if (!inv) return json({ error: 'Not found' }, 404);
+  const locDenied = await assertDocumentLocationAccess(session, inv);
+  if (locDenied) return locDenied;
 
   const [business, location, supplier, term] = await Promise.all([
     inv.businessId ? Business.findById(inv.businessId).lean() : null,

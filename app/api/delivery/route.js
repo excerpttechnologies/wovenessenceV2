@@ -154,6 +154,7 @@ import { FIELDS, DERIVED_FIELDS, freightBreakdown } from '@/app/admin/transport/
 import { screenDenial, screenDenialAnyAction, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { sortedPage } from '@/lib/listSort';
 import { bookingDelayDays } from '@/app/admin/transport/delivery/fields';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 /* /api/delivery - Delivery / LR transactions: list + create. */
 
@@ -258,13 +259,19 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: sp.get('business'),
+    locationId: sp.get('location'),
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   /* Roles & Permissions (17-10-2026), Purchase > Goods Received:
        ?nextNumber=1   the Add dialog's number preview  -> Create or Update
        ?availableLr=1  the GRC Add form's LR picker     -> Goods Received OR
                        GRC, Read / Create / Update
        otherwise       the list                         -> Read */
   {
-    const business = sp.get('business');
+    const business = scope.businessId || sp.get('business');
     const denied = sp.get('nextNumber') === '1'
       ? await screenDenialAnyAction({ session, screens: [SCREENS.DELIVERY], actions: [PERM.CREATE, PERM.UPDATE], businessId: business, label: 'goods received' })
       : sp.get('availableLr') === '1'
@@ -277,32 +284,20 @@ export async function GET(req) {
      dialog asks what the next number looks like, it does not reserve it.
      `preview` is on the response so a caller cannot mistake it for one. */
   if (sp.get('nextNumber') === '1') {
-    const businessId = sp.get('business');
-    const locationId = sp.get('location');
     return json({
       preview: true,
       transactionNo: await previewTransactionNo({
-        businessId: businessId && isValidObjectId(businessId) ? businessId : null,
-        locationId: locationId && isValidObjectId(locationId) ? locationId : null,
+        businessId: scope.businessId || null,
+        locationId: scope.locationId || null,
         finYear: sp.get('finYear') || '',
       }),
     });
   }
 
-  /* Available LR for GRC - returns only deliveries that have NOT yet had a
-     GRC raised against them.
-
-     One LR → one GRC is enforced by the POST handler, so the moment a GRC
-     is created its lrTransactionId appears in the GRC collection and the
-     delivery must leave this dropdown.  Without this exclusion every
-     already-converted LR kept showing here, letting the operator attempt to
-     raise a second GRC and only finding out at submit time. */
   if (sp.get('availableLr') === '1') {
     const deliveryFilter = {};
-    const business = sp.get('business');
-    const location = sp.get('location');
-    if (business && isValidObjectId(business)) deliveryFilter.businessId = business;
-    if (location && isValidObjectId(location)) deliveryFilter.locationId = location;
+    if (scope.businessFilter) deliveryFilter.businessId = scope.businessFilter;
+    if (scope.locationFilter) deliveryFilter.locationId = scope.locationFilter;
     if (sp.get('finYear')) deliveryFilter.finYear = sp.get('finYear');
 
     /* Collect every delivery ID that already has a GRC.  Scoped to the same
@@ -364,8 +359,8 @@ export async function GET(req) {
   const perPage = Math.min(500, Number(sp.get('perPage') || PER_PAGE));
 
   const filter = {};
-  const b = sp.get('business'); if (b && isValidObjectId(b)) filter.businessId = b;
-  const l = sp.get('location'); if (l && isValidObjectId(l)) filter.locationId = l;
+  if (scope.businessFilter) filter.businessId = scope.businessFilter;
+  if (scope.locationFilter) filter.locationId = scope.locationFilter;
   const y = sp.get('finYear'); if (y) filter.finYear = y;
 
   /* consignments not yet loaded onto a dispatch */
@@ -468,8 +463,17 @@ export async function POST(req) {
   const body = await req.json();
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: body.business,
+    locationId: body.location,
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+  if (!scope.access.unrestricted && !scope.locationId) {
+    return json({ error: 'Please select an authorized location.', code: 'LOCATION_REQUIRED' }, 422);
+  }
+
   /* Roles & Permissions (17-10-2026): Goods Received -> Create */
-  const denied = await screenDenial({ session, screen: SCREENS.DELIVERY, label: 'goods received', action: PERM.CREATE, businessId: body.business });
+  const denied = await screenDenial({ session, screen: SCREENS.DELIVERY, label: 'goods received', action: PERM.CREATE, businessId: scope.businessId || body.business });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const { errors, doc, ok } = validate(FIELDS, body.data || {});
@@ -492,8 +496,8 @@ export async function POST(req) {
   /* Re-check if validation passed after PERSONAL DELIVERY-PAID handling */
   if (Object.keys(errors).length > 0) return json({ errors }, 422);
 
-  if (body.business && isValidObjectId(body.business)) doc.businessId = body.business;
-  if (body.location && isValidObjectId(body.location)) doc.locationId = body.location;
+  if (scope.businessId) doc.businessId = scope.businessId;
+  if (scope.locationId) doc.locationId = scope.locationId;
   if (body.finYear) doc.finYear = body.finYear;
 
   /* recomputed here rather than trusted from the dialog */

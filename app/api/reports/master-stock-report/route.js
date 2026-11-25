@@ -9,7 +9,7 @@
 // import CompanyLocation from '@/models/CompanyLocation';
 // import Uom from '@/models/Uom';
 // import { Supplier } from '@/lib/contacts';
-// import { json, num, r2, scopeOf, pageOf } from '@/lib/reports';
+// import { json, num, r2, requireReportScope, pageOf } from '@/lib/reports';
 
 // /* ==========================================================================
 //    /api/reports/master-stock-report  -  read-only.
@@ -634,7 +634,7 @@ import ProductGroup from '@/models/ProductGroup';
 import CompanyLocation from '@/models/CompanyLocation';
 import Uom from '@/models/Uom';
 import { Supplier } from '@/lib/contacts';
-import { json, num, r2, scopeOf, pageOf } from '@/lib/reports';
+import { json, num, r2, requireReportScope, pageOf } from '@/lib/reports';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { imageUrl } from '@/lib/inventory';
 
@@ -1239,7 +1239,9 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
-  const { businessId, locationId, finYear } = scopeOf(sp);
+  const scope = await requireReportScope(session, sp);
+  if (!scope.ok) return scope.response;
+  const { businessId, locationId, locationIds, finYear, access } = scope;
   const { page, perPage } = pageOf(sp);
 
   /* Roles & Permissions (17-10-2026): Master Stock Report -> Read */
@@ -1250,21 +1252,34 @@ export async function GET(req) {
      barcodeLabel keeps its scope as plain STRINGS (lib/barcodeLabel.js:93-94)
      and carries the same ids again as ObjectIds on the current* twins. The
      string pair is what every barcode screen filters on, so it is what this
-     report filters on too. A blank locationId is included for the same
-     reason app/api/reports/barcode-report/route.js includes it: the barcode
-     screen does not always set it, and filtering strictly would hide real
-     stock. */
+     report filters on too. A blank locationId is included ONLY for unrestricted
+     admins; restricted users are locked strictly to their assigned location(s). */
   const filter = { status: BARCODE_STATUS.IN_STOCK };
   if (businessId) filter.businessId = String(businessId);
   if (finYear) filter.finYear = { $in: [finYear, '', null] };
-  if (locationId) filter.locationId = { $in: [String(locationId), '', null] };
 
-  /* Two filters now need an $or of their own (Search, and Group Name), and
-     six need an $expr (GST plus the five price ranges). Assigning either key
-     twice would silently drop the first one, so both are collected here and
-     merged onto the filter once, below. */
   const ands = [];
   const exprs = [];
+
+  if (access.isRestricted) {
+    if (locationId) {
+      exprs.push({
+        $eq: [
+          { $toString: { $ifNull: ['$currentLocationId', '$locationId'] } },
+          String(locationId),
+        ],
+      });
+    } else if (locationIds.length) {
+      exprs.push({
+        $in: [
+          { $toString: { $ifNull: ['$currentLocationId', '$locationId'] } },
+          locationIds.map(String),
+        ],
+      });
+    }
+  } else if (locationId) {
+    filter.locationId = { $in: [String(locationId), '', null] };
+  }
 
   /* LOCATION FILTER (inside the filter card) is separate from the top bar's
      `location` scope above. It matches the location the row PRINTS: the
@@ -1273,6 +1288,9 @@ export async function GET(req) {
      existing scope behaviour. */
   const locationFilter = s(sp.get('locationFilter'));
   if (locationFilter) {
+    if (access.isRestricted && !access.allowedLocationIdSet.has(locationFilter)) {
+      return json({ error: 'You do not have access to that location.', code: 'WRONG_LOCATION' }, 403);
+    }
     exprs.push({
       $eq: [
         { $toString: { $ifNull: ['$currentLocationId', '$locationId'] } },

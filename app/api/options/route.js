@@ -5714,6 +5714,7 @@
 import { isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
+import { getSessionLocationAccess, resolveAuthorizedScope } from '@/lib/locationAccess';
  
 /* /api/options?ref=<name>&business=<id>
    Feeds every `ref` dropdown in the app. Replaces the `options` branch of the
@@ -6021,6 +6022,31 @@ export async function GET(req) {
   const entry = REFS[ref];
   await dbConnect();
 
+  const access = await getSessionLocationAccess(session);
+  const forTransferDestination =
+    (sp.get('transferTarget') === '1' || sp.get('groupStores') === '1') &&
+    (ref === 'companylocations' || ref === 'stockpoint');
+
+  /* Enforce company & location restrictions on all scoped reference lookups,
+     except explicit destination pickers used by outbound inter-branch transfers. */
+  if (access.isRestricted && !forTransferDestination) {
+    const reqBiz = sp.get('business');
+    const reqLoc = sp.get('location');
+    if (ref === 'business') {
+      if (reqBiz && isValidObjectId(reqBiz) && !access.allowedBusinessIdSet.has(reqBiz)) {
+        return json({ error: 'Your account is not authorized to access this company.', code: 'FORBIDDEN_BUSINESS' }, 403);
+      }
+    } else if (!entry || entry.scoped !== false) {
+      const check = await resolveAuthorizedScope(session, {
+        businessId: reqBiz || '',
+        locationId: entry?.locationScoped ? (reqLoc || '') : '',
+      });
+      if (!check.ok) {
+        return json({ error: check.error, code: check.code }, check.status || 403);
+      }
+    }
+  }
+
   if (ref === 'supplier-code') {
     const { Supplier } = await import('@/lib/contacts');
     const Grc = (await import('@/models/Grc')).default;
@@ -6124,20 +6150,24 @@ export async function GET(req) {
   if (entry.scoped !== false) {
     const b = sp.get('business');
     if (b && isValidObjectId(b)) filter.businessId = b;
+    else if (access.isRestricted && !forTransferDestination) {
+      filter.businessId = access.allowedBusinessIds.length === 1
+        ? access.allowedBusinessIds[0]
+        : { $in: access.allowedBusinessIds };
+    }
   }
-  /* Narrow to the top bar's LOCATION as well, for refs that live at one.
-
-     Opt-in per ref, not global: most refs are business-wide (and
-     companylocations must never be filtered by the location it is used to
-     choose). useOptions already sends `location`; until now nothing read it.
-
-     A row with no locationId is a business-wide one and stays visible - some
-     businesses never assigned stock points to a location, and a strict match
-     would leave their dropdown empty. */
+  if (ref === 'business' && access.isRestricted) {
+    filter._id = { $in: access.allowedBusinessIds };
+  }
+  if (ref === 'companylocations' && access.isRestricted && !forTransferDestination) {
+    filter._id = { $in: access.allowedLocationIds };
+  }
   if (entry.locationScoped) {
     const l = sp.get('location');
     if (l && isValidObjectId(l)) {
       filter.$and = [...(filter.$and || []), { $or: [{ locationId: l }, { locationId: null }] }];
+    } else if (access.isRestricted) {
+      filter.$and = [...(filter.$and || []), { $or: [{ locationId: { $in: access.allowedLocationIds } }, { locationId: null }] }];
     }
   }
   if (entry.parentField && entry.parentParam) {

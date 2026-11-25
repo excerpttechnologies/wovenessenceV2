@@ -13,6 +13,7 @@ const STOCK_ADJUSTMENT = { screen: SCREENS.STOCK_ADJUSTMENT, label: 'stock adjus
 
 import { FORM } from '@/app/admin/inventory/stock-adjustment/form';
 import { sortedPage } from '@/lib/listSort';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 /* header fields AND the totals rows - the totals card holds real stored
    numbers (taxable value, round off, net value, the editable discounts).
@@ -40,6 +41,12 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: sp.get('business'),
+    locationId: sp.get('location'),
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   const page = Math.max(1, Number(sp.get('page') || 1));
   const perPage = Math.min(500, Number(sp.get('perPage') || PER_PAGE));
   const search = (sp.get('search') || '').trim();
@@ -47,13 +54,13 @@ export async function GET(req) {
   /* Only refuses when this role has a saved permission matrix that
      withholds it - see lib/screenPermission.js. */
   const denied = await screenDenial({
-    session, ...STOCK_ADJUSTMENT, action: PERM.READ, businessId: sp.get('business'),
+    session, ...STOCK_ADJUSTMENT, action: PERM.READ, businessId: scope.businessId || sp.get('business'),
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const filter = {};
-  const b = sp.get('business'); if (b && isValidObjectId(b)) filter.businessId = b;
-  const l = sp.get('location'); if (l && isValidObjectId(l)) filter.locationId = l;
+  if (scope.businessFilter) filter.businessId = scope.businessFilter;
+  if (scope.locationFilter) filter.locationId = scope.locationFilter;
   const y = sp.get('finYear'); if (y) filter.finYear = y;
 
   if (search) {
@@ -90,15 +97,24 @@ export const POST = handler(async (req) => {
   const body = await req.json();
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: body.business,
+    locationId: body.location,
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+  if (!scope.access.unrestricted && !scope.locationId) {
+    return json({ error: 'Please select an authorized location.', code: 'LOCATION_REQUIRED' }, 422);
+  }
+
   const denied = await screenDenial({
-    session, ...STOCK_ADJUSTMENT, action: PERM.CREATE, businessId: body.business,
+    session, ...STOCK_ADJUSTMENT, action: PERM.CREATE, businessId: scope.businessId || body.business,
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const { errors, doc, ok } = validate(FIELDS, body.data || {});
   if (!ok) return json({ errors }, 422);
-  if (body.business && isValidObjectId(body.business)) doc.businessId = body.business;
-  if (body.location && isValidObjectId(body.location)) doc.locationId = body.location;
+  if (scope.businessId) doc.businessId = scope.businessId;
+  if (scope.locationId) doc.locationId = scope.locationId;
   if (body.finYear) doc.finYear = body.finYear;
 
   /* line items are free-form per document type */

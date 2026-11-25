@@ -6,7 +6,7 @@ import { Supplier } from '@/lib/contacts';
 import CompanyLocation from '@/models/CompanyLocation';
 import { BarcodeLabel } from '@/lib/barcodeLabel';
 import {
-  json, r2, scopeOf, pageOf, paged, salesDocuments, costByItemCode,
+  json, r2, requireReportScope, pageOf, paged, salesDocuments, costByItemCode,
   linesOf, lineItemCode, lineItemName, lineQty, lineNet, lineTax,
 } from '@/lib/reports';
 
@@ -69,7 +69,8 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
-  const scope = scopeOf(sp);
+  const scope = await requireReportScope(session, sp);
+  if (!scope.ok) return scope.response;
   if (!scope.businessId) {
     return json({ error: 'Select a business to run this report.' }, 422);
   }

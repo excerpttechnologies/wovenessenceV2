@@ -3,6 +3,7 @@ import dbConnect from '@/lib/db';
 import PosInvoice from '@/models/PosInvoice';
 import { requireSession } from '@/lib/session';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 const POS = { screen: SCREENS.POS, label: 'POS bills' };
 
@@ -26,16 +27,20 @@ export async function GET(req) {
   const b = sp.get('business');
   const l = sp.get('location');
   const y = sp.get('finYear');
-  if (!b || !isValidObjectId(b)) return json({ invoiceNo: '' });
 
   await dbConnect();
 
-  let gate = await screenDenial({ session, ...POS, action: PERM.READ, businessId: b });
-  if (gate) gate = await screenDenial({ session, ...POS, action: PERM.CREATE, businessId: b });
+  const scope = await resolveAuthorizedScope(session, { businessId: b, locationId: l });
+  if (!scope.ok) return scopeErrorResponse(scope);
+  if (!scope.businessFilter && !b) return json({ invoiceNo: '' });
+
+  let gate = await screenDenial({ session, ...POS, action: PERM.READ, businessId: scope.businessId || b });
+  if (gate) gate = await screenDenial({ session, ...POS, action: PERM.CREATE, businessId: scope.businessId || b });
   if (gate) return json({ error: gate.message, code: gate.code }, 403);
 
-  const filter = { businessId: b };
-  if (l && isValidObjectId(l)) filter.locationId = l;
+  const filter = {};
+  if (scope.businessFilter) filter.businessId = scope.businessFilter;
+  if (scope.locationFilter) filter.locationId = scope.locationFilter;
   if (y) filter.finYear = y;
 
   const last = await PosInvoice.findOne(filter)

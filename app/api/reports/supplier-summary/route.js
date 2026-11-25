@@ -1,6 +1,6 @@
 import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
-import { json, scopeOf, pageOf } from '@/lib/reports';
+import { json, requireReportScope, pageOf } from '@/lib/reports';
 import {
   stockPosition, stockTotals, supplierKeysForFilters, loadSupplierMap,
 } from '@/lib/stockPosition';
@@ -181,7 +181,8 @@ const EXPORT_CAP = 20000;
     const sp = new URL(req.url).searchParams;
     await dbConnect();
 
-    const scope = scopeOf(sp);
+    const scope = await requireReportScope(session, sp, { allowAllLocations: true });
+    if (!scope.ok) return scope.response;
     const { page, perPage } = pageOf(sp);
 
     const denied = await screenDenial({
@@ -192,11 +193,6 @@ const EXPORT_CAP = 20000;
       businessId: scope.businessId,
     });
     if (denied) return json({ error: denied.message, code: denied.code }, 403);
-
-    /* "All Locations" on the report's own filter means the top-bar location
-      must not be applied on top of it (app/api/reports/item-stock does the
-      same, and ReportView sends the flag). */
-    if (sp.get('allLocations') === '1') scope.locationId = null;
 
     const from = s(sp.get('fromDate'));
     const to = s(sp.get('toDate'));
@@ -223,6 +219,7 @@ const EXPORT_CAP = 20000;
     const { rows } = await stockPosition({
       businessId: scope.businessId,
       locationId: scope.locationId,
+      locationIds: scope.access.isRestricted ? scope.locationIds : null,
       finYear: scope.finYear,
       from,
       to,

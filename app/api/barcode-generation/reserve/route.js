@@ -2,6 +2,7 @@ import dbConnect from '@/lib/db';
 import { handler, json } from '@/lib/apiError';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac';
 import { planBarcodes, reserveBarcodeNumbers, loadFormat, uomTypeOf, batchTypeOf } from '@/lib/barcodeEngine';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 /* POST /api/barcode-generation/reserve
    { uom, batchType, qty, cuts?, business, finYear }
@@ -33,14 +34,21 @@ export const POST = handler(async (req) => {
   const body = await req.json().catch(() => ({}));
   await dbConnect();
 
-  const { uom, batchType, qty, cuts = [], business, finYear = '' } = body || {};
+  const { uom, batchType, qty, cuts = [], business, location, finYear = '' } = body || {};
+
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: business,
+    locationId: location,
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
 
   /* throws BarcodePlanError (422 via apiError) on a quantity that cannot
      produce a sane label count - a wrong count is a physical stock error */
   const plan = planBarcodes({ uom, batchType, qty, cuts });
 
-  const format = await loadFormat(business, finYear);
-  const numbers = await reserveBarcodeNumbers(plan.length, { businessId: business, finYear, setting: format });
+  const effectiveBiz = scope.businessId || business;
+  const format = await loadFormat(effectiveBiz, finYear);
+  const numbers = await reserveBarcodeNumbers(plan.length, { businessId: effectiveBiz, finYear, setting: format });
 
   void session;
   return json({

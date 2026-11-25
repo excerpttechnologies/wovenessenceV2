@@ -7,6 +7,7 @@ const IC_DC = { screen: SCREENS.IC_DELIVERY_CHALLAN, label: 'inter company deliv
 
 import { validate } from '@/lib/validate';
 import { FIELDS, computeTotals } from '@/app/admin/transaction/intercompanysell/deliverychallan/fields';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 /* /api/ic-delivery-challan/<id> - read one, update, delete. */
 
@@ -41,6 +42,11 @@ export async function GET(req, { params }) {
   const doc = await IcDeliveryChallan.findById(id).lean();
   if (!doc) return json({ doc: null }, 404);
 
+  const locDenied = await assertDocumentLocationAccess(session, doc, {
+    locationKeys: ['locationId', 'toLocationId'],
+  });
+  if (locDenied) return locDenied;
+
   /* Scoped to the challan's own business - the id arrives in the path, so
      there is no query string to take it from. */
   const denied = await screenDenial({
@@ -62,8 +68,11 @@ export async function PUT(req, { params }) {
   /* A challan already pulled into an invoice must not change underneath it -
      the invoice's own lines were copied from these. Release it by deleting
      the invoice, then edit. */
-  const existing = await IcDeliveryChallan.findById(id).select('icSalesInvoiceId businessId').lean();
+  const existing = await IcDeliveryChallan.findById(id).select('icSalesInvoiceId businessId locationId').lean();
   if (!existing) return json({ error: 'Not found' }, 404);
+
+  const locDenied = await assertDocumentLocationAccess(session, existing);
+  if (locDenied) return locDenied;
 
   const denied = await screenDenial({
     session, ...IC_DC, action: PERM.UPDATE, businessId: body.business || existing.businessId,
@@ -98,8 +107,11 @@ export async function DELETE(req, { params }) {
   const { id } = await params;
   await dbConnect();
 
-  const existing = await IcDeliveryChallan.findById(id).select('icSalesInvoiceId businessId').lean();
+  const existing = await IcDeliveryChallan.findById(id).select('icSalesInvoiceId businessId locationId').lean();
   if (!existing) return json({ ok: true });
+
+  const locDenied = await assertDocumentLocationAccess(session, existing);
+  if (locDenied) return locDenied;
 
   const denied = await screenDenial({
     session, ...IC_DC, action: PERM.DELETE, businessId: existing.businessId,

@@ -4,7 +4,7 @@ import { requireSession } from '@/lib/session';
 import { Customer, Supplier } from '@/lib/contacts';
 import { BarcodeLabel } from '@/lib/barcodeLabel';
 import {
-  json, num, r2, scopeOf, salesDocuments, lineQty, lineItemCode, lineItemName,
+  json, num, r2, requireReportScope, salesDocuments, lineQty, lineItemCode, lineItemName,
 } from '@/lib/reports';
 
 const lineRate = (item) => num(
@@ -26,7 +26,9 @@ export async function GET(req) {
   if (!session) return json({ error: 'Unauthorized' }, 401);
 
   const sp = new URL(req.url).searchParams;
-  const scope = scopeOf(sp);
+  await dbConnect();
+  const scope = await requireReportScope(session, sp);
+  if (!scope.ok) return scope.response;
   if (!scope.businessId) return json({ error: 'Select a business to view sale lines.' }, 422);
   if (!sp.get('fromDate') || !sp.get('toDate')) {
     return json({ error: 'Date From and Date To are required.' }, 422);
@@ -35,7 +37,6 @@ export async function GET(req) {
     return json({ error: 'Enter valid report dates.' }, 422);
   }
 
-  await dbConnect();
   const { sales } = await salesDocuments(sp, scope);
   const customerIds = [...new Set(sales.map((document) => String(document.customerId || '')))]
     .filter(isValidObjectId);

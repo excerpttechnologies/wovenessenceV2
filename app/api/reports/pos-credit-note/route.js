@@ -75,7 +75,7 @@ import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import PosReturn from '@/models/PosReturn';
 import CompanyLocation from '@/models/CompanyLocation';
 import {
-  json, r2, scopeOf, scopeFilter, dateRange, pageOf, paged,
+  json, r2, requireReportScope, scopeFilter, dateRange, pageOf, paged,
 } from '@/lib/reports';
 
 /* /api/reports/pos-credit-note - read-only.
@@ -96,13 +96,16 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
-  const scope = scopeOf(sp);
+  const scope = await requireReportScope(session, sp);
+  if (!scope.ok) return scope.response;
   const denied = await screenDenial({ session, screen: SCREENS.POS_CREDIT_NOTE, action: PERM.READ, businessId: scope.businessId, label: 'the POS credit note report' });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
   const { page, perPage } = pageOf(sp);
 
   const returnScope = scopeFilter(scope);
-  delete returnScope.locationId;
+  if (scope.access?.unrestricted && !sp.get('locationId')) {
+    delete returnScope.locationId;
+  }
   const filter = { ...returnScope };
   const locationId = sp.get('locationId');
   if (locationId && isValidObjectId(locationId)) filter.locationId = locationId;

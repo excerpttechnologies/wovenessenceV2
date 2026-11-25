@@ -8,7 +8,7 @@ import Grt from '@/models/Grt';
 import StockMovement from '@/models/StockMovement';
 import { BarcodeLabel } from '@/lib/barcodeLabel';
 import {
-  json, num, r2, scopeOf, scopeFilter, dateRange, salesDocuments,
+  json, num, r2, requireReportScope, scopeFilter, dateRange, salesDocuments,
   linesOf, lineQty, lineNet, docQty, docValue,
 } from '@/lib/reports';
 
@@ -60,7 +60,8 @@ export async function GET(req) {
 
   const sp = new URL(req.url).searchParams;
   await dbConnect();
-  const scope = scopeOf(sp);
+  const scope = await requireReportScope(session, sp);
+  if (!scope.ok) return scope.response;
   if (!scope.businessId) return json({ error: 'Select a business to run this report.' }, 422);
   const denied = await screenDenial({ session, screen: SCREENS.TRANSACTION_SUMMARY_REPORT, action: PERM.READ, businessId: scope.businessId, label: 'the transaction summary report' });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
@@ -76,7 +77,7 @@ export async function GET(req) {
   const [locations, purchases, purchaseReturns, salesData, movements] = await Promise.all([
     CompanyLocation.find({
       businessId: scope.businessId,
-      ...(scope.locationId ? { _id: scope.locationId } : {}),
+      ...(scope.locationFilter ? { _id: scope.locationFilter } : {}),
     }).select('name businessPrintName').sort({ name: 1 }).lean(),
     Grc.find({ ...filter, ...dateRange(sp, 'grcDate') }).limit(5000).lean(),
     Grt.find({ ...filter, ...dateRange(sp, 'grtDate') }).limit(5000).lean(),
@@ -85,10 +86,10 @@ export async function GET(req) {
       businessId: scope.businessId,
       ...(scope.finYear ? { finYear: scope.finYear } : {}),
       at: dateRange(sp, 'at').at,
-      ...(scope.locationId ? {
+      ...(scope.locationFilter ? {
         $or: [
-          { fromLocationId: scope.locationId },
-          { toLocationId: scope.locationId },
+          { fromLocationId: scope.locationFilter },
+          { toLocationId: scope.locationFilter },
         ],
       } : {}),
       type: { $in: [...TRANSFER_IN, ...TRANSFER_OUT] },

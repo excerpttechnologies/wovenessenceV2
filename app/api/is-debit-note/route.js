@@ -8,6 +8,7 @@ import { groupBusinessIds, businessOfLocation } from '@/lib/storeLocations';
 import { nextSeriesNumber } from '@/lib/docnumber';
 import { applyStoreTotals, GST_MODE, r2 } from '@/lib/storeSell';
 import { listStoreDocs } from '@/lib/storeDocList';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 /* /api/is-debit-note - Received Debit Notes for Inter Store Sell.
 
@@ -47,8 +48,14 @@ export async function POST(req) {
   const body = await req.json();
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: body.business,
+    locationId: body.location,
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   const denied = await screenDenial({
-    session, ...SCREEN, action: PERM.CREATE, businessId: body.business,
+    session, ...SCREEN, action: PERM.CREATE, businessId: scope.businessId || body.business,
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 

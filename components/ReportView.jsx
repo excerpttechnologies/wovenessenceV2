@@ -3291,6 +3291,8 @@ const cellOf = (row, col) => {
 /* A ref filter needs its own option list, so it is its own component -
    useOptions is a hook and cannot run inside a map. */
 function RefFilter({ f, value, onChange, depValue, filterValues }) {
+  const { location: scopeLocation, isLocationLocked } = useScope();
+  const lockedToSingleLocation = f.ref === 'companylocations' && isLocationLocked;
   /* dependsOn: the list is NARROWED BY ANOTHER FILTER's value - the Master
      Stock Report's supplier picker offers only the chosen city's vendors -
      and the control stays disabled until that value exists, its placeholder
@@ -3344,11 +3346,11 @@ function RefFilter({ f, value, onChange, depValue, filterValues }) {
       mode={f.multi ? 'multi' : 'single'}
       options={waiting ? [] : uniqueOptions}
       loading={loading}
-      disabled={waiting}
-      value={f.multi ? (value || []) : (value || '')}
-      placeholder={waiting ? (f.waitPlaceholder || 'Select...') : (f.all || 'Select...')}
+      disabled={waiting || lockedToSingleLocation}
+      value={lockedToSingleLocation ? (scopeLocation || uniqueOptions[0]?.value || value || '') : (f.multi ? (value || []) : (value || ''))}
+      placeholder={lockedToSingleLocation ? (uniqueOptions[0]?.label || 'Assigned Location') : (waiting ? (f.waitPlaceholder || 'Select...') : (f.all || 'Select...'))}
       maxOptions={f.showAllOptions ? Infinity : undefined}
-      onChange={onChange}
+      onChange={lockedToSingleLocation ? () => {} : onChange}
     />
   );
 }
@@ -4158,7 +4160,7 @@ function reportQuery({ page, perPage, business, location, finYear, tab, applied,
    runs the report with some filters set - {} runs it again as it stands -
    so an action that changed the data can show the result. */
 export default function ReportView({ spec, toolbar = null }) {
-  const { business, location, finYear } = useScope();
+  const { business, location, finYear, isLocationLocked } = useScope();
 
   const [draft, setDraft] = useState(() => blankFilters(spec));
   const [applied, setApplied] = useState(() => blankFilters(spec));
@@ -4283,7 +4285,7 @@ export default function ReportView({ spec, toolbar = null }) {
       page,
       perPage: perPageSel || spec.perPage || 15,
       business, location, finYear, tab, applied,
-      allLocations: spec.locationAll && !applied.location ? '1' : '',
+      allLocations: isLocationLocked ? '' : (spec.locationAll && !applied.location ? '1' : ''),
     });
 
     try {
@@ -4299,7 +4301,7 @@ export default function ReportView({ spec, toolbar = null }) {
     } finally {
       if (latest()) setLoading(false);
     }
-  }, [spec.slug, spec.perPage, perPageSel, page, applied, tab, business, location, finYear, searched]);
+  }, [spec.slug, spec.perPage, perPageSel, page, applied, tab, business, location, finYear, searched, isLocationLocked]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setPage(1); }, [applied, tab, business, location, finYear]);
@@ -4361,7 +4363,7 @@ export default function ReportView({ spec, toolbar = null }) {
         page: 1,
         perPage: spec.perPage || 15,
         business, location, finYear, tab, applied,
-        allLocations: spec.locationAll && !applied.location ? '1' : '',
+        allLocations: isLocationLocked ? '' : (spec.locationAll && !applied.location ? '1' : ''),
       }, { export: '1' });
       const r = await fetch('/api/reports/' + spec.slug + '?' + qs, { cache: 'no-store' });
       const d = await r.json().catch(() => ({}));

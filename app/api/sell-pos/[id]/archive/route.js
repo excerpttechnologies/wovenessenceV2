@@ -1,6 +1,7 @@
 import mongoose, { isValidObjectId, Types } from 'mongoose';
 import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 /* POST /api/sell-pos/<id>/archive  (21-10-2026)
 
@@ -32,6 +33,9 @@ export async function POST(req, { params }) {
 
   const doc = await live.findOne({ _id });
   if (!doc) return json({ error: 'Bill not found (it may already be archived).' }, 404);
+
+  const locDenied = await assertDocumentLocationAccess(session, doc);
+  if (locDenied) return locDenied;
 
   /* copy first, then remove - if the remove fails the copy is taken back, so
      a bill is never in both places or in neither */

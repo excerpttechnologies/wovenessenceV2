@@ -3,6 +3,7 @@ import PosReturn from '@/models/PosReturn';
 import { requireSession } from '@/lib/session';
 import { validate } from '@/lib/validate';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 const POS_RETURN = { screen: SCREENS.POS_RETURN, label: 'POS returns' };
 const FIELDS = [];
@@ -20,6 +21,9 @@ export async function GET(req, { params }) {
 
   const doc = await PosReturn.findById(id).lean();
   if (!doc) return json({ doc: null }, 404);
+
+  const locDenied = await assertDocumentLocationAccess(session, doc);
+  if (locDenied) return locDenied;
 
   /* Scoped to the credit note's own business, not to whichever business the
      screen happens to be switched to - otherwise a restricted role could read
@@ -43,8 +47,11 @@ export async function PUT(req, { params }) {
   /* Before validate(), and scoped on the stored record rather than on the
      body, so the caller cannot name a business it may edit and then save over
      one it may not. */
-  const target = await PosReturn.findById(id).select('businessId').lean();
+  const target = await PosReturn.findById(id).select('businessId locationId').lean();
   if (!target) return json({ error: 'Not found' }, 404);
+
+  const locDenied = await assertDocumentLocationAccess(session, target);
+  if (locDenied) return locDenied;
 
   const denied = await screenDenial({
     session, ...POS_RETURN, action: PERM.UPDATE, businessId: target.businessId,
@@ -72,8 +79,11 @@ export async function DELETE(req, { params }) {
   const { id } = await params;
   await dbConnect();
 
-  const target = await PosReturn.findById(id).select('businessId').lean();
+  const target = await PosReturn.findById(id).select('businessId locationId').lean();
   if (!target) return json({ ok: true });
+
+  const locDenied = await assertDocumentLocationAccess(session, target);
+  if (locDenied) return locDenied;
 
   const denied = await screenDenial({
     session, ...POS_RETURN, action: PERM.DELETE, businessId: target.businessId,

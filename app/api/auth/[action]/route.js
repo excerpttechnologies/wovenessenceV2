@@ -1,7 +1,9 @@
 import { cookies } from 'next/headers';
 import mongoose from 'mongoose';
 import dbConnect from '@/lib/db';
-import { COOKIE, cookieOptions, signSession, readSession, verifyPassword } from '@/lib/auth';
+import { COOKIE, cookieOptions, signSession, verifyPassword } from '@/lib/auth';
+import { requireSession } from '@/lib/session';
+import { getSessionLocationAccess } from '@/lib/locationAccess';
 import User from '@/models/User';
 
 /* The user schema used to be declared inline here. It now lives in
@@ -46,21 +48,33 @@ export async function POST(req, { params }) {
        Changing an account's locations therefore takes effect at its next
        sign-in. That is the standard trade for a stateless session and is
        noted here so it is a decision rather than a surprise. */
+    const locationIds = (user.locationIds || []).map(String);
+    const businessId = user.businessId ? String(user.businessId) : '';
     jar.set(COOKIE, signSession({
       id: String(user._id),
       name: user.name,
       email: user.email,
       role: user.role,
-      locationIds: (user.locationIds || []).map(String),
+      businessId,
+      locationIds,
       allow: user.allow || [],
       deny: user.deny || [],
     }), cookieOptions);
 
+    const access = await getSessionLocationAccess({ locationIds, businessId });
     return json({
       ok: true,
       user: {
-        name: user.name, email: user.email, role: user.role,
-        locationIds: (user.locationIds || []).map(String),
+        id: String(user._id),
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        businessId,
+        locationIds,
+        defaultLocationId: access.defaultLocationId,
+        isLocationLocked: access.isSingleLocation,
+        allowedBusinessIds: access.allowedBusinessIds,
+        allowedLocations: access.allowedLocations,
       },
     });
   }
@@ -71,25 +85,24 @@ export async function POST(req, { params }) {
 export async function GET(req, { params }) {
   const { action } = await params;
   if (action !== 'me') return json({ error: 'Unknown action' }, 404);
-  const jar = await cookies();
-  const session = readSession(jar.get(COOKIE)?.value);
+  const session = await requireSession();
   if (!session) return json({ user: null }, 401);
-  /* the cash counter assigned to this account (22-10-2026), read fresh so
-     a change on Roles & Permissions applies without signing in again */
-  let counterId = '';
-  try {
-    if (session.id && mongoose.isValidObjectId(session.id)) {
-      await dbConnect();
-      const row = await User.collection.findOne({ _id: new mongoose.Types.ObjectId(String(session.id)) }, { projection: { counterId: 1 } });
-      counterId = row?.counterId ? String(row.counterId) : '';
-    }
-  } catch { /* no assignment shown - the till lists every counter */ }
+  const access = await getSessionLocationAccess(session);
   return json({
     user: {
       id: session.id || '',
-      name: session.name, email: session.email, role: session.role,
+      name: session.name,
+      email: session.email,
+      role: session.role,
+      businessId: session.businessId || '',
       locationIds: session.locationIds || [],
-      counterId,
+      counterId: session.counterId || '',
+      isRestricted: access.isRestricted,
+      isLocationLocked: access.isSingleLocation,
+      defaultLocationId: access.defaultLocationId,
+      allowedLocationIds: access.allowedLocationIds,
+      allowedBusinessIds: access.allowedBusinessIds,
+      allowedLocations: access.allowedLocations,
     },
   });
 }

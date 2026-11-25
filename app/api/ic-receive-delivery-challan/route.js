@@ -9,6 +9,7 @@ import { receiveChallan } from '@/lib/icReceive';
 import StockAdjustment from '@/models/StockAdjustment';
 import { nextDocNumber } from '@/lib/docnumber';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { resolveAuthorizedScope, scopeErrorResponse, assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 /* Receiving and returning are both UPDATES to a challan somebody else raised.
    This screen creates no document and deletes none, so the Create and Delete
@@ -94,11 +95,17 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: sp.get('business'),
+    locationId: sp.get('location'),
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   const page = Math.max(1, Number(sp.get('page') || 1));
   const perPage = Math.min(500, Number(sp.get('perPage') || PER_PAGE));
 
-  const business = sp.get('business');
-  const location = sp.get('location');
+  const business = scope.businessId || sp.get('business');
+  const location = scope.locationId || sp.get('location');
 
   /* No branch in the top bar means no inbox - returning everything would show
      one branch another's incoming goods. */
@@ -115,16 +122,6 @@ export async function GET(req) {
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
-  /* Incoming looks at where the goods are GOING; returns looks at where they
-     came FROM, because a return travels back to whoever sent the challan.
-
-     Keep the selected branch as the primary match, but do not make the
-     location filter so brittle that a stale or missing destination location
-     hides every row: older challans and some hand-edited records can still be
-     valid even when the screen's current scope is slightly out of sync.
-     The first query is exact; if it yields nothing, a fallback without the
-     location restriction preserves the list while still respecting the
-     business and status filters. */
   const incomingBase = { toBusinessId: business };
 
   let filter = view === 'returns'
@@ -132,6 +129,9 @@ export async function GET(req) {
       $and: [
         { $or: [{ 'returns.0': { $exists: true } }, { 'returnRequests.0': { $exists: true } }] },
         { $or: [{ businessId: business }, { toBusinessId: business }] },
+        ...(scope.access.isRestricted && scope.locationFilter
+          ? [{ $or: [{ locationId: scope.locationFilter }, { toLocationId: scope.locationFilter }] }]
+          : []),
       ],
     }
     : incomingBase;
@@ -140,7 +140,9 @@ export async function GET(req) {
 
   if (view === 'incoming') {
     filter.receivedAt = sp.get('received') === 'yes' ? { $ne: null } : { $eq: null };
-    if (location && isValidObjectId(location)) {
+    if (scope.locationFilter) {
+      filter.toLocationId = scope.locationFilter;
+    } else if (location && isValidObjectId(location)) {
       filter.toLocationId = location;
     }
   }
@@ -164,7 +166,7 @@ export async function GET(req) {
     .limit(perPage)
     .lean();
 
-  if (view === 'incoming' && !rows.length && location && isValidObjectId(location)) {
+  if (scope.access.unrestricted && view === 'incoming' && !rows.length && location && isValidObjectId(location)) {
     const fallbackFilter = { ...primaryFilter };
     delete fallbackFilter.toLocationId;
     total = await IcDeliveryChallan.countDocuments(fallbackFilter);
@@ -214,12 +216,23 @@ async function handlePost(req) {
 
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: body.business,
+    locationId: body.location,
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   const challan = await IcDeliveryChallan.findById(id)
     .select('businessId locationId toBusinessId toLocationId finYear receivedAt dcNo items returns returnRequests')
     .lean();
   if (!challan) return json({ error: 'Challan not found.' }, 404);
 
-  const business = String(body.business || '');
+  const locDenied = await assertDocumentLocationAccess(session, challan, {
+    locationKeys: ['locationId', 'toLocationId'],
+  });
+  if (locDenied) return locDenied;
+
+  const business = String(scope.businessId || body.business || '');
   if (!isValidObjectId(business)) return json({ error: 'No business selected.' }, 400);
 
   /* receiving and requesting a return are updates on Receive Delivery

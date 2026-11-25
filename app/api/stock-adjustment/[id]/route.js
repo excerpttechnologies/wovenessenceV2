@@ -8,6 +8,7 @@ import StockAdjustment from '@/models/StockAdjustment';
 import { requireSession } from '@/lib/session';
 import { validate } from '@/lib/validate';
 import { FORM } from '@/app/admin/inventory/stock-adjustment/form';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 /* header fields AND the totals rows - the totals card holds real stored
    numbers (taxable value, round off, net value, the editable discounts).
@@ -37,6 +38,9 @@ export async function GET(req, { params }) {
   const doc = await StockAdjustment.findById(id).lean();
   if (!doc) return json({ doc: null }, 404);
 
+  const locDenied = await assertDocumentLocationAccess(session, doc);
+  if (locDenied) return locDenied;
+
   const denied = await screenDenial({
     session, ...STOCK_ADJUSTMENT, action: PERM.READ, businessId: doc.businessId,
   });
@@ -56,9 +60,12 @@ export async function PUT(req, { params }) {
   /* Read first only to learn which business owns it, then decide
      permission BEFORE validating. */
   const current = isValidObjectId(id)
-    ? await StockAdjustment.findById(id, { businessId: 1 }).lean()
+    ? await StockAdjustment.findById(id, { businessId: 1, locationId: 1 }).lean()
     : null;
   if (!current) return json({ error: 'Not found' }, 404);
+
+  const locDenied = await assertDocumentLocationAccess(session, current);
+  if (locDenied) return locDenied;
 
   const denied = await screenDenial({
     session, ...STOCK_ADJUSTMENT, action: PERM.UPDATE, businessId: body.business || current.businessId,
@@ -86,9 +93,12 @@ export async function DELETE(req, { params }) {
 
   /* Already gone is still a success, exactly as before. */
   const existing = isValidObjectId(id)
-    ? await StockAdjustment.findById(id, { businessId: 1 }).lean()
+    ? await StockAdjustment.findById(id, { businessId: 1, locationId: 1 }).lean()
     : null;
   if (!existing) return json({ ok: true });
+
+  const locDenied = await assertDocumentLocationAccess(session, existing);
+  if (locDenied) return locDenied;
 
   const denied = await screenDenial({
     session, ...STOCK_ADJUSTMENT, action: PERM.DELETE, businessId: existing.businessId,

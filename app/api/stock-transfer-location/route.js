@@ -9,6 +9,7 @@ import { validate, escapeRegex } from '@/lib/validate';
 import { nextDocNumber } from '@/lib/docnumber';
 import { FIELDS, linesFromPackets, locationTotals } from '@/app/admin/transaction/stocktransfers/transferstocklocation/fields';
 import { sortedPage } from '@/lib/listSort';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 /* /api/stock-transfer-location - list + create.
 
@@ -28,11 +29,17 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: sp.get('business'),
+    locationId: sp.get('inbox') || sp.get('location'),
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   const page = Math.max(1, Number(sp.get('page') || 1));
   const perPage = Math.min(500, Number(sp.get('perPage') || PER_PAGE));
 
   const filter = {};
-  const b = sp.get('business'); if (b && isValidObjectId(b)) filter.businessId = b;
+  if (scope.businessFilter) filter.businessId = scope.businessFilter;
   const y = sp.get('finYear'); if (y) filter.finYear = y;
 
   const fl = sp.get('fromLocationId'); if (fl && isValidObjectId(fl)) filter.fromLocationId = fl;
@@ -46,6 +53,8 @@ export async function GET(req) {
   if (inbox && isValidObjectId(inbox)) {
     delete filter.fromLocationId;
     filter.toLocationId = inbox;
+  } else if (scope.access.isRestricted) {
+    filter.$or = [{ fromLocationId: scope.locationFilter }, { toLocationId: scope.locationFilter }];
   }
 
   const unconverted = sp.get('unconverted');
@@ -96,14 +105,22 @@ export async function POST(req) {
   const { errors, doc, ok } = validate(FIELDS, body.data || {});
   if (!ok) return json({ errors }, 422);
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: body.business,
+    locationId: doc.fromLocationId || body.location,
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   if (String(doc.fromLocationId) === String(doc.toLocationId)) {
     return json({
       errors: { toLocationId: 'The destination must be a different location from the source.' },
     }, 422);
   }
 
-  if (body.business && isValidObjectId(body.business)) doc.businessId = body.business;
-  if (body.location && isValidObjectId(body.location)) doc.locationId = body.location;
+  if (scope.businessId) doc.businessId = scope.businessId;
+  if (scope.locationId || (body.location && isValidObjectId(body.location))) {
+    doc.locationId = scope.locationId || body.location;
+  }
   if (body.finYear) doc.finYear = body.finYear;
 
   const ids = (body.data?.packetIds || []).filter((v) => isValidObjectId(v));

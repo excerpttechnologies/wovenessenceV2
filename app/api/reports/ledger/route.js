@@ -3,7 +3,7 @@ import dbConnect from '@/lib/db';
 import AccountsMaster from '@/models/AccountsMaster';
 import { requireSession } from '@/lib/session';
 import { screenDenial, SCREENS, ACTIONS } from '@/lib/screenPermission';
-import { json, scopeOf } from '@/lib/reports';
+import { json, requireReportScope } from '@/lib/reports';
 import { ledgerFor } from '@/lib/accounting/books';
 import { defaultRange, r2, fyBounds } from '@/lib/accounting/calc';
 
@@ -23,7 +23,8 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
-  const scope = scopeOf(sp);
+  const scope = await requireReportScope(session, sp);
+  if (!scope.ok) return scope.response;
   const denied = await screenDenial({
     session,
     screen: SCREENS.ACCOUNTS_LEDGER,
@@ -38,9 +39,10 @@ export async function GET(req) {
   if (!isValidObjectId(accountId)) return json({ error: 'That account reference is not valid.' }, 422);
 
   const filter = { _id: accountId };
-  if (scope.businessId) filter.businessId = scope.businessId;
-  if (scope.locationId) {
-    filter.$or = [{ locationId: scope.locationId }, { locationId: null }, { locationId: { $exists: false } }];
+  if (scope.businessFilter) filter.businessId = scope.businessFilter;
+  else if (scope.businessId) filter.businessId = scope.businessId;
+  if (scope.locationFilter) {
+    filter.$or = [{ locationId: scope.locationFilter }, { locationId: null }, { locationId: { $exists: false } }];
   }
   const account = await AccountsMaster.findOne(filter)
     .select('accountCode accountName accountType openingBalance')

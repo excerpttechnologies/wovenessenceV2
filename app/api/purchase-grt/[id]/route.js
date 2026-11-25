@@ -8,6 +8,7 @@ import { validate, escapeRegex } from '@/lib/validate';
 import { FORM } from '@/app/admin/transaction/purchase/grt/form';
 import { screenDenialAnyAction, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { validateGrtReturnItems } from '@/lib/grtReturnable';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 /* header fields AND the totals rows - the totals card holds real stored
    numbers (taxable value, round off, net value, the editable discounts).
@@ -44,8 +45,10 @@ export async function GET(req, { params }) {
   const { id } = await params;
   await dbConnect();
 
-  const doc = await Grt.findById(id).lean();
+  const doc = isValidObjectId(id) ? await Grt.findById(id).lean() : null;
   if (!doc) return json({ doc: null }, 404);
+  const locDenied = await assertDocumentLocationAccess(session, doc);
+  if (locDenied) return locDenied;
   /* read while viewing or editing the GRT */
   const no = await grtDenied(session, id, [PERM.READ, PERM.UPDATE]);
   if (no) return no;
@@ -63,6 +66,8 @@ export async function PUT(req, { params }) {
 
   const existing = await Grt.findById(id).lean();
   if (!existing) return json({ error: 'GRT not found' }, 404);
+  const locDenied = await assertDocumentLocationAccess(session, existing);
+  if (locDenied) return locDenied;
   if (existing.debitNoteId) {
     return json({ error: 'Cannot edit this GRT because a Debit Note has already been generated from it.' }, 409);
   }
@@ -117,6 +122,9 @@ export async function DELETE(req, { params }) {
   if (!existing) {
     return json({ error: 'GRT record not found.' }, 404);
   }
+
+  const locDenied = await assertDocumentLocationAccess(session, existing);
+  if (locDenied) return locDenied;
 
   const no = await grtDenied(session, id, [PERM.DELETE]);
   if (no) return no;

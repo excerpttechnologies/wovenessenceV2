@@ -355,6 +355,12 @@ select {
     white-space: nowrap;
     overflow: hidden;
   }
+
+  .tb-select-locked {
+    @apply flex items-center bg-[#f8fafc] pr-2.5 text-ink cursor-default select-none
+           hover:border-line;
+    background-image: none;
+  }
   
   .tb-select option {
     @apply text-sm;

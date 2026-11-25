@@ -306,8 +306,11 @@ export default function StockFilterCard({
     businesses,
     locations,
     business: scopeBusiness,
+    location: scopeLocation,
     businessReady,
     locationReady,
+    isCompanyLocked,
+    isLocationLocked,
     setBusiness,
     setLocation,
   } = useScope();
@@ -333,17 +336,17 @@ export default function StockFilterCard({
         label: String(option?.label || '').trim() || (value ? value : 'All Locations'),
       });
     };
-    add({ value: '', label: locationField.all || 'All Locations' });
+    if (!isLocationLocked) add({ value: '', label: locationField.all || 'All Locations' });
     (locations || []).forEach(add);
     return out;
-  }, [locations, locationField]);
+  }, [locations, locationField, isLocationLocked]);
 
   /* Company is shown from the top bar's branch selection (read-only here)
      so users can see both Company and Location in the filter scope without
      a second control interfering with top-nav behavior. */
   const companyOptions = useMemo(() => {
     const seen = new Set();
-    const out = [{ value: '', label: 'All Companies' }];
+    const out = isCompanyLocked ? [] : [{ value: '', label: 'All Companies' }];
     (businesses || []).forEach((option) => {
       const value = String(option?.value ?? '');
       if (!value || seen.has(value)) return;
@@ -354,7 +357,7 @@ export default function StockFilterCard({
       });
     });
     return out;
-  }, [businesses]);
+  }, [businesses, isCompanyLocked]);
 
   /* Company is the top bar's own branch, edited here through the same global
      setter: picking another company reloads the Location list and every
@@ -403,10 +406,10 @@ export default function StockFilterCard({
                   mode="single"
                   options={companyOptions}
                   loading={!businessReady}
-                  disabled={!businessReady || !companyOptions.length}
+                  disabled={isCompanyLocked || !businessReady || !companyOptions.length}
                   value={companyValue !== undefined ? companyValue : (scopeBusiness || '')}
                   placeholder="All Companies"
-                  onChange={switchCompany}
+                  onChange={isCompanyLocked ? () => {} : switchCompany}
                 />
               </div>
             )}
@@ -418,11 +421,12 @@ export default function StockFilterCard({
                   mode="single"
                   options={locationOptionsOverride || locationOptions}
                   loading={locationsLoading || !locationReady}
-                  disabled={companyValue !== undefined ? false : !business}
-                  value={draft[locationField.k] || ''}
+                  disabled={isLocationLocked || (companyValue !== undefined ? false : !business)}
+                  value={isLocationLocked ? (scopeLocation || (locationOptionsOverride || locationOptions)[0]?.value || '') : (draft[locationField.k] || '')}
                   placeholder={locationField.all || 'All Locations'}
                   emptyText="No locations found"
                   onChange={(v) => {
+                    if (isLocationLocked) return;
                     onChange?.(locationField.k, v || '');
                     if (typeof setLocation === 'function') {
                       setLocation(v || '');

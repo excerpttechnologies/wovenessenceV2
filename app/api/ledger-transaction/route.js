@@ -2,6 +2,7 @@ import { isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 import { escapeRegex } from '@/lib/validate';
 
 import { findContactsOfKind } from '@/lib/contacts';
@@ -168,6 +169,10 @@ export async function GET(req) {
   await dbConnect();
 
   const business = sp.get('business');
+  const location = sp.get('location');
+  const authScope = await resolveAuthorizedScope(session, { businessId: business, locationId: location });
+  if (!authScope.ok) return scopeErrorResponse(authScope);
+
   const denied = await screenDenial({
     session,
     screen: SCREENS.LEDGER_TRANSACTION,
@@ -179,8 +184,6 @@ export async function GET(req) {
 
   const page = Math.max(1, Number(sp.get('page') || 1));
   const perPage = Math.min(500, Number(sp.get('perPage') || 10));
-
-  const location = sp.get('location');
   const finYear = sp.get('finYear') || '';
 
   const wantType = (sp.get('type') || '').trim();
@@ -196,8 +199,8 @@ export async function GET(req) {
 
   const collected = await Promise.all(wanted.map(async (s) => {
     const filter = {};
-    if (business && isValidObjectId(business)) filter.businessId = business;
-    if (location && isValidObjectId(location)) filter.locationId = location;
+    if (authScope.businessFilter) filter.businessId = authScope.businessFilter;
+    if (authScope.locationFilter) filter.locationId = authScope.locationFilter;
     if (finYear) filter.finYear = finYear;
     /* a source can narrow its own collection - Voucher holds three types */
     if (s.where) Object.assign(filter, s.where);

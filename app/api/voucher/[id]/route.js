@@ -2,6 +2,7 @@ import dbConnect from '@/lib/db';
 import Voucher from '@/models/Voucher';
 import { requireSession } from '@/lib/session';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 const VOUCHER_SCREENS = {
   Receipt: SCREENS.RECEIPT_VOUCHER,
@@ -27,6 +28,8 @@ export async function GET(req, { params }) {
 
   const doc = await Voucher.findById(id).lean();
   if (!doc) return json({ doc: null }, 404);
+  const locDenied = await assertDocumentLocationAccess(session, doc);
+  if (locDenied) return locDenied;
   const screen = VOUCHER_SCREENS[doc.type];
   if (screen) {
     const denied = await screenDenial({ session, screen, action: PERM.READ, businessId: doc.businessId, label: `${doc.type} vouchers` });
@@ -42,8 +45,11 @@ export async function DELETE(req, { params }) {
   const { id } = await params;
   await dbConnect();
 
-  const existing = await Voucher.findById(id).select('adjustedAmount type businessId').lean();
+  const existing = await Voucher.findById(id).select('adjustedAmount type businessId locationId').lean();
   if (!existing) return json({ ok: true });
+
+  const locDenied = await assertDocumentLocationAccess(session, existing);
+  if (locDenied) return locDenied;
 
   const screen = VOUCHER_SCREENS[existing.type];
   if (screen) {
