@@ -1965,11 +1965,6 @@ export default function TransactionFormView({ cfg, id, slug }) {
         const taxable = Number(row.taxableValue) || 0;
         const freightValue = freightLocked ? '0' : (row.freightAmount ?? '');
         const freight = Number(freightValue) || 0;
-        if (freightLocked) {
-          if (row.freightAmount === freightValue) return row;
-          changed = true;
-          return { ...row, freightAmount: freightValue };
-        }
         const tax = rate ? Math.round(taxable * rate) / 100 : 0;
         /* signed: a negative Round Off subtracts from the total */
         const roundOff = Number(row.roundOff) || 0;
