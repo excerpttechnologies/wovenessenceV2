@@ -6,6 +6,7 @@ import { BarcodeLabel } from '@/lib/barcodeLabel';
 import { requireSession } from '@/lib/session';
 import { escapeRegex } from '@/lib/validate';
 import { resolveRefLabels } from '@/lib/refLabels';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 const json = (d, s = 200) => Response.json(d, { status: s });
 const PER_PAGE = 20;
@@ -24,13 +25,21 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: sp.get('business'),
+    locationId: sp.get('location'),
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   const page = Math.max(1, Number(sp.get('page') || 1));
   const perPage = Math.min(500, Number(sp.get('perPage') || PER_PAGE));
   const search = (sp.get('search') || '').trim();
-  const businessId = sp.get('business');
+  const businessId = scope.businessId || '';
 
   const filter = {};
-  if (businessId && isValidObjectId(businessId)) {
+  if (scope.businessFilter) {
+    filter.businessId = scope.businessFilter;
+  } else if (businessId && isValidObjectId(businessId)) {
     filter.businessId = businessId;
   }
 

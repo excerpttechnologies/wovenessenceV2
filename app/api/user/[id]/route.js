@@ -1,15 +1,16 @@
 import { isValidObjectId, Types } from 'mongoose';
 import dbConnect from '@/lib/db';
-import User from '@/models/User';
+import User, { ROLES } from '@/models/User';
 import { handler, json } from '@/lib/apiError';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac';
 import { hashPassword } from '@/lib/auth';
-import { validate, toIds, toList, allowedRoleNames } from '../route';
+import { resolveAuthorizedScope } from '@/lib/locationAccess';
+import { validate, validateAssignment, toIds, toList, allowedRoleNames } from '../route';
 
 /* /api/user/<id> - read, update, deactivate one account. */
 
 export const GET = handler(async (req, { params }) => {
-  await requirePermission(PERMISSIONS.ADMIN_ALL);
+  const session = await requirePermission(PERMISSIONS.ADMIN_ALL);
   const { id } = await params;
   await dbConnect();
   if (!isValidObjectId(id)) return json({ error: 'Not found', code: 'NOT_FOUND' }, 404);
@@ -17,8 +18,22 @@ export const GET = handler(async (req, { params }) => {
   const doc = await User.findById(id).select('-password').lean();
   if (!doc) return json({ error: 'User not found.', code: 'NOT_FOUND' }, 404);
 
+  const scope = await resolveAuthorizedScope(session, {});
+  if (scope.access.isRestricted) {
+    const docBiz = doc.businessId ? String(doc.businessId) : '';
+    if (doc.role === ROLES.SUPER_ADMIN || (docBiz && !scope.access.allowedBusinessIdSet.has(docBiz))) {
+      return json({ error: 'You are not authorized to view this user.', code: 'FORBIDDEN' }, 403);
+    }
+  }
+
   return json({
-    doc: { ...doc, _id: String(doc._id), locationIds: (doc.locationIds || []).map(String) },
+    doc: {
+      ...doc,
+      _id: String(doc._id),
+      businessId: doc.businessId ? String(doc.businessId) : '',
+      locationIds: (doc.locationIds || []).map(String),
+      counterId: doc.counterId ? String(doc.counterId) : '',
+    },
   });
 });
 
@@ -31,16 +46,43 @@ export const PUT = handler(async (req, { params }) => {
 
   if (!isValidObjectId(id)) return json({ error: 'Not found', code: 'NOT_FOUND' }, 404);
 
-  /* The account's own business decides which custom roles are on offer; the
-     body's business is only used when it is actually changing. */
-  const existing = await User.findById(id).select('businessId').lean();
+  const existing = await User.findById(id).select('role businessId locationIds counterId').lean();
   if (!existing) return json({ error: 'User not found.', code: 'NOT_FOUND' }, 404);
-  const business = isValidObjectId(body.business) ? body.business : existing.businessId;
+
+  const scope = await resolveAuthorizedScope(session, {});
+  if (scope.access.isRestricted) {
+    const exBiz = existing.businessId ? String(existing.businessId) : '';
+    if (existing.role === ROLES.SUPER_ADMIN || (exBiz && !scope.access.allowedBusinessIdSet.has(exBiz))) {
+      return json({ error: 'You are not authorized to modify this user.', code: 'FORBIDDEN' }, 403);
+    }
+  }
+
+  const rawBiz = 'businessId' in data
+    ? data.businessId
+    : ('business' in body ? body.business : existing.businessId);
+  const business = isValidObjectId(rawBiz) ? String(rawBiz) : '';
+  const targetRole = data.role || existing.role || ROLES.LOCATION_USER;
+  const quickToggleOnly = body?.quick === true;
 
   const errors = validate(data, {
     isNew: false,
-    allowedRoles: await allowedRoleNames(business),
+    allowedRoles: await allowedRoleNames(business || null),
   });
+
+  if (!quickToggleOnly) {
+    const assignErrors = await validateAssignment({
+      role: targetRole,
+      businessId: business,
+      locationIds: 'locationIds' in data ? data.locationIds : existing.locationIds,
+      counterId: 'counterId' in data ? data.counterId : existing.counterId,
+      enforceAssignment: true,
+      access: scope.access,
+    });
+    Object.assign(errors, assignErrors);
+  } else if (scope.access.isRestricted && targetRole === ROLES.SUPER_ADMIN) {
+    errors.role = 'Only Super Admin can assign the Super Admin role.';
+  }
+
   if (Object.keys(errors).length) return json({ errors }, 422);
 
   const email = String(data.email).toLowerCase().trim();
@@ -49,42 +91,52 @@ export const PUT = handler(async (req, { params }) => {
 
   const active = data.isActive !== false && data.isActive !== 'false';
 
-  /* An administrator locking themselves out is unrecoverable without database
-     access, so the two ways of doing it are refused rather than allowed and
-     regretted. */
   if (String(session.id) === String(id)) {
     if (!active) {
       return json({ errors: { isActive: 'You cannot disable your own account.' } }, 422);
     }
-    if (data.role && data.role !== session.role && !['Super Admin', 'Admin'].includes(data.role)) {
+    if (targetRole !== session.role && !['Super Admin', 'Admin'].includes(targetRole)) {
       return json({
         errors: { role: 'You cannot remove your own administrator role - ask another administrator to do it.' },
       }, 422);
     }
   }
 
+  const isSuper = targetRole === ROLES.SUPER_ADMIN;
+  const nextLocations = isSuper
+    ? []
+    : toIds('locationIds' in data ? data.locationIds : existing.locationIds);
+
   const update = {
     name: String(data.name).trim(),
     email,
-    role: data.role,
+    role: targetRole,
     isActive: active,
-    locationIds: toIds(data.locationIds),
+    businessId: business ? business : null,
+    locationIds: nextLocations,
     allow: toList(data.allow),
     deny: toList(data.deny),
   };
-  if (isValidObjectId(body.business)) update.businessId = body.business;
-  /* the Cashier's cash counter (22-10-2026) - only touched when the request
-     carries it, so the list's status / role edits leave it as it is */
-  if ('counterId' in data) update.counterId = isValidObjectId(data.counterId) ? data.counterId : null;
 
-  /* only when one was actually typed - see the note in ../route.js */
+  if ('counterId' in data) {
+    update.counterId = targetRole === ROLES.CASHIER && isValidObjectId(data.counterId)
+      ? data.counterId
+      : null;
+  } else if (targetRole !== ROLES.CASHIER) {
+    update.counterId = null;
+  }
+
+  /* Only overwrite password when a new one was explicitly supplied */
   if (data.password) update.password = hashPassword(data.password);
 
   const updated = await User.findByIdAndUpdate(id, update, { new: true }).select('-password').lean();
   if (!updated) return json({ error: 'User not found.', code: 'NOT_FOUND' }, 404);
-  /* written straight too - see the same note in ../route.js POST */
-  if ('counterId' in data) {
-    await User.collection.updateOne({ _id: updated._id }, { $set: { counterId: update.counterId ? new Types.ObjectId(String(update.counterId)) : null } });
+
+  if ('counterId' in update) {
+    await User.collection.updateOne(
+      { _id: updated._id },
+      { $set: { counterId: update.counterId ? new Types.ObjectId(String(update.counterId)) : null } }
+    );
   }
 
   return json({ ok: true, id: String(updated._id) });

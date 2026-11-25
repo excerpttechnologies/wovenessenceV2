@@ -1,6 +1,7 @@
 import { handler, json } from '@/lib/apiError';
 import dbConnect from '@/lib/db';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac';
+import { requireAuthorizedScope } from '@/lib/locationAccess';
 import { isValidObjectId } from 'mongoose';
 import { readImportSessionMeta } from '@/lib/importSessionStore';
 import { assertSessionOwner } from '@/lib/barcodeImportAccess';
@@ -26,8 +27,9 @@ export const GET = handler(async (req) => {
     return json({ error: 'Choose the business this import belongs to.', code: 'BUSINESS_REQUIRED' }, 422);
   }
 
-  await requirePermission(PERMISSIONS.BARCODE_GENERATE);
+  const session = await requirePermission(PERMISSIONS.BARCODE_GENERATE);
   await dbConnect();
+  await requireAuthorizedScope(session, { businessId });
 
   const result = await searchImportMasters({
     businessId,

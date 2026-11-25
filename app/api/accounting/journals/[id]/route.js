@@ -15,8 +15,10 @@ import { r2 } from '@/lib/accounting/calc';
 const findScoped = async (id, scope) => {
   if (!isValidObjectId(id)) return null;
   const filter = { _id: id };
-  if (scope.businessId) filter.businessId = scope.businessId;
-  if (scope.locationId) filter.locationId = scope.locationId;
+  if (scope.businessFilter) filter.businessId = scope.businessFilter;
+  else if (scope.businessId) filter.businessId = scope.businessId;
+  if (scope.locationFilter) filter.locationId = scope.locationFilter;
+  else if (scope.locationId) filter.locationId = scope.locationId;
   return JournalEntry.findOne(filter).lean();
 };
 

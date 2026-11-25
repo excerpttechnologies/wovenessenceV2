@@ -3,6 +3,9 @@ import dbConnect from '@/lib/db';
 import { Supplier } from '@/lib/contacts';
 import { requireSession } from '@/lib/session';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import {
+  assertDocumentLocationAccess, resolveAuthorizedScope, scopeErrorResponse,
+} from '@/lib/locationAccess';
 
 const SUPPLIER = { screen: SCREENS.SUPPLIER, label: 'suppliers' };
 
@@ -32,6 +35,9 @@ export async function GET(req, { params }) {
 
   /* Scoped to the supplier's own business, not to whichever business the
      screen happens to be switched to - the same rule the PUT below uses. */
+  const docDenied = await assertDocumentLocationAccess(session, doc);
+  if (docDenied) return docDenied;
+
   const denied = await screenDenial({
     session, ...SUPPLIER, action: PERM.READ, businessId: doc.businessId,
   });
@@ -52,6 +58,14 @@ export async function PUT(req, { params }) {
      business the screen happens to be switched to. */
   const current = isValidObjectId(id) ? await Supplier.findById(id, { businessId: 1 }).lean() : null;
   if (!current) return json({ error: 'Not found' }, 404);
+
+  const docDenied = await assertDocumentLocationAccess(session, current);
+  if (docDenied) return docDenied;
+
+  if (body.business) {
+    const scope = await resolveAuthorizedScope(session, { businessId: body.business });
+    if (!scope.ok) return scopeErrorResponse(scope);
+  }
   const businessId = current.businessId ? String(current.businessId) : body.business;
 
   /* Asked BEFORE the fields are validated. A request that is not allowed to
@@ -103,6 +117,9 @@ export async function DELETE(req, { params }) {
     ? await Supplier.findById(id, { businessId: 1 }).lean()
     : null;
   if (!existing) return json({ ok: true });
+
+  const docDenied = await assertDocumentLocationAccess(session, existing);
+  if (docDenied) return docDenied;
 
   const denied = await screenDenial({
     session, ...SUPPLIER, action: PERM.DELETE, businessId: existing.businessId,

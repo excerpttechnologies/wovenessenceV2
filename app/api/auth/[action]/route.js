@@ -61,7 +61,7 @@ export async function POST(req, { params }) {
       deny: user.deny || [],
     }), cookieOptions);
 
-    const access = await getSessionLocationAccess({ locationIds, businessId });
+    const access = await getSessionLocationAccess({ role: user.role, locationIds, businessId });
     return json({
       ok: true,
       user: {
@@ -72,7 +72,10 @@ export async function POST(req, { params }) {
         businessId,
         locationIds,
         defaultLocationId: access.defaultLocationId,
+        isRestricted: access.isRestricted,
+        needsAssignment: access.needsAssignment,
         isLocationLocked: access.isSingleLocation,
+        isCompanyLocked: access.isCompanyLocked,
         allowedBusinessIds: access.allowedBusinessIds,
         allowedLocations: access.allowedLocations,
       },
@@ -98,7 +101,9 @@ export async function GET(req, { params }) {
       locationIds: session.locationIds || [],
       counterId: session.counterId || '',
       isRestricted: access.isRestricted,
+      needsAssignment: access.needsAssignment,
       isLocationLocked: access.isSingleLocation,
+      isCompanyLocked: access.isCompanyLocked,
       defaultLocationId: access.defaultLocationId,
       allowedLocationIds: access.allowedLocationIds,
       allowedBusinessIds: access.allowedBusinessIds,

@@ -12,9 +12,11 @@ import { r2 } from '@/lib/accounting/calc';
 
 const scopeFilter = (scope) => {
   const filter = {};
-  if (scope.businessId) filter.businessId = scope.businessId;
-  if (scope.locationId) {
-    filter.$or = [{ locationId: scope.locationId }, { locationId: null }, { locationId: { $exists: false } }];
+  if (scope.businessFilter) filter.businessId = scope.businessFilter;
+  else if (scope.businessId) filter.businessId = scope.businessId;
+  const locCond = scope.locationFilter || scope.locationId;
+  if (locCond) {
+    filter.$or = [{ locationId: locCond }, { locationId: null }, { locationId: { $exists: false } }];
   }
   return filter;
 };
@@ -50,7 +52,7 @@ export async function GET(req, { params }) {
 export async function PUT(req, { params }) {
   const body = await req.json().catch(() => ({}));
 
-  const denied = await guard(req, SCREENS.ACCOUNTS_CHART, ACTIONS.UPDATE, body?.business);
+  const denied = await guard(req, SCREENS.ACCOUNTS_CHART, ACTIONS.UPDATE, body?.business, body?.location);
   if (denied) return denied;
 
   await dbConnect();

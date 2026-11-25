@@ -4,6 +4,7 @@ import { requireSession } from '@/lib/session';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { validate } from '@/lib/validate';
 import { FIELDS } from '@/app/admin/logistic/fields';
+import { assertDocumentLocationAccess } from '@/lib/locationAccess';
 
 /* /api/logistic/<id> - read one, update, delete. */
 
@@ -18,6 +19,8 @@ export async function GET(req, { params }) {
 
   const doc = await Logistic.findById(id).lean();
   if (!doc) return json({ doc: null }, 404);
+  const locDeny = await assertDocumentLocationAccess(session, doc);
+  if (locDeny) return locDeny;
   const denied = await screenDenial({ session, screen: SCREENS.LOGISTIC, action: PERM.READ, businessId: doc.businessId, label: 'logistics' });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
   return json({ doc: { ...doc, _id: String(doc._id) } });
@@ -31,8 +34,10 @@ export async function PUT(req, { params }) {
   const body = await req.json();
   await dbConnect();
 
-  const existing = await Logistic.findById(id).select('businessId').lean();
+  const existing = await Logistic.findById(id).select('businessId locationId').lean();
   if (!existing) return json({ error: 'Not found' }, 404);
+  const locDeny = await assertDocumentLocationAccess(session, existing);
+  if (locDeny) return locDeny;
   const denied = await screenDenial({ session, screen: SCREENS.LOGISTIC, action: PERM.UPDATE, businessId: existing.businessId, label: 'logistics' });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
@@ -52,8 +57,10 @@ export async function DELETE(req, { params }) {
   const { id } = await params;
   await dbConnect();
 
-  const existing = await Logistic.findById(id).select('businessId').lean();
+  const existing = await Logistic.findById(id).select('businessId locationId').lean();
   if (!existing) return json({ ok: true });
+  const locDeny = await assertDocumentLocationAccess(session, existing);
+  if (locDeny) return locDeny;
   const denied = await screenDenial({ session, screen: SCREENS.LOGISTIC, action: PERM.DELETE, businessId: existing.businessId, label: 'logistics' });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 

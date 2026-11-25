@@ -4,6 +4,9 @@ import Item from '@/models/Item';
 import { requireSession } from '@/lib/session';
 import { validate } from '@/lib/validate';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import {
+  assertDocumentLocationAccess, resolveAuthorizedScope, scopeErrorResponse,
+} from '@/lib/locationAccess';
 
 /* Permission gate for this screen.
 
@@ -41,6 +44,9 @@ export async function GET(req, { params }) {
 
   /* Scoped to the item's own business, not to whichever business the screen
      happens to be switched to. */
+  const docDenied = await assertDocumentLocationAccess(session, doc);
+  if (docDenied) return docDenied;
+
   const denied = await screenDenial({
     session, ...ITEM, action: PERM.READ, businessId: doc.businessId,
   });
@@ -64,8 +70,16 @@ export async function PUT(req, { params }) {
     : null;
   if (!current) return json({ error: 'Not found' }, 404);
 
+  const docDenied = await assertDocumentLocationAccess(session, current);
+  if (docDenied) return docDenied;
+
+  if (body.business) {
+    const scope = await resolveAuthorizedScope(session, { businessId: body.business });
+    if (!scope.ok) return scopeErrorResponse(scope);
+  }
+
   const denied = await screenDenial({
-    session, ...ITEM, action: PERM.UPDATE, businessId: body.business || current.businessId,
+    session, ...ITEM, action: PERM.UPDATE, businessId: current.businessId || body.business,
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
@@ -91,6 +105,9 @@ export async function DELETE(req, { params }) {
     ? await Item.findById(id, { businessId: 1 }).lean()
     : null;
   if (!existing) return json({ ok: true });
+
+  const docDenied = await assertDocumentLocationAccess(session, existing);
+  if (docDenied) return docDenied;
 
   const denied = await screenDenial({
     session, ...ITEM, action: PERM.DELETE, businessId: existing.businessId,

@@ -10,6 +10,7 @@ import Uom from '@/models/Uom';
 import Hsn from '@/models/Hsn';
 import ProductImage from '@/models/ProductImage';
 import { imageUrl } from '@/lib/inventory';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 /* /api/ecom-product - list only, read-only.
 
@@ -55,16 +56,23 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: sp.get('business'),
+    locationId: sp.get('location'),
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   const page = Math.max(1, Number(sp.get('page') || 1));
   const perPage = Math.min(500, Number(sp.get('perPage') || PER_PAGE));
   const search = (sp.get('search') || '').trim();
 
-  const business = sp.get('business');
+  const business = scope.businessId || '';
 
   /* Item is scoped by business only - it carries no location or finYear,
      like every other master in this project. */
   const filter = {};
-  if (business) filter.businessId = business;
+  if (scope.businessFilter) filter.businessId = scope.businessFilter;
+  else if (business) filter.businessId = business;
 
   if (search) {
     const rx = { $regex: escapeRegex(search), $options: 'i' };

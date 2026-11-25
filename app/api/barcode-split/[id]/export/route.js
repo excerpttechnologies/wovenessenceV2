@@ -4,6 +4,9 @@ import dbConnect from '@/lib/db';
 import BarcodeSplit from '@/models/BarcodeSplit';
 import { requireSession } from '@/lib/session';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import {
+  assertDocumentLocationAccess, resolveAuthorizedScope, scopeErrorResponse,
+} from '@/lib/locationAccess';
 import { splitExportRows } from '@/lib/barcodeSplit';
 
 /* GET /api/barcode-split/[id]/export - a real .xlsx of the split.
@@ -24,17 +27,24 @@ export async function GET(req, { params }) {
   await dbConnect();
 
   const sp = new URL(req.url).searchParams;
+  const scope = await resolveAuthorizedScope(session, { businessId: sp.get('business') });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   const denied = await screenDenial({
     session, screen: SCREENS.BARCODE_SPLIT, action: PERM.DOWNLOAD,
-    businessId: sp.get('business'), label: 'barcode splits',
+    businessId: scope.businessId || sp.get('business'), label: 'barcode splits',
   });
   if (denied) return Response.json({ error: denied.message, code: denied.code }, { status: 403 });
 
-  const split = await BarcodeSplit.findOne({
-    _id: id,
-    ...(sp.get('business') && isValidObjectId(sp.get('business')) ? { businessId: sp.get('business') } : {}),
-  }).lean();
+  const filter = { _id: id };
+  if (scope.businessFilter) filter.businessId = scope.businessFilter;
+  if (scope.locationFilter) filter.locationId = scope.locationFilter;
+
+  const split = await BarcodeSplit.findOne(filter).lean();
   if (!split) return Response.json({ error: 'Split not found.' }, { status: 404 });
+
+  const docDenied = await assertDocumentLocationAccess(session, split);
+  if (docDenied) return docDenied;
 
   const rows = splitExportRows(split);
   const headers = rows.length ? Object.keys(rows[0]) : ['Split Transaction Code', 'Original Barcode'];

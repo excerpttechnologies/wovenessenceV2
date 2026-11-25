@@ -37,12 +37,18 @@ export const FIELDS = [
     opts: ROLE_OPTIONS,
   },
   {
+    k: 'businessId',
+    label: 'Business / Company',
+    type: 'ref',
+    ref: 'business',
+    hint: 'Required for non-Super Admin accounts.',
+  },
+  {
     k: 'locationIds',
     label: 'Locations this account may work at',
     type: 'multiref',
     ref: 'companylocations',
-    hint: 'Leave empty to allow every location. Choose one or more to restrict the account to them - '
-      + 'it will then only see and act on transfers with one end at those locations.',
+    hint: 'Assign 1 location to lock the user to it, or multiple locations to allow switching between them.',
   },
   {
     k: 'isActive',
@@ -85,6 +91,7 @@ export const LIST = {
     { k: 'name', t: 'Name' },
     { k: 'email', t: 'Email' },
     { k: 'role', t: 'Role' },
+    { k: 'businessName', t: 'Business' },
     { k: 'access', t: 'Location Access' },
     { k: 'isActive', t: 'Status', f: 'pill', value: (r) => (r.isActive ? 'Active' : 'Disabled') },
     { k: 'createdAt', t: 'Created', f: 'date' },

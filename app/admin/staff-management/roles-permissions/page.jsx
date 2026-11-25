@@ -38,7 +38,18 @@ import {
 
 const TABS = [['users', 'Users'], ['roles', 'Roles'], ['permissions', 'Permissions']];
 
-const EMPTY_INVITE = { name: '', email: '', password: '', role: 'Cashier', counterId: '' };
+const EMPTY_USER_FORM = {
+  mode: 'add',
+  _id: '',
+  name: '',
+  email: '',
+  password: '',
+  role: 'Location User',
+  businessId: '',
+  locationIds: [],
+  counterId: '',
+  isActive: true,
+};
 
 /* { href: ['create','read'] }  ->  { href: { create: true, read: true } } */
 function fromApi(saved) {
@@ -83,27 +94,94 @@ export default function RolesPermissionsPage() {
   const [collapsed, setCollapsed] = useState({});
   const [flash, setFlash] = useState(null);
 
-  const [inviting, setInviting] = useState(false);
-  const [invite, setInvite] = useState(EMPTY_INVITE);
-  /* CASH COUNTER FOR A CASHIER (22-10-2026): the counters of the business /
-     location in the top bar, loaded when Add User opens */
-  const [inviteCounters, setInviteCounters] = useState([]);
+  const [showAllBusinesses, setShowAllBusinesses] = useState(true);
+  const [userForm, setUserForm] = useState(null);
+  const [loadingUserEdit, setLoadingUserEdit] = useState(false);
+  const [modalBusinesses, setModalBusinesses] = useState([]);
+  const [modalLocations, setModalLocations] = useState([]);
+  const [loadingModalLocations, setLoadingModalLocations] = useState(false);
+  const [modalCounters, setModalCounters] = useState([]);
+  const [userFormErrors, setUserFormErrors] = useState({});
+  const isViewerSuperAdmin = scope.user?.role === 'Super Admin';
+
   useEffect(() => {
-    if (!inviting || !scope.business) { setInviteCounters([]); return undefined; }
+    if (!userForm) return undefined;
     let off = false;
-    const qs = new URLSearchParams({ perPage: '200', business: scope.business, location: scope.location || '' });
+    fetch('/api/options?ref=business', { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((d) => {
+        if (off) return;
+        setModalBusinesses(Array.isArray(d.options) ? d.options : []);
+      })
+      .catch(() => { if (!off) setModalBusinesses([]); });
+    return () => { off = true; };
+  }, [Boolean(userForm)]);
+
+  const modalBizId = userForm?.businessId || '';
+  useEffect(() => {
+    if (!userForm || !modalBizId) {
+      setModalLocations([]);
+      setLoadingModalLocations(false);
+      return undefined;
+    }
+    let off = false;
+    setLoadingModalLocations(true);
+    fetch('/api/options?ref=companylocations&business=' + encodeURIComponent(modalBizId), { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((d) => {
+        if (off) return;
+        const opts = Array.isArray(d.options) ? d.options : [];
+        setModalLocations(opts);
+        const validSet = new Set(opts.map((o) => o.value));
+        setUserForm((cur) => {
+          if (!cur || cur.businessId !== modalBizId) return cur;
+          const kept = (cur.locationIds || []).filter((id) => validSet.has(id));
+          if (cur.role !== 'Super Admin' && !kept.length && opts.length === 1) {
+            return { ...cur, locationIds: [opts[0].value] };
+          }
+          if (kept.length !== (cur.locationIds || []).length) {
+            return { ...cur, locationIds: kept };
+          }
+          return cur;
+        });
+      })
+      .catch(() => { if (!off) setModalLocations([]); })
+      .finally(() => { if (!off) setLoadingModalLocations(false); });
+    return () => { off = true; };
+  }, [Boolean(userForm), modalBizId]);
+
+  const modalRole = userForm?.role || '';
+  const modalPrimaryLoc = userForm?.locationIds?.[0] || '';
+  useEffect(() => {
+    if (!userForm || modalRole !== 'Cashier' || !modalBizId) {
+      setModalCounters([]);
+      return undefined;
+    }
+    let off = false;
+    const qs = new URLSearchParams({
+      perPage: '200',
+      business: modalBizId,
+      location: modalPrimaryLoc,
+    });
     fetch('/api/pos-counter?' + qs, { cache: 'no-store' })
       .then((r) => r.json())
       .then((d) => {
         if (off) return;
-        setInviteCounters((d.rows || [])
+        const list = (d.rows || [])
           .filter((r) => String(r.status || 'Active').toLowerCase() !== 'inactive')
-          .map((r) => ({ value: String(r._id), label: r.counterName || 'Counter' })));
+          .map((r) => ({ value: String(r._id), label: r.counterName || 'Counter' }));
+        setModalCounters(list);
+        setUserForm((cur) => {
+          if (!cur || cur.businessId !== modalBizId) return cur;
+          if (cur.counterId && !list.some((c) => c.value === cur.counterId)) {
+            return { ...cur, counterId: '' };
+          }
+          return cur;
+        });
       })
-      .catch(() => { if (!off) setInviteCounters([]); });
+      .catch(() => { if (!off) setModalCounters([]); });
     return () => { off = true; };
-  }, [inviting, scope.business, scope.location]);
-  const [inviteErrors, setInviteErrors] = useState({});
+  }, [Boolean(userForm), modalRole, modalBizId, modalPrimaryLoc]);
 
   /* roles this business has defined for itself, from /api/role */
   const [customRoles, setCustomRoles] = useState([]);
@@ -135,7 +213,10 @@ export default function RolesPermissionsPage() {
 
   /* Everything this screen will show or offer. The owner role is filtered out
      here once, so no picker below has to remember to exclude it. */
-  const roles = useMemo(() => allRoles.filter((r) => !isOwnerRole(r.k)), [allRoles]);
+  const roles = useMemo(
+    () => (isViewerSuperAdmin ? allRoles : allRoles.filter((r) => !isOwnerRole(r.k))),
+    [allRoles, isViewerSuperAdmin]
+  );
 
   /* ------------------------------------------------------------- load ---- */
 
@@ -143,7 +224,12 @@ export default function RolesPermissionsPage() {
     if (!scope.businessReady) return;
     setLoadingUsers(true);
     try {
-      const qs = new URLSearchParams({ business: scope.business || '', perPage: '200' });
+      const qs = new URLSearchParams({
+        perPage: '200',
+        ...(isViewerSuperAdmin && showAllBusinesses
+          ? { allBusinesses: '1' }
+          : { business: scope.business || '', includeSuperAdmin: '1' }),
+      });
       const r = await fetch('/api/user?' + qs, { cache: 'no-store' });
       const d = await r.json();
       if (!r.ok) {
@@ -158,7 +244,7 @@ export default function RolesPermissionsPage() {
     } finally {
       setLoadingUsers(false);
     }
-  }, [scope.business, scope.businessReady]);
+  }, [scope.business, scope.businessReady, isViewerSuperAdmin, showAllBusinesses]);
 
   const loadPermissions = useCallback(async () => {
     if (!scope.businessReady || !scope.business) return;
@@ -217,8 +303,9 @@ export default function RolesPermissionsPage() {
   const shown = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return users;
-    return users.filter((u) => (u.name + ' ' + u.email + ' ' + u.role + ' ' + (u.access || ''))
-      .toLowerCase().includes(q));
+    return users.filter((u) => (
+      u.name + ' ' + u.email + ' ' + u.role + ' ' + (u.businessName || '') + ' ' + (u.access || '') + ' ' + (u.counterName || '')
+    ).toLowerCase().includes(q));
   }, [users, search]);
 
   /* Users table: numbered pager, Rows-per-page and sortable headers
@@ -227,7 +314,9 @@ export default function RolesPermissionsPage() {
   const usersView = useClientTable(shown, (u, key) => {
     if (key === 'user') return u.name || '';
     if (key === 'role') return u.role || '';
-    if (key === 'access') return u.access || 'All locations';
+    if (key === 'business') return u.businessName || '';
+    if (key === 'access') return u.access || 'Not assigned';
+    if (key === 'counter') return u.counterName || '';
     if (key === 'status') return u.isActive === false ? 'Disabled' : 'Active';
     if (key === 'added') return u.createdAt ? new Date(u.createdAt) : '';
     return '';
@@ -361,12 +450,14 @@ export default function RolesPermissionsPage() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          business: scope.business || '',
+          quick: true,
+          business: user.businessId || scope.business || '',
           data: {
             name: user.name,
             email: user.email,
             role: user.role,
             isActive: user.isActive,
+            businessId: user.businessId || '',
             locationIds: user.locationIds || [],
             allow: user.allow || [],
             deny: user.deny || [],
@@ -382,6 +473,7 @@ export default function RolesPermissionsPage() {
       }
       setFlash({ type: 'ok', msg: user.name + ' updated.' });
       loadUsers();
+      scope.refreshScope?.();
       scope.refreshPermissions?.();
     } catch {
       setFlash({ type: 'err', msg: 'Could not save that change.' });
@@ -446,48 +538,135 @@ export default function RolesPermissionsPage() {
     }
   }
 
-  async function submitInvite() {
+  function openAddUser() {
+    setUserFormErrors({});
+    setFlash(null);
+    setUserForm({
+      ...EMPTY_USER_FORM,
+      mode: 'add',
+      role: 'Location User',
+      businessId: scope.business || '',
+      locationIds: scope.isRestricted && scope.location ? [scope.location] : [],
+    });
+  }
+
+  async function openEditUser(u) {
+    setUserFormErrors({});
+    setFlash(null);
+    setLoadingUserEdit(true);
+    setUserForm({
+      ...EMPTY_USER_FORM,
+      mode: 'edit',
+      _id: u._id,
+      name: u.name || '',
+      email: u.email || '',
+      password: '',
+      role: u.role || 'Location User',
+      businessId: u.businessId || '',
+      locationIds: Array.isArray(u.locationIds) ? u.locationIds : [],
+      counterId: u.counterId || '',
+      isActive: u.isActive !== false,
+    });
+    try {
+      const r = await fetch('/api/user/' + u._id, { cache: 'no-store' });
+      const d = await r.json();
+      if (!r.ok || !d.doc) {
+        setFlash({ type: 'err', msg: d.error || 'Could not load user details.' });
+        setUserForm(null);
+        return;
+      }
+      const doc = d.doc;
+      setUserForm({
+        mode: 'edit',
+        _id: String(doc._id),
+        name: doc.name || '',
+        email: doc.email || '',
+        password: '',
+        role: doc.role || 'Location User',
+        businessId: doc.businessId ? String(doc.businessId) : '',
+        locationIds: Array.isArray(doc.locationIds) ? doc.locationIds.map(String) : [],
+        counterId: doc.counterId ? String(doc.counterId) : '',
+        isActive: doc.isActive !== false,
+      });
+    } catch {
+      setFlash({ type: 'err', msg: 'Could not load user details.' });
+      setUserForm(null);
+    } finally {
+      setLoadingUserEdit(false);
+    }
+  }
+
+  function toggleUserLocation(locId) {
+    setUserForm((cur) => {
+      if (!cur) return cur;
+      const exists = (cur.locationIds || []).includes(locId);
+      const next = exists
+        ? cur.locationIds.filter((id) => id !== locId)
+        : [...(cur.locationIds || []), locId];
+      return { ...cur, locationIds: next };
+    });
+  }
+
+  async function submitUserForm() {
+    if (!userForm) return;
+    const isEdit = userForm.mode === 'edit';
+    const isSuper = userForm.role === 'Super Admin';
     const errs = {};
-    if (!invite.name.trim()) errs.name = 'Name is required';
-    if (!invite.email.trim()) errs.email = 'Email is required';
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(invite.email.trim())) errs.email = 'That is not an email address';
-    if (!invite.password) errs.password = 'Password is required';
-    else if (invite.password.length < 8) errs.password = 'Use at least 8 characters';
-    if (invite.role === 'Cashier' && !invite.counterId) errs.counterId = 'Select the cash counter';
-    setInviteErrors(errs);
+    if (!userForm.name.trim()) errs.name = 'Full name is required';
+    if (!userForm.email.trim()) errs.email = 'Email is required';
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(userForm.email.trim())) errs.email = 'That is not a valid email address';
+    if (!isEdit && !userForm.password) errs.password = 'Password is required';
+    else if (userForm.password && userForm.password.length < 8) errs.password = 'Use at least 8 characters';
+    if (!userForm.role) errs.role = 'Role is required';
+    if (!isSuper && !userForm.businessId) errs.businessId = 'Select a business';
+    if (!isSuper && (!userForm.locationIds || !userForm.locationIds.length)) {
+      errs.locationIds = 'Select at least one location belonging to this business';
+    }
+    if (userForm.role === 'Cashier' && !userForm.counterId) errs.counterId = 'Select the cash counter';
+    setUserFormErrors(errs);
     if (Object.keys(errs).length) return;
 
     setBusy(true);
     try {
-      const r = await fetch('/api/user', {
-        method: 'POST',
+      const payload = {
+        business: userForm.businessId || '',
+        data: {
+          name: userForm.name.trim(),
+          email: userForm.email.trim(),
+          ...(userForm.password ? { password: userForm.password } : {}),
+          role: userForm.role,
+          isActive: userForm.isActive !== false,
+          businessId: userForm.businessId || '',
+          locationIds: isSuper ? [] : (userForm.locationIds || []),
+          counterId: userForm.role === 'Cashier' ? (userForm.counterId || '') : '',
+        },
+      };
+      const url = isEdit ? '/api/user/' + userForm._id : '/api/user';
+      const r = await fetch(url, {
+        method: isEdit ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          business: scope.business || '',
-          data: {
-            name: invite.name.trim(),
-            email: invite.email.trim(),
-            password: invite.password,
-            role: invite.role,
-            isActive: true,
-            locationIds: [],
-            counterId: invite.role === 'Cashier' ? invite.counterId : '',
-          },
-        }),
+        body: JSON.stringify(payload),
       });
       const d = await r.json();
       if (!r.ok) {
-        setInviteErrors(d.errors || {});
-        if (!d.errors) setFlash({ type: 'err', msg: d.error || 'Could not create the account.' });
+        setUserFormErrors(d.errors || {});
+        if (!d.errors) setFlash({ type: 'err', msg: d.error || 'Could not save the account.' });
         return;
       }
-      setInviting(false);
-      setInvite(EMPTY_INVITE);
-      setInviteErrors({});
-      setFlash({ type: 'ok', msg: invite.name.trim() + ' can now sign in. No email was sent - pass the password on yourself.' });
+      const savedName = userForm.name.trim();
+      setUserForm(null);
+      setUserFormErrors({});
+      setFlash({
+        type: 'ok',
+        msg: isEdit
+          ? `${savedName} updated successfully.`
+          : `${savedName} can now sign in with their assigned business and location access.`,
+      });
       loadUsers();
+      scope.refreshScope?.();
+      scope.refreshPermissions?.();
     } catch {
-      setFlash({ type: 'err', msg: 'Could not create the account.' });
+      setFlash({ type: 'err', msg: 'Could not save the account.' });
     } finally {
       setBusy(false);
     }
@@ -500,10 +679,10 @@ export default function RolesPermissionsPage() {
       <div className="mb-1 flex flex-wrap items-center gap-3 border-b border-line pb-3">
         <div>
           <div className="card-title">Users &amp; roles</div>
-          <div className="text-[12px] text-inkmuted">Who can sign in, and what each role may do</div>
+          <div className="text-[12px] text-inkmuted">Who can sign in, their business/location access, and what each role may do</div>
         </div>
         <span className="flex-1" />
-        <button type="button" className="btn btn-primary" onClick={() => setInviting(true)}>
+        <button type="button" className="btn btn-primary" onClick={openAddUser}>
           <Icon name="plus" size={14} /> Add user
         </button>
       </div>
@@ -557,11 +736,21 @@ export default function RolesPermissionsPage() {
         <>
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <input
-              className="f-input h-8 w-full max-w-[320px]"
-              placeholder="Search name, email or role"
+              className="f-input h-8 w-full max-w-[300px]"
+              placeholder="Search name, email, role, business or location"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
+            {isViewerSuperAdmin && (
+              <select
+                className="f-input h-8 w-[190px] text-[12px]"
+                value={showAllBusinesses ? 'all' : 'current'}
+                onChange={(e) => setShowAllBusinesses(e.target.value === 'all')}
+              >
+                <option value="all">All Businesses</option>
+                <option value="current">Current Business Only</option>
+              </select>
+            )}
             <button type="button" className="btn h-8 px-3 text-[12px]" onClick={loadUsers}>
               <Icon name="refresh" size={12} /> Refresh
             </button>
@@ -576,22 +765,26 @@ export default function RolesPermissionsPage() {
                   <th>#</th>
                   {usersView.th('User', 'user')}
                   {usersView.th('Role', 'role')}
-                  {usersView.th('Location access', 'access')}
+                  {usersView.th('Business', 'business')}
+                  {usersView.th('Location', 'access')}
+                  {usersView.th('Cash Counter', 'counter')}
                   {usersView.th('Status', 'status')}
                   {usersView.th('Added', 'added', 'whitespace-nowrap')}
+                  <th className="text-center">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {loadingUsers && <tr><td colSpan={6} className="dt-empty">Loading...</td></tr>}
+                {loadingUsers && <tr><td colSpan={9} className="dt-empty">Loading...</td></tr>}
 
                 {!loadingUsers && !shown.length && (
-                  <tr><td colSpan={6} className="dt-empty">
+                  <tr><td colSpan={9} className="dt-empty">
                     {users.length ? 'No user matches that search.' : 'No accounts under this business yet.'}
                   </td></tr>
                 )}
 
                 {!loadingUsers && usersView.rows.map((u, i) => {
                   const tone = allRoles.find((r) => r.k === u.role)?.tone || 'pill-grey';
+                  const isSuperRow = isOwnerRole(u.role);
                   return (
                     <tr key={u._id}>
                       <td className="text-center">{usersView.offset + i + 1}</td>
@@ -607,36 +800,56 @@ export default function RolesPermissionsPage() {
                         </div>
                       </td>
                       <td>
-                        {/* An account that already holds the owner role keeps it: the
-                            role is not in the list any more, so rendering a picker
-                            would either blank it or hand it away on the next
-                            change. Shown as a label instead. */}
-                        {isOwnerRole(u.role) ? (
+                        {isSuperRow ? (
                           <span className={'pill ' + tone}>{u.role}</span>
                         ) : (
                           <select
-                            className="f-input h-7 w-[170px] text-[12px]"
+                            className="f-input h-7 w-[160px] text-[12px]"
                             value={u.role || ''}
                             disabled={busy}
                             onChange={(e) => updateUser(u, { role: e.target.value })}
                           >
-                            {/* A role that no longer exists - a deleted custom one -
-                                is still listed while this account holds it, so the
-                                picker cannot silently reassign somebody. */}
                             {!roles.some((r) => r.k === u.role) && u.role && (
                               <option value={u.role}>{u.role} (no longer defined)</option>
                             )}
-                            {roles.map((r) => <option key={r.k} value={r.k}>{r.label}</option>)}
+                            {roles.filter((r) => !isOwnerRole(r.k)).map((r) => (
+                              <option key={r.k} value={r.k}>{r.label}</option>
+                            ))}
                           </select>
                         )}
                         <span className={'pill ' + tone + ' ml-2 align-middle'}>
                           {grantedCount(matrix, u.role)}
                         </span>
                       </td>
-                      <td>{u.access || 'All locations'}</td>
+                      <td>
+                        {isSuperRow ? (
+                          <span className="pill pill-grey">All Businesses</span>
+                        ) : u.businessName ? (
+                          <span className="text-[12.5px] font-medium">{u.businessName}</span>
+                        ) : (
+                          <span className="pill pill-red">Needs Business</span>
+                        )}
+                      </td>
+                      <td>
+                        {isSuperRow ? (
+                          <span className="pill pill-grey">Unrestricted</span>
+                        ) : u.needsAssignment ? (
+                          <span className="pill pill-red">Needs Assignment</span>
+                        ) : (
+                          <div className="max-w-[240px]">
+                            <span className="text-[12.5px] font-medium">{u.access}</span>
+                            {u.locationIds?.length === 1 && (
+                              <span className="pill pill-blue ml-1.5">Locked</span>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      <td className="text-[12.5px]">
+                        {u.role === 'Cashier' ? (u.counterName || <span className="text-inkmuted">-</span>) : <span className="text-inkmuted">-</span>}
+                      </td>
                       <td>
                         <select
-                          className="f-input h-7 w-[110px] text-[12px]"
+                          className="f-input h-7 w-[105px] text-[12px]"
                           value={u.isActive === false ? 'no' : 'yes'}
                           disabled={busy}
                           onChange={(e) => updateUser(u, { isActive: e.target.value === 'yes' })}
@@ -650,6 +863,19 @@ export default function RolesPermissionsPage() {
                           {u.createdAt ? new Date(u.createdAt).toLocaleDateString('en-GB') : '-'}
                         </span>
                       </td>
+                      <td className="text-center whitespace-nowrap">
+                        {(!isSuperRow || isViewerSuperAdmin) && (
+                          <button
+                            type="button"
+                            className="act-btn bg-[#2b7fd4]"
+                            title="Edit user"
+                            disabled={busy}
+                            onClick={() => openEditUser(u)}
+                          >
+                            <Icon name="pencil" size={12} />
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
@@ -659,9 +885,7 @@ export default function RolesPermissionsPage() {
           </div>
 
           <div className="mt-2 text-[12px] text-inkmuted">
-            Restricting an account to particular branches is done on
-            Masters &gt; Users &amp; Permissions, which has the location picker.
-            Empty means every location.
+            Super Admin holds unrestricted access across all businesses and locations. Every other account is locked to its assigned Business and Location(s).
           </div>
           {!!customRoles.length && (
             <div className="note-box mt-2 text-[12px]">
@@ -1000,97 +1224,220 @@ export default function RolesPermissionsPage() {
         </div>
       )}
 
-      {/* ========================================================= ADD ===== */}
-      {inviting && (
+      {/* ================================================= ADD / EDIT USER === */}
+      {userForm && (
         <div
           className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4"
-          onMouseDown={() => setInviting(false)}
+          onMouseDown={() => !busy && setUserForm(null)}
         >
           <div
-            className="my-10 w-full max-w-[460px] rounded-lg bg-white shadow-xl"
+            className="my-6 flex max-h-[90vh] w-full max-w-[500px] flex-col rounded-lg bg-white shadow-xl"
             onMouseDown={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center gap-3 border-b border-line px-5 py-3">
-              <span className="card-title">Add user</span>
+            <div className="flex shrink-0 items-center gap-3 border-b border-line px-5 py-3">
+              <span className="card-title">{userForm.mode === 'edit' ? 'Edit user' : 'Add user'}</span>
               <span className="flex-1" />
-              <button type="button" className="btn" onClick={() => setInviting(false)}>
+              <button type="button" className="btn" disabled={busy} onClick={() => setUserForm(null)}>
                 <Icon name="x" size={12} /> Close
               </button>
             </div>
 
-            <div className="form-grid p-5">
+            <div className="form-grid min-h-0 flex-1 overflow-y-auto p-5">
+              {loadingUserEdit && (
+                <div className="text-[12px] text-inkmuted">Refreshing latest user record...</div>
+              )}
+
               <div>
                 <label className="f-label">Full name <span className="f-req">*</span></label>
                 <input
                   className="f-input"
-                  value={invite.name}
-                  onChange={(e) => setInvite((c) => ({ ...c, name: e.target.value }))}
+                  value={userForm.name}
+                  onChange={(e) => setUserForm((c) => ({ ...c, name: e.target.value }))}
                 />
-                {inviteErrors.name && <div className="f-err">{inviteErrors.name}</div>}
+                {userFormErrors.name && <div className="f-err">{userFormErrors.name}</div>}
               </div>
 
               <div>
                 <label className="f-label">Email <span className="f-req">*</span></label>
                 <input
                   className="f-input normal-case"
-                  value={invite.email}
-                  onChange={(e) => setInvite((c) => ({ ...c, email: e.target.value }))}
+                  value={userForm.email}
+                  onChange={(e) => setUserForm((c) => ({ ...c, email: e.target.value }))}
                 />
-                {inviteErrors.email && <div className="f-err">{inviteErrors.email}</div>}
+                {userFormErrors.email && <div className="f-err">{userFormErrors.email}</div>}
               </div>
 
               <div>
-                <label className="f-label">Password <span className="f-req">*</span></label>
+                <label className="f-label">
+                  {userForm.mode === 'edit' ? 'New Password (optional)' : <>Password <span className="f-req">*</span></>}
+                </label>
                 <input
                   type="password"
                   className="f-input normal-case"
-                  value={invite.password}
-                  onChange={(e) => setInvite((c) => ({ ...c, password: e.target.value }))}
+                  placeholder={userForm.mode === 'edit' ? 'Leave blank to keep existing password' : ''}
+                  value={userForm.password}
+                  onChange={(e) => setUserForm((c) => ({ ...c, password: e.target.value }))}
                 />
-                {inviteErrors.password
-                  ? <div className="f-err">{inviteErrors.password}</div>
-                  : <div className="f-hint">At least 8 characters. There is no mail server, so tell them yourself.</div>}
+                {userFormErrors.password ? (
+                  <div className="f-err">{userFormErrors.password}</div>
+                ) : (
+                  <div className="f-hint">
+                    {userForm.mode === 'edit'
+                      ? 'Leave blank to preserve the existing password. Minimum 8 characters if changing.'
+                      : 'At least 8 characters. There is no mail server, so tell them yourself.'}
+                  </div>
+                )}
               </div>
 
               <div>
-                <label className="f-label">Role</label>
+                <label className="f-label">Role <span className="f-req">*</span></label>
                 <select
                   className="f-input"
-                  value={invite.role}
-                  onChange={(e) => setInvite((c) => ({ ...c, role: e.target.value }))}
+                  value={userForm.role}
+                  onChange={(e) => {
+                    const nextRole = e.target.value;
+                    setUserForm((c) => ({
+                      ...c,
+                      role: nextRole,
+                      ...(nextRole === 'Super Admin' ? { locationIds: [], counterId: '' } : {}),
+                      ...(nextRole !== 'Cashier' ? { counterId: '' } : {}),
+                    }));
+                  }}
                 >
+                  {!roles.some((r) => r.k === userForm.role) && userForm.role && (
+                    <option value={userForm.role}>{userForm.role}</option>
+                  )}
                   {roles.map((r) => <option key={r.k} value={r.k}>{r.label}</option>)}
                 </select>
-                <div className="f-hint">{roles.find((r) => r.k === invite.role)?.description}</div>
+                {userFormErrors.role && <div className="f-err">{userFormErrors.role}</div>}
+                <div className="f-hint">{roles.find((r) => r.k === userForm.role)?.description}</div>
               </div>
 
-              {/* a Cashier's own cash counter (22-10-2026) - the POS till
-                  offers only this one when they sign in */}
-              {invite.role === 'Cashier' && (
+              <div>
+                <label className="f-label">
+                  Business / Company {userForm.role !== 'Super Admin' && <span className="f-req">*</span>}
+                </label>
+                <select
+                  className="f-input"
+                  value={userForm.businessId}
+                  onChange={(e) => {
+                    const nextBiz = e.target.value;
+                    setUserForm((c) => ({
+                      ...c,
+                      businessId: nextBiz,
+                      locationIds: [],
+                      counterId: '',
+                    }));
+                  }}
+                >
+                  <option value="">
+                    {userForm.role === 'Super Admin' ? 'All Businesses (Global Access)' : 'Select Business'}
+                  </option>
+                  {modalBusinesses.map((b) => (
+                    <option key={b.value} value={b.value}>{b.label}</option>
+                  ))}
+                </select>
+                {userFormErrors.businessId && <div className="f-err">{userFormErrors.businessId}</div>}
+              </div>
+
+              {userForm.role === 'Super Admin' ? (
+                <div className="rounded border border-line bg-[#f8fafc] px-3 py-2 text-[12px] text-inkmuted">
+                  <b>Super Admin:</b> Global access across all businesses and all locations is always preserved.
+                </div>
+              ) : (
                 <div>
-                  <label className="f-label">Cash Counter <span className="text-danger">*</span></label>
+                  <label className="f-label">
+                    Location <span className="f-req">*</span>
+                  </label>
+                  {!userForm.businessId ? (
+                    <div className="rounded border border-line bg-[#f8fafc] px-3 py-2 text-[12px] text-inkmuted">
+                      Select a Business first to load its locations.
+                    </div>
+                  ) : loadingModalLocations ? (
+                    <div className="rounded border border-line bg-[#f8fafc] px-3 py-2 text-[12px] text-inkmuted">
+                      Loading locations...
+                    </div>
+                  ) : !modalLocations.length ? (
+                    <div className="rounded border border-danger/30 bg-[#fdf1f1] px-3 py-2 text-[12px] text-danger">
+                      No locations found under this business.
+                    </div>
+                  ) : (
+                    <div className="max-h-36 space-y-1.5 overflow-y-auto rounded border border-line bg-white p-2.5">
+                      {modalLocations.map((loc) => {
+                        const checked = (userForm.locationIds || []).includes(loc.value);
+                        return (
+                          <label
+                            key={loc.value}
+                            className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-[13px] hover:bg-[#f5f8fd]"
+                          >
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 cursor-pointer accent-brand"
+                              checked={checked}
+                              onChange={() => toggleUserLocation(loc.value)}
+                            />
+                            <span className="font-medium text-ink">{loc.label}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {userFormErrors.locationIds ? (
+                    <div className="f-err">{userFormErrors.locationIds}</div>
+                  ) : (
+                    <div className="f-hint">
+                      {(userForm.locationIds || []).length === 1
+                        ? '1 location selected — Location selector will be locked to this location after login.'
+                        : (userForm.locationIds || []).length > 1
+                          ? `${userForm.locationIds.length} locations selected — user can switch only between these assigned locations.`
+                          : 'Assign 1 location to lock the user, or multiple locations if they work across branches.'}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {userForm.role === 'Cashier' && (
+                <div>
+                  <label className="f-label">Cash Counter <span className="f-req">*</span></label>
                   <select
                     className="f-input"
-                    value={invite.counterId}
-                    onChange={(e) => setInvite((c) => ({ ...c, counterId: e.target.value }))}
+                    value={userForm.counterId}
+                    onChange={(e) => setUserForm((c) => ({ ...c, counterId: e.target.value }))}
                   >
                     <option value="">Select cash counter</option>
-                    {inviteCounters.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    {modalCounters.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
-                  {inviteErrors.counterId
-                    ? <div className="f-err">{inviteErrors.counterId}</div>
-                    : <div className="f-hint">{inviteCounters.length ? 'Counters at the location in the top bar.' : 'No cash counter at the location in the top bar - add one in masters first.'}</div>}
+                  {userFormErrors.counterId
+                    ? <div className="f-err">{userFormErrors.counterId}</div>
+                    : <div className="f-hint">{modalCounters.length ? 'Counters available under the selected business and location.' : 'No cash counter found for the selected business/location.'}</div>}
+                </div>
+              )}
+
+              {userForm.mode === 'edit' && (
+                <div>
+                  <label className="inline-flex cursor-pointer items-center gap-2 text-[13px] font-medium text-ink">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 cursor-pointer accent-brand"
+                      checked={userForm.isActive !== false}
+                      onChange={(e) => setUserForm((c) => ({ ...c, isActive: e.target.checked }))}
+                    />
+                    Active account (can sign in)
+                  </label>
                 </div>
               )}
             </div>
 
-            <div className="flex items-center gap-2 border-t border-line px-5 py-3">
-              <button type="button" className="btn btn-primary" disabled={busy} onClick={submitInvite}>
-                {busy ? <span className="spin" /> : <Icon name="check" size={12} />} Create account
+            <div className="flex shrink-0 items-center gap-2 border-t border-line px-5 py-3">
+              <button type="button" className="btn btn-primary" disabled={busy || loadingUserEdit} onClick={submitUserForm}>
+                {busy ? <span className="spin" /> : <Icon name="check" size={12} />}
+                {userForm.mode === 'edit' ? ' Save changes' : ' Create account'}
               </button>
-              <button type="button" className="btn" onClick={() => setInviting(false)}>Cancel</button>
+              <button type="button" className="btn" disabled={busy} onClick={() => setUserForm(null)}>Cancel</button>
               <span className="flex-1" />
-              <span className="text-[11px] text-inkmuted">Every location, until restricted.</span>
+              <span className="text-[11px] text-inkmuted">
+                {userForm.role === 'Super Admin' ? 'Unrestricted global access' : 'Locked to assigned access'}
+              </span>
             </div>
           </div>
         </div>

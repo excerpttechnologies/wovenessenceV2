@@ -10,6 +10,7 @@ import { barcodeSearchPattern } from '@/lib/barcodeValue';
 import {
   screenDenial, screenDenialAny, SCREENS, ACTIONS as PERM, ITEM_LOOKUP_SCREENS,
 } from '@/lib/screenPermission';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 /* Permission gate for this screen.
 
@@ -51,16 +52,19 @@ export async function GET(req) {
   const perPage = Math.min(500, Number(sp.get('perPage') || PER_PAGE));
   const search = (sp.get('search') || '').trim();
 
+  const scope = await resolveAuthorizedScope(session, { businessId: sp.get('business') });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   /* Item read, or any screen that legitimately resolves item codes. */
   const denied = await screenDenialAny({
     session, screens: ITEM_LOOKUP_SCREENS, action: PERM.READ,
-    businessId: sp.get('business'), label: 'items',
+    businessId: scope.businessId || sp.get('business'), label: 'items',
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const filter = {};
   const barcodeImageByCode = {};
-  const b = sp.get('business'); if (b && isValidObjectId(b)) filter.businessId = b;
+  if (scope.businessFilter) filter.businessId = scope.businessFilter;
 
   if (search) {
     const rx = { $regex: escapeRegex(search), $options: 'i' };
@@ -111,14 +115,18 @@ export async function POST(req) {
   const body = await req.json();
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, { businessId: body.business });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   const denied = await screenDenial({
-    session, ...ITEM, action: PERM.CREATE, businessId: body.business,
+    session, ...ITEM, action: PERM.CREATE, businessId: scope.businessId || body.business,
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const { errors, doc, ok } = validate(FIELDS, body.data || {});
   if (!ok) return json({ errors }, 422);
-  if (body.business && isValidObjectId(body.business)) doc.businessId = body.business;
+  if (scope.businessId) doc.businessId = scope.businessId;
+  else if (body.business && isValidObjectId(body.business)) doc.businessId = body.business;
 
   const created = await Item.create(doc);
   return json({ ok: true, id: String(created._id) });

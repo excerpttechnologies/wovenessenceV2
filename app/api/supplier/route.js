@@ -13,6 +13,7 @@ import {
 import ContactType from '@/models/ContactType';
 import { nextContactId } from '@/lib/contactId';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 import { sortedPage } from '@/lib/listSort';
 
 const SUPPLIER = { screen: SCREENS.SUPPLIER, label: 'suppliers' };
@@ -57,6 +58,10 @@ export async function GET(req) {
       const self = await Supplier.findById(excludeId, { businessId: 1 }).lean();
       if (self?.businessId) businessId = String(self.businessId);
     }
+    const scope = await resolveAuthorizedScope(session, { businessId });
+    if (!scope.ok) return scopeErrorResponse(scope);
+    businessId = scope.businessId || businessId;
+
     /* Read OR create, not read alone: this probe serves the ADD form as well
        as the edit one, so a role allowed to create a supplier but not to
        browse the list would otherwise be unable to fill the form it is
@@ -75,15 +80,18 @@ export async function GET(req) {
     return json({ valid: true, gstNo, exists: Boolean(conflict), supplier: supplierSummary(conflict) });
   }
 
+  const scope = await resolveAuthorizedScope(session, { businessId: sp.get('business') });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   /* Only refuses when this role has a saved permission matrix that withholds
      it - see lib/screenPermission.js. */
   const denied = await screenDenial({
-    session, ...SUPPLIER, action: PERM.READ, businessId: sp.get('business'),
+    session, ...SUPPLIER, action: PERM.READ, businessId: scope.businessId || sp.get('business'),
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const filter = {};
-  const b = sp.get('business'); if (b && isValidObjectId(b)) filter.businessId = b;
+  if (scope.businessFilter) filter.businessId = scope.businessFilter;
   /* pinned server-side so the discriminator can't be spoofed */
   filter.contactKind = 'Supplier';
 
@@ -122,8 +130,11 @@ export async function POST(req) {
   const body = await req.json();
   await dbConnect();
 
+  const scope = await resolveAuthorizedScope(session, { businessId: body.business });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   const denied = await screenDenial({
-    session, ...SUPPLIER, action: PERM.CREATE, businessId: body.business,
+    session, ...SUPPLIER, action: PERM.CREATE, businessId: scope.businessId || body.business,
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
@@ -136,7 +147,8 @@ export async function POST(req) {
   doc.gstNo = normalizeGstin(doc.gstNo);
   if (doc.gstNo && !isValidGstin(doc.gstNo)) errors.gstNo = GSTIN_FORMAT_MESSAGE;
   if (Object.keys(errors).length) return json({ errors }, 422);
-  if (body.business && isValidObjectId(body.business)) doc.businessId = body.business;
+  if (scope.businessId) doc.businessId = scope.businessId;
+  else if (body.business && isValidObjectId(body.business)) doc.businessId = body.business;
 
   /* stamped here, never taken from the client */
   doc.contactKind = 'Supplier';

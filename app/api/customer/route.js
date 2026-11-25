@@ -133,6 +133,7 @@ import { TABS } from '@/app/admin/contact/customer/tabs';
 import ContactType from '@/models/ContactType';
 import { nextContactId } from '@/lib/contactId';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 import { sortedPage } from '@/lib/listSort';
 
 const CUSTOMER = { screen: SCREENS.CUSTOMER, label: 'customers' };
@@ -178,15 +179,18 @@ export async function GET(req) {
   const perPage = Math.min(500, Number(sp.get('perPage') || PER_PAGE));
   const search = (sp.get('search') || '').trim();
 
+  const scope = await resolveAuthorizedScope(session, { businessId: sp.get('business') });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   /* Only refuses when this role has a saved permission matrix that withholds
      it - see lib/screenPermission.js. */
   const denied = await screenDenial({
-    session, ...CUSTOMER, action: PERM.READ, businessId: sp.get('business'),
+    session, ...CUSTOMER, action: PERM.READ, businessId: scope.businessId || sp.get('business'),
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const filter = {};
-  const b = sp.get('business'); if (b && isValidObjectId(b)) filter.businessId = b;
+  if (scope.businessFilter) filter.businessId = scope.businessFilter;
   /* pinned server-side so the discriminator can't be spoofed */
   filter.contactKind = 'Customer';
 
@@ -236,8 +240,11 @@ export async function POST(req) {
 
      Asked before the fields are validated: a request that is not allowed to
      happen should be refused as not allowed. */
+  const scope = await resolveAuthorizedScope(session, { businessId: body.business });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   const denied = await screenDenial({
-    session, ...CUSTOMER, action: PERM.CREATE, businessId: body.business,
+    session, ...CUSTOMER, action: PERM.CREATE, businessId: scope.businessId || body.business,
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
@@ -247,7 +254,8 @@ export async function POST(req) {
     : body.data || {};
   const { errors, doc, ok } = validate(fields, quickData);
   if (!ok) return json({ errors }, 422);
-  if (body.business && isValidObjectId(body.business)) doc.businessId = body.business;
+  if (scope.businessId) doc.businessId = scope.businessId;
+  else if (body.business && isValidObjectId(body.business)) doc.businessId = body.business;
 
   /* stamped here, never taken from the client */
   doc.contactKind = 'Customer';

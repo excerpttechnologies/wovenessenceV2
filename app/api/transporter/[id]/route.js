@@ -4,6 +4,9 @@ import { requireSession } from '@/lib/session';
 import { validate } from '@/lib/validate';
 import { FIELDS } from '@/app/admin/transport/transporter/fields';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import {
+  assertDocumentLocationAccess, resolveAuthorizedScope, scopeErrorResponse,
+} from '@/lib/locationAccess';
 
 const TRANSPORTER = { screen: SCREENS.TRANSPORTER, label: 'transporters' };
 
@@ -23,6 +26,9 @@ export async function GET(req, { params }) {
 
   /* Scoped to the transporter's own business, not to whichever business the
      screen happens to be switched to. */
+  const docDenied = await assertDocumentLocationAccess(session, doc);
+  if (docDenied) return docDenied;
+
   const denied = await screenDenial({
     session, ...TRANSPORTER, action: PERM.READ, businessId: doc.businessId,
   });
@@ -41,8 +47,16 @@ export async function PUT(req, { params }) {
 
   /* Before validate(), and scoped on the stored record rather than on the
      body. */
-  const target = await Transporter.findById(id).select('businessId').lean();
+  const target = await Transporter.findById(id).select('businessId locationId').lean();
   if (!target) return json({ error: 'Not found' }, 404);
+
+  const docDenied = await assertDocumentLocationAccess(session, target);
+  if (docDenied) return docDenied;
+
+  if (body.business || body.location) {
+    const scope = await resolveAuthorizedScope(session, { businessId: body.business, locationId: body.location });
+    if (!scope.ok) return scopeErrorResponse(scope);
+  }
 
   const denied = await screenDenial({
     session, ...TRANSPORTER, action: PERM.UPDATE, businessId: target.businessId,
@@ -65,8 +79,11 @@ export async function DELETE(req, { params }) {
   const { id } = await params;
   await dbConnect();
 
-  const target = await Transporter.findById(id).select('businessId').lean();
+  const target = await Transporter.findById(id).select('businessId locationId').lean();
   if (!target) return json({ ok: true });
+
+  const docDenied = await assertDocumentLocationAccess(session, target);
+  if (docDenied) return docDenied;
 
   const denied = await screenDenial({
     session, ...TRANSPORTER, action: PERM.DELETE, businessId: target.businessId,

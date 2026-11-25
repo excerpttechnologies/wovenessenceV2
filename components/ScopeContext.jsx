@@ -139,14 +139,16 @@ export function ScopeProvider({ children }) {
   const locationReady = locationsFor === business;
 
   const isRestricted = Boolean(
-    user?.isRestricted || (Array.isArray(user?.locationIds) && user.locationIds.length > 0)
+    user?.isRestricted || (user && user.role && user.role !== 'Super Admin')
   );
+  const needsAssignment = Boolean(user?.needsAssignment);
   const isLocationLocked = Boolean(
-    user?.isLocationLocked ||
+    user?.isLocationLocked || needsAssignment ||
     (isRestricted && ((locationsFor === business && locations.length <= 1) || (user?.allowedLocationIds?.length === 1)))
   );
   const isCompanyLocked = Boolean(
-    isRestricted && ((businessReady && businesses.length <= 1) || (user?.allowedBusinessIds?.length === 1))
+    user?.isCompanyLocked || needsAssignment ||
+    (isRestricted && ((businessReady && businesses.length <= 1) || (user?.allowedBusinessIds?.length === 1)))
   );
 
   const fetchMe = useCallback(() => (
@@ -160,10 +162,17 @@ export function ScopeProvider({ children }) {
     fetchMe().finally(() => setUserReady(true));
   }, [fetchMe]);
 
+  const accessScopeKey = user
+    ? `${user.id || ''}|${user.role || ''}|${(user.allowedBusinessIds || []).join(',')}|${(user.allowedLocationIds || []).join(',')}|${user.needsAssignment ? '1' : '0'}`
+    : 'anon';
+
   useEffect(() => {
+    if (!userReady) return undefined;
+    let cancelled = false;
     fetch('/api/options?ref=business', { cache: 'no-store' })
       .then((r) => r.json())
       .then((d) => {
+        if (cancelled) return;
         const list = d.options || [];
         setBusinesses(list);
         const saved = localStorage.getItem(BUSINESS_KEY);
@@ -175,8 +184,9 @@ export function ScopeProvider({ children }) {
         setBusinessState(remembered || main?.value || list[0]?.value || '');
       })
       .catch(() => {})
-      .finally(() => setBusinessReady(true));
-  }, []);
+      .finally(() => { if (!cancelled) setBusinessReady(true); });
+    return () => { cancelled = true; };
+  }, [userReady, accessScopeKey]);
 
   useEffect(() => {
     if (!business) { setLocations([]); setLocationState(''); setLocationsFor(business); return; }
@@ -218,7 +228,7 @@ export function ScopeProvider({ children }) {
         if (!cancelled) setLocationsFor(business);
       });
     return () => { cancelled = true; };
-  }, [business, user?.defaultLocationId]);
+  }, [business, user?.defaultLocationId, accessScopeKey]);
 
   const setBusiness = useCallback((next) => {
     if (isCompanyLocked) return;
@@ -310,7 +320,7 @@ export function ScopeProvider({ children }) {
     user, userReady,
     businesses, locations, business, location, finYear,
     businessReady, locationReady, permsReady,
-    isRestricted, isLocationLocked, isCompanyLocked,
+    isRestricted, needsAssignment, isLocationLocked, isCompanyLocked,
     setBusiness, setLocation, setFinYear,
     perms, can, refreshPermissions, refreshScope: fetchMe,
     // appended to every list/save request

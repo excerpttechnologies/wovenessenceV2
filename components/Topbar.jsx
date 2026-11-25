@@ -155,31 +155,46 @@ function ScopeControls() {
     user?.allowedLocations?.[0]?.name ||
     (locationReady ? "No Location Assigned" : "Loading...");
 
+  const activeCompanyLabel =
+    businesses.find((b) => b.value === business)?.label ||
+    (businesses.length ? businesses[0]?.label : "") ||
+    (user?.needsAssignment ? "No Business Assigned" : "Loading...");
+
   return (
     <>
       <div className="tb-field">
         <span className="tb-field-label">Company</span>
         <div className="tb-select-wrapper">
-          <select
-            className={"tb-select" + (isCompanyLocked ? " tb-select-locked" : "")}
-            aria-label="Company"
-            disabled={isCompanyLocked}
-            title={
-              businesses.find((b) => b.value === business)?.label ||
-              "Select Business"
-            }
-            value={business}
-            onChange={(e) => setBusiness(e.target.value)}
-          >
-            {businesses.length === 0 && (
-              <option value="">Select Business</option>
-            )}
-            {businesses.map((b) => (
-              <option key={b.value} value={b.value}>
-                {b.label}
-              </option>
-            ))}
-          </select>
+          {isCompanyLocked ? (
+            <div
+              className="tb-select tb-select-locked"
+              aria-label="Company"
+              aria-readonly="true"
+              title={activeCompanyLabel}
+            >
+              <span className="truncate">{activeCompanyLabel}</span>
+            </div>
+          ) : (
+            <select
+              className="tb-select"
+              aria-label="Company"
+              title={
+                businesses.find((b) => b.value === business)?.label ||
+                "Select Business"
+              }
+              value={business}
+              onChange={(e) => setBusiness(e.target.value)}
+            >
+              {businesses.length === 0 && (
+                <option value="">Select Business</option>
+              )}
+              {businesses.map((b) => (
+                <option key={b.value} value={b.value}>
+                  {b.label}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
       </div>
 

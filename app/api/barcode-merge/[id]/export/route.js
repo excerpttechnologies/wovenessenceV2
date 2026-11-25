@@ -4,6 +4,9 @@ import dbConnect from '@/lib/db';
 import BarcodeMerge from '@/models/BarcodeMerge';
 import { requireSession } from '@/lib/session';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import {
+  assertDocumentLocationAccess, resolveAuthorizedScope, scopeErrorResponse,
+} from '@/lib/locationAccess';
 import { mergeExportRows } from '@/lib/barcodeMerge';
 
 /* GET /api/barcode-merge/[id]/export - a real .xlsx of the merge.
@@ -23,17 +26,24 @@ export async function GET(req, { params }) {
   await dbConnect();
 
   const sp = new URL(req.url).searchParams;
+  const scope = await resolveAuthorizedScope(session, { businessId: sp.get('business') });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   const denied = await screenDenial({
     session, screen: SCREENS.BARCODE_MERGE, action: PERM.DOWNLOAD,
-    businessId: sp.get('business'), label: 'barcode merges',
+    businessId: scope.businessId || sp.get('business'), label: 'barcode merges',
   });
   if (denied) return Response.json({ error: denied.message, code: denied.code }, { status: 403 });
 
-  const merge = await BarcodeMerge.findOne({
-    _id: id,
-    ...(sp.get('business') && isValidObjectId(sp.get('business')) ? { businessId: sp.get('business') } : {}),
-  }).lean();
+  const filter = { _id: id };
+  if (scope.businessFilter) filter.businessId = scope.businessFilter;
+  if (scope.locationFilter) filter.locationId = scope.locationFilter;
+
+  const merge = await BarcodeMerge.findOne(filter).lean();
   if (!merge) return Response.json({ error: 'Merge not found.' }, { status: 404 });
+
+  const docDenied = await assertDocumentLocationAccess(session, merge);
+  if (docDenied) return docDenied;
 
   const rows = mergeExportRows(merge);
   const headers = rows.length ? Object.keys(rows[0]) : ['Merge Transaction Code', 'Merged Barcode'];

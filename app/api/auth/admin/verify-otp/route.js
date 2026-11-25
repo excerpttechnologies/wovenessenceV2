@@ -4,6 +4,7 @@ import User from '@/models/User';
 import OtpSession from '@/models/OtpSession';
 import { verifyOtp, hashPhone, normalizePhone, isExpired, maxAttemptsReached } from '@/lib/otp';
 import { signSession, COOKIE, cookieOptions } from '@/lib/auth';
+import { getSessionLocationAccess } from '@/lib/locationAccess';
 
 /* ==========================================================================
    POST /api/auth/admin/verify-otp
@@ -147,6 +148,12 @@ export async function POST(req) {
       cookieOptions
     );
 
+    const access = await getSessionLocationAccess({
+      role: user.role,
+      businessId,
+      locationIds,
+    });
+
     return json({
       ok: true,
       user: {
@@ -156,6 +163,13 @@ export async function POST(req) {
         role: user.role,
         businessId,
         locationIds,
+        defaultLocationId: access.defaultLocationId,
+        isRestricted: access.isRestricted,
+        needsAssignment: access.needsAssignment,
+        isLocationLocked: access.isSingleLocation,
+        isCompanyLocked: access.isCompanyLocked,
+        allowedBusinessIds: access.allowedBusinessIds,
+        allowedLocations: access.allowedLocations,
       },
       message: 'Login successful',
     });

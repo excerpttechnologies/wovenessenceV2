@@ -1,6 +1,7 @@
 import { handler, json } from '@/lib/apiError';
 import dbConnect from '@/lib/db';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac';
+import { requireAuthorizedScope } from '@/lib/locationAccess';
 import { isValidObjectId } from 'mongoose';
 import { createSessionFromWorkbook, analysisOverview } from '@/lib/barcodeMasterImportService';
 import { MAX_FILE_BYTES, IMPORT_SCOPES } from '@/lib/barcodeMasterImportConstants';
@@ -52,6 +53,7 @@ export const POST = handler(async (req) => {
 
   const session = await requirePermission(PERMISSIONS.BARCODE_GENERATE, { locationId });
   await dbConnect();
+  await requireAuthorizedScope(session, { businessId, locationId });
 
   const buffer = Buffer.from(await file.arrayBuffer());
   const result = await createSessionFromWorkbook({

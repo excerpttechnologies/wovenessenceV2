@@ -23,8 +23,10 @@ export async function POST(req, { params }) {
   if (!isValidObjectId(id)) return json({ error: 'Not found' }, 404);
 
   const filter = { _id: id };
-  if (scope.businessId) filter.businessId = scope.businessId;
-  if (scope.locationId) filter.locationId = scope.locationId;
+  if (scope.businessFilter) filter.businessId = scope.businessFilter;
+  else if (scope.businessId) filter.businessId = scope.businessId;
+  if (scope.locationFilter) filter.locationId = scope.locationFilter;
+  else if (scope.locationId) filter.locationId = scope.locationId;
 
   const doc = await JournalEntry.findOne(filter).lean();
   if (!doc) return json({ error: 'Not found' }, 404);

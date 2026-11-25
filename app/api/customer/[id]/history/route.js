@@ -7,6 +7,7 @@ import { handler, json } from '@/lib/apiError';
 import { requireUser } from '@/lib/rbac';
 import { imageUrl } from '@/lib/inventory';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { assertDocumentLocationAccess, resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 const CUSTOMER = { screen: SCREENS.CUSTOMER, label: 'customers' };
 
@@ -34,17 +35,26 @@ export const GET = handler(async (req, { params }) => {
 
   const business = sp.get('business');
   const limit = Math.min(100, Math.max(1, Number(sp.get('limit') || DEFAULT_LIMIT)));
-  const scope = business && isValidObjectId(business) ? { businessId: business } : {};
+
+  const scopeAuth = await resolveAuthorizedScope(session, { businessId: business });
+  if (!scopeAuth.ok) return scopeErrorResponse(scopeAuth);
+
+  const scope = {};
+  if (scopeAuth.businessFilter) scope.businessId = scopeAuth.businessFilter;
+  if (scopeAuth.locationFilter) scope.locationId = scopeAuth.locationFilter;
 
   const customer = await Customer.findById(id).lean();
   if (!customer) return json({ error: 'Customer not found.', code: 'NOT_FOUND' }, 404);
+
+  const docDenied = await assertDocumentLocationAccess(session, customer);
+  if (docDenied) return docDenied;
 
   /* The same gate as the Customers list. This is a customer's buying history,
      so a role that may not read customers must not be able to pull it here
      instead. The till reads this endpoint, which is exactly why it needs
      guarding rather than being left as the way round the list's permission. */
   const denied = await screenDenial({
-    session, ...CUSTOMER, action: PERM.READ, businessId: business || customer.businessId,
+    session, ...CUSTOMER, action: PERM.READ, businessId: customer.businessId || business,
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 

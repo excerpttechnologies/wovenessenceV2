@@ -7,6 +7,7 @@ import { resolveRefLabels } from '@/lib/refLabels';
 import { validate, escapeRegex } from '@/lib/validate';
 import { FIELDS } from '@/app/admin/logistic/fields';
 import { sortedPage } from '@/lib/listSort';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 /* /api/logistic - list + create. */
 
@@ -20,7 +21,13 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
-  const denied = await screenDenial({ session, screen: SCREENS.LOGISTIC, action: PERM.READ, businessId: sp.get('business'), label: 'logistics' });
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: sp.get('business'),
+    locationId: sp.get('location'),
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
+  const denied = await screenDenial({ session, screen: SCREENS.LOGISTIC, action: PERM.READ, businessId: scope.businessId || sp.get('business'), label: 'logistics' });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const page = Math.max(1, Number(sp.get('page') || 1));
@@ -28,8 +35,8 @@ export async function GET(req) {
   const search = (sp.get('search') || '').trim();
 
   const filter = {};
-  const b = sp.get('business'); if (b && isValidObjectId(b)) filter.businessId = b;
-  const l = sp.get('location'); if (l && isValidObjectId(l)) filter.locationId = l;
+  if (scope.businessFilter) filter.businessId = scope.businessFilter;
+  if (scope.locationFilter) filter.locationId = scope.locationFilter;
 
   if (search) {
     const rx = { $regex: escapeRegex(search), $options: 'i' };
@@ -66,13 +73,19 @@ export async function POST(req) {
   const body = await req.json();
   await dbConnect();
 
-  const denied = await screenDenial({ session, screen: SCREENS.LOGISTIC, action: PERM.CREATE, businessId: body.business, label: 'logistics' });
+  const scope = await resolveAuthorizedScope(session, {
+    businessId: body.business,
+    locationId: body.location,
+  });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
+  const denied = await screenDenial({ session, screen: SCREENS.LOGISTIC, action: PERM.CREATE, businessId: scope.businessId || body.business, label: 'logistics' });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const { errors, doc, ok } = validate(FIELDS, body.data || {});
   if (!ok) return json({ errors }, 422);
-  if (body.business && isValidObjectId(body.business)) doc.businessId = body.business;
-  if (body.location && isValidObjectId(body.location)) doc.locationId = body.location;
+  if (scope.businessId) doc.businessId = scope.businessId;
+  if (scope.locationId) doc.locationId = scope.locationId;
 
   const created = await Logistic.create(doc);
   return json({ ok: true, id: String(created._id) });

@@ -2,6 +2,9 @@ import dbConnect from '@/lib/db';
 import SalesPerson, { clearOtherDefaults } from '@/models/SalesPerson';
 import { requireSession } from '@/lib/session';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import {
+  assertDocumentLocationAccess, resolveAuthorizedScope, scopeErrorResponse,
+} from '@/lib/locationAccess';
 import { validate } from '@/lib/validate';
 import { FIELDS } from '@/app/admin/staff-management/staff/salesperson/fields';
 
@@ -20,6 +23,8 @@ export async function GET(req, { params }) {
 
   const doc = await SalesPerson.findById(id).lean();
   if (!doc) return json({ doc: null }, 404);
+  const docDenied = await assertDocumentLocationAccess(session, doc);
+  if (docDenied) return docDenied;
   const denied = await screenDenial({ session, screen: SCREENS.SALES_PERSON, action: PERM.READ, businessId: doc.businessId, label: 'sales persons' });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
   return json({ doc: { ...doc, _id: String(doc._id) } });
@@ -35,6 +40,12 @@ export async function PUT(req, { params }) {
 
   const existing = await SalesPerson.findById(id).select('businessId').lean();
   if (!existing) return json({ error: 'Not found' }, 404);
+  const docDenied = await assertDocumentLocationAccess(session, existing);
+  if (docDenied) return docDenied;
+  if (body.business) {
+    const scope = await resolveAuthorizedScope(session, { businessId: body.business });
+    if (!scope.ok) return scopeErrorResponse(scope);
+  }
   const denied = await screenDenial({ session, screen: SCREENS.SALES_PERSON, action: PERM.UPDATE, businessId: existing.businessId, label: 'sales persons' });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
@@ -58,6 +69,8 @@ export async function DELETE(req, { params }) {
 
   const existing = await SalesPerson.findById(id).select('businessId').lean();
   if (!existing) return json({ ok: true });
+  const docDenied = await assertDocumentLocationAccess(session, existing);
+  if (docDenied) return docDenied;
   const denied = await screenDenial({ session, screen: SCREENS.SALES_PERSON, action: PERM.DELETE, businessId: existing.businessId, label: 'sales persons' });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 

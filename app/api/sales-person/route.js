@@ -3,6 +3,7 @@ import dbConnect from '@/lib/db';
 import SalesPerson, { clearOtherDefaults } from '@/models/SalesPerson';
 import { requireSession } from '@/lib/session';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 import { resolveRefLabels } from '@/lib/refLabels';
 import { validate, escapeRegex } from '@/lib/validate';
 import { FIELDS } from '@/app/admin/staff-management/staff/salesperson/fields';
@@ -24,7 +25,10 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
-  const denied = await screenDenial({ session, screen: SCREENS.SALES_PERSON, action: PERM.READ, businessId: sp.get('business'), label: 'sales persons' });
+  const scope = await resolveAuthorizedScope(session, { businessId: sp.get('business') });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
+  const denied = await screenDenial({ session, screen: SCREENS.SALES_PERSON, action: PERM.READ, businessId: scope.businessId || sp.get('business'), label: 'sales persons' });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const page = Math.max(1, Number(sp.get('page') || 1));
@@ -32,7 +36,7 @@ export async function GET(req) {
   const search = (sp.get('search') || '').trim();
 
   const filter = {};
-  const b = sp.get('business'); if (b && isValidObjectId(b)) filter.businessId = b;
+  if (scope.businessFilter) filter.businessId = scope.businessFilter;
 
   if (search) {
     const rx = { $regex: escapeRegex(search), $options: 'i' };
@@ -72,12 +76,16 @@ export async function POST(req) {
   const body = await req.json();
   await dbConnect();
 
-  const denied = await screenDenial({ session, screen: SCREENS.SALES_PERSON, action: PERM.CREATE, businessId: body.business, label: 'sales persons' });
+  const scope = await resolveAuthorizedScope(session, { businessId: body.business });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
+  const denied = await screenDenial({ session, screen: SCREENS.SALES_PERSON, action: PERM.CREATE, businessId: scope.businessId || body.business, label: 'sales persons' });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const { errors, doc, ok } = validate(FIELDS, body.data || {});
   if (!ok) return json({ errors }, 422);
-  if (body.business && isValidObjectId(body.business)) doc.businessId = body.business;
+  if (scope.businessId) doc.businessId = scope.businessId;
+  else if (body.business && isValidObjectId(body.business)) doc.businessId = body.business;
 
   const created = await SalesPerson.create(doc);
 

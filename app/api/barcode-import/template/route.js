@@ -1,6 +1,8 @@
-import { handler, json } from '@/lib/apiError';
+import { isValidObjectId } from 'mongoose';
+import { handler } from '@/lib/apiError';
 import dbConnect from '@/lib/db';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac';
+import { requireAuthorizedScope } from '@/lib/locationAccess';
 import { buildImportTemplate } from '@/lib/barcodeMasterImportService';
 import { IMPORT_SCOPES } from '@/lib/barcodeMasterImportConstants';
 
@@ -16,10 +18,14 @@ export const GET = handler(async (req) => {
   const businessId = String(sp.get('business') || '').trim();
   const scope = String(sp.get('scope') || IMPORT_SCOPES.BARCODE_MASTER);
 
-  await requirePermission(PERMISSIONS.BARCODE_GENERATE);
+  const session = await requirePermission(PERMISSIONS.BARCODE_GENERATE);
   await dbConnect();
+  const scopeAuth = await requireAuthorizedScope(session, {
+    businessId: isValidObjectId(businessId) ? businessId : '',
+  });
+  const effectiveBusinessId = scopeAuth.businessId || businessId;
 
-  const buffer = await buildImportTemplate({ businessId, scope });
+  const buffer = await buildImportTemplate({ businessId: effectiveBusinessId, scope });
   const names = {
     [IMPORT_SCOPES.BARCODE_MASTER]: 'barcode-master-data-import-template.xlsx',
     [IMPORT_SCOPES.BARCODE_STOCK]: 'barcode-stock-update-template.xlsx',

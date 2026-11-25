@@ -86,7 +86,7 @@ export async function GET(req) {
 export async function POST(req) {
   const body = await req.json().catch(() => ({}));
 
-  const denied = await guard(req, SCREENS.ACCOUNTS_JOURNAL, ACTIONS.CREATE, body?.business);
+  const denied = await guard(req, SCREENS.ACCOUNTS_JOURNAL, ACTIONS.CREATE, body?.business, body?.location);
   if (denied) return denied;
 
   await dbConnect();

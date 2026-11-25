@@ -6,6 +6,7 @@ import { CLASSIFICATION_TYPES } from '@/models/ProductClassificationOption';
 import { classificationOptionsById } from '@/lib/classificationCollections';
 import { requireSession } from '@/lib/session';
 import { escapeRegex } from '@/lib/validate';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
 const json = (data, status = 200) => Response.json(data, { status });
 const CLASSIFICATION_FIELDS = {
@@ -50,6 +51,9 @@ export async function GET(req) {
   if (!isValidObjectId(business) || !itemCode) return json({ error: 'Business and item code are required.' }, 422);
 
   await dbConnect();
+  const scope = await resolveAuthorizedScope(session, { businessId: business });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   const item = await findItem(business, itemCode);
   if (!item) return json({ error: `Item "${itemCode}" was not found in this business.` }, 404);
 
@@ -69,6 +73,9 @@ export async function PATCH(req) {
   if (!updates || typeof updates !== 'object' || Array.isArray(updates)) return json({ error: 'Product updates are required.' }, 422);
 
   await dbConnect();
+  const scope = await resolveAuthorizedScope(session, { businessId: business });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
   const item = await findItem(business, itemCode);
   if (!item) return json({ error: `Item "${itemCode}" was not found in this business.` }, 404);
 

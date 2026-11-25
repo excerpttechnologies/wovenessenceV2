@@ -34,11 +34,13 @@ export default function AdminAccessGuard({ children }) {
   const isSuperAdmin = user?.role === 'Super Admin';
   const isAdminUser = isSuperAdmin || user?.role === 'Admin';
   const ready = userReady && (isSuperAdmin || permsReady);
+  const needsAssignment = !isSuperAdmin && Boolean(user?.needsAssignment);
 
   const entry = useMemo(() => screenEntryForPath(pathname), [pathname]);
 
   const allowed = useMemo(() => {
     if (!ready) return false;
+    if (needsAssignment) return false;
     if (!entry) return true;
     if (entry.superAdminOnly && !isSuperAdmin) return false;
     if (entry.adminOnly && !isAdminUser) return false;
@@ -49,18 +51,43 @@ export default function AdminAccessGuard({ children }) {
       return can(entry.href, 'read');
     }
     return true;
-  }, [ready, entry, isSuperAdmin, isAdminUser, can, perms]);
+  }, [ready, needsAssignment, entry, isSuperAdmin, isAdminUser, can, perms]);
 
   const fallback = useMemo(() => {
-    if (!ready || allowed) return null;
+    if (!ready || allowed || needsAssignment) return null;
     const visible = filterNavItems(NAV_MAIN, { can, user, isAdminUser });
     return firstAccessibleLink(visible);
-  }, [ready, allowed, can, user, isAdminUser, perms]);
+  }, [ready, allowed, needsAssignment, can, user, isAdminUser, perms]);
 
   if (!ready) {
     return (
       <div className="flex min-h-[240px] items-center justify-center p-8 text-sm text-inkmuted">
         Checking permissions…
+      </div>
+    );
+  }
+
+  if (needsAssignment) {
+    return (
+      <div className="mx-auto mt-10 max-w-lg rounded-xl border border-danger/30 bg-white p-6 shadow-sm">
+        <div className="flex items-start gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#fdf1f1] text-danger">
+            <LuShieldAlert size={20} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-base font-bold text-ink">Business &amp; Location Assignment Required</h2>
+            <p className="mt-1 text-sm text-inkmuted">
+              Your account (<b>{user?.email}</b>) does not have a valid Business and Location assigned yet.
+              Please ask a <b>Super Admin</b> to assign your Business and Location in{' '}
+              <b>Staff Management &gt; Roles &amp; Permissions &gt; Users</b>.
+            </p>
+            <div className="mt-4">
+              <Link href="/logout" className="btn btn-primary">
+                Logout
+              </Link>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
