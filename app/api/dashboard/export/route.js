@@ -1,4 +1,6 @@
 import { requirePermission, PERMISSIONS } from '@/lib/rbac';
+import dbConnect from '@/lib/db';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { buildDashboardAnalytics } from '@/lib/dashboard/service';
 import { dashboardFilename, dashboardWorkbookBuffer } from '@/lib/dashboard/export';
 
@@ -25,6 +27,15 @@ export async function GET(req) {
   try {
     const session = await requirePermission(PERMISSIONS.REPORTS_VIEW);
     const sp = new URL(req.url).searchParams;
+    await dbConnect();
+    const denied = await screenDenial({
+      session,
+      screen: SCREENS.DASHBOARD,
+      action: PERM.DOWNLOAD,
+      businessId: sp.get('business') || sp.get('businessId'),
+      label: 'the dashboard',
+    });
+    if (denied) return Response.json({ error: denied.message, code: denied.code }, { status: 403, headers: { 'Cache-Control': 'private, no-store' } });
     const data = await buildDashboardAnalytics(session, sp);
     const buffer = dashboardWorkbookBuffer(data);
     const filename = dashboardFilename(data);

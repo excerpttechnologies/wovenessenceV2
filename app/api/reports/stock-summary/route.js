@@ -1,6 +1,7 @@
 import { Types } from 'mongoose';
 import dbConnect from '@/lib/db';
 import { requireUser } from '@/lib/rbac';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { handler } from '@/lib/apiError';
 import { BarcodeLabel, BARCODE_STATUS } from '@/lib/barcodeLabel';
 import StockMovement from '@/models/StockMovement';
@@ -12,13 +13,21 @@ import { json, num, r2, scopeOf, pageOf } from '@/lib/reports';
 const toId = (value) => new Types.ObjectId(String(value));
 
 export const GET = handler(async (req) => {
-  await requireUser();
+  const session = await requireUser();
   const sp = new URL(req.url).searchParams;
   await dbConnect();
   const scope = scopeOf(sp);
   const { page, perPage } = pageOf(sp);
   const asOnDate = sp.get('asOnDate');
   if (!scope.businessId) return json({ error: 'Select a business to run the Stock Summary Report.' }, 422);
+  const denied = await screenDenial({
+    session,
+    screen: SCREENS.STOCK_SUMMARY,
+    action: PERM.READ,
+    businessId: scope.businessId,
+    label: 'the stock summary report',
+  });
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
   if (sp.get('options') === '1') {
     const groups = await ProductGroup.find({ businessId: scope.businessId })
       .select('_id name parentId')

@@ -14,6 +14,7 @@ import Voucher from '@/models/Voucher';
 import Ledger from '@/models/Ledger';
 import LedgerGroup from '@/models/LedgerGroup';
 import Business from '@/models/Business';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 
 /* ==========================================================================
    Dashboard aggregates.
@@ -80,6 +81,15 @@ export async function GET(req) {
   const finYear = sp.get('finYear') || '';
 
   await dbConnect();
+
+  const denied = await screenDenial({
+    session,
+    screen: SCREENS.DASHBOARD,
+    action: PERM.READ,
+    businessId: businessRaw,
+    label: 'the dashboard',
+  });
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   /* transaction docs carry business + location + finYear */
   const txScope = {

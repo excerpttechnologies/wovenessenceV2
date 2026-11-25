@@ -1,6 +1,7 @@
 import { Types, isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
 import { requireUser } from '@/lib/rbac';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { handler } from '@/lib/apiError';
 import { BarcodeLabel, BARCODE_STATUS } from '@/lib/barcodeLabel';
 import StockMovement, { MOVEMENT_TYPES } from '@/models/StockMovement';
@@ -68,11 +69,13 @@ const SIGNED_OF = {
 };
 
 export const GET = handler(async (req) => {
-  await requireUser();
+  const session = await requireUser();
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
   const scope = scopeOf(sp);
+  const denied = await screenDenial({ session, screen: SCREENS.ITEM_STOCK, action: PERM.READ, businessId: scope.businessId, label: 'the item stock report' });
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
   /* The report's own Location filter offers "All Locations"; choosing it must
      override the location in the top bar, not fall back to it. */
   if (sp.get('allLocations') === '1') scope.locationId = null;

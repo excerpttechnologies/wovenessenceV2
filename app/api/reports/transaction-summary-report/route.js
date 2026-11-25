@@ -1,6 +1,7 @@
 import { isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import CompanyLocation from '@/models/CompanyLocation';
 import Grc from '@/models/Grc';
 import Grt from '@/models/Grt';
@@ -61,6 +62,8 @@ export async function GET(req) {
   await dbConnect();
   const scope = scopeOf(sp);
   if (!scope.businessId) return json({ error: 'Select a business to run this report.' }, 422);
+  const denied = await screenDenial({ session, screen: SCREENS.TRANSACTION_SUMMARY_REPORT, action: PERM.READ, businessId: scope.businessId, label: 'the transaction summary report' });
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const fromDate = sp.get('fromDate');
   const toDate = sp.get('toDate');

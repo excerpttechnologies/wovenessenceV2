@@ -1,6 +1,7 @@
 import { isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { BarcodeLabel } from '@/lib/barcodeLabel';
 import { Supplier } from '@/lib/contacts';
 import CityGroup from '@/models/CityGroup';
@@ -110,6 +111,9 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   const scope = scopeOf(sp);
   if (!scope.businessId) return json({ error: 'Select a business to run this report.' }, 422);
+  await dbConnect();
+  const denied = await screenDenial({ session, screen: SCREENS.PERFORMANCE_LOG_REPORT, action: PERM.READ, businessId: scope.businessId, label: 'the performance log report' });
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const fromDate = text(sp.get('fromDate'));
   const toDate = text(sp.get('toDate'));

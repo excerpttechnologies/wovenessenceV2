@@ -1,6 +1,7 @@
 import { isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { Supplier } from '@/lib/contacts';
 import CompanyLocation from '@/models/CompanyLocation';
 import { BarcodeLabel } from '@/lib/barcodeLabel';
@@ -72,6 +73,14 @@ export async function GET(req) {
   if (!scope.businessId) {
     return json({ error: 'Select a business to run this report.' }, 422);
   }
+  const denied = await screenDenial({
+    session,
+    screen: SCREENS.SALES_REPORT,
+    action: PERM.READ,
+    businessId: scope.businessId,
+    label: 'the sales report',
+  });
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
   if (!sp.get('fromDate') || !sp.get('toDate')) {
     return json({ error: 'Date From and Date To are required.' }, 422);
   }

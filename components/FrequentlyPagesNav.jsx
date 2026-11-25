@@ -32,12 +32,12 @@ const OPEN_KEY = 'orbit.freq.open';
 const MAX_ITEMS = 8;
 const ACTIONS = ['create', 'read', 'update', 'download', 'delete'];
 
-/* Same rule the API applies: ungoverned role can open everything; a governed
-   one needs at least one action on the screen. */
+/* Require READ permission so pages with READ disabled are never offered in
+   Frequently Visited shortcuts. */
 function holdsScreen(perms, href) {
   if (!perms?.governed) return true;
   const held = perms.screens?.[href];
-  return Array.isArray(held) && held.some((action) => ACTIONS.includes(action));
+  return Array.isArray(held) && held.includes('read');
 }
 
 /* Human-readable "last visited" string for the tooltip. */

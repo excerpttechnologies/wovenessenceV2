@@ -304,6 +304,7 @@ import { LuChevronRight, LuChevronDown, LuChevronLeft, LuX } from 'react-icons/l
 import { useScope } from './ScopeContext';
 import BrandMark from './BrandMark';
 import FrequentlyPagesNav from './FrequentlyPagesNav';
+import { filterNavItems } from '@/lib/navRegistry';
 
 /* Logout is pinned to the foot of the rail rather than left as the last row
    of a list you have to scroll to reach. Split by href so the entry stays
@@ -334,10 +335,21 @@ function labelForHref(items, href) {
 
 export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile }) {
   const pathname = usePathname();
-  const { user } = useScope();
-  const isAdminUser = user?.role === 'Super Admin' || user?.role === 'Admin';
+  const { user, userReady, perms, permsReady, can } = useScope();
+  const isSuperAdmin = user?.role === 'Super Admin';
+  const isAdminUser = isSuperAdmin || user?.role === 'Admin';
+  const navReady = userReady && (isSuperAdmin || permsReady);
   const [open, setOpen] = useState(null);
   const [openNested, setOpenNested] = useState(null);
+
+  const visibleNav = useMemo(
+    () => (navReady ? filterNavItems(NAV_MAIN, { can, user, isAdminUser }) : []),
+    [navReady, perms, user, isAdminUser]
+  );
+  const dashboardIdx = useMemo(
+    () => visibleNav.findIndex((n) => n.href === '/admin'),
+    [visibleNav]
+  );
 
   /* Which row's flyout is showing on the mini rail, and where to put it:
      { i, top, left, pad }. Null when nothing is hovered. */
@@ -374,14 +386,14 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
   /* Keep the parent of the current route expanded. Declared after
      activeHref, which it reads. */
   useEffect(() => {
-    const idx = NAV_MAIN.findIndex((n) => containsHref(n.children, activeHref));
+    const parent = visibleNav.find((n) => containsHref(n.children, activeHref));
 
-    if (idx >= 0) {
-      setOpen(idx);
-      const nested = NAV_MAIN[idx].children?.find((child) => containsHref(child.children, activeHref));
+    if (parent) {
+      setOpen(parent.label);
+      const nested = parent.children?.find((child) => containsHref(child.children, activeHref));
       setOpenNested(nested?.label || null);
     }
-  }, [activeHref]);
+  }, [activeHref, visibleNav]);
 
   /* The browser tab is named after the screen ("Suppliers", "Add Suppliers",
      "Edit Suppliers") so tabs opened from the menu can be told apart
@@ -421,7 +433,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
      the rail opens far enough up to stay on screen, rather than running off
      the bottom and scrolling inside a sliver. */
   const showFlyout = useCallback(
-    (i, el, rows) => {
+    (key, el, rows) => {
       if (!isMini() || !railRef.current) return;
       clearTimeout(hideTimer.current);
 
@@ -436,7 +448,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
          rail. Anchoring it to the rail instead left a dead strip between the
          two that belonged to neither, and crossing it closed the panel. */
       setFlyout({
-        i,
+        key,
         top,
         left: r.right,
         pad: railRight - r.right + 10,
@@ -470,14 +482,14 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
 
      The mini rail is a desktop state only: below lg the panel is a full width
      drawer, where the labels are on show and none of this applies. */
-  const openGroup = (i, isOpen) => {
+  const openGroup = (key, isOpen) => {
     if (isMini()) {
       hideFlyout();
       onToggle?.();
-      setOpen(i);
+      setOpen(key);
       return;
     }
-    setOpen(isOpen ? null : i);
+    setOpen(isOpen ? null : key);
   };
 
   return (
@@ -530,27 +542,25 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
 
       {/* --------------------------------------------------------- nav --- */}
       <nav className="sb-nav flex-1 overflow-y-auto" onScroll={hideFlyout}>
-        {NAV_MAIN.map((item, i) => {
-          /* an entry marked superAdminOnly (Archive) is hidden for every
-             other role; returning null keeps the indexes `open` relies on */
-          if (item.superAdminOnly && user?.role !== 'Super Admin') return null;
+        {!navReady && (
+          <div className="space-y-2.5 px-4 py-3" aria-label="Loading menu">
+            {[0, 1, 2, 3, 4, 5].map((idx) => (
+              <div key={idx} className="h-7 animate-pulse rounded bg-white/10" />
+            ))}
+          </div>
+        )}
 
-          /* Administrator-only screens (Release Notes) are not part of a
-             customer role's menu. The server enforces the same rule. */
-          if (item.adminOnly && !isAdminUser) return null;
+        {navReady && dashboardIdx < 0 && (
+          <FrequentlyPagesNav collapsed={collapsed} onExpandRail={onToggle} />
+        )}
 
-          /* The visible children. An administrator-only child is removed for
-             every other role, and a group left with none is not rendered at
-             all rather than shown as an empty drawer. */
-          const children = (item.children || []).filter(
-            (c) => !c.adminOnly || isAdminUser
-          );
-
+        {visibleNav.map((item, i) => {
+          const children = item.children || [];
           const hasKids = Array.isArray(item.children) && children.length > 0;
           if (!hasKids && !item.href) return null;
 
-          const isOpen = open === i;
-          const isFly = flyout?.i === i;
+          const isOpen = open === item.label;
+          const isFly = flyout?.key === item.label;
 
           const isActive = item.href
             ? item.href === activeHref
@@ -558,10 +568,8 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
 
           const ItemIcon = item.icon;
 
-          /* Immediately under Dashboard - see FREQUENT_AFTER above. Rendered
-             inside each return below so it sits between two menu rows rather
-             than inside either one's hover group. */
-          const frequent = i === FREQUENT_AFTER + 1 ? (
+          /* Immediately under Dashboard when Dashboard is visible. */
+          const frequent = dashboardIdx >= 0 && i === dashboardIdx + 1 ? (
             <FrequentlyPagesNav collapsed={collapsed} onExpandRail={onToggle} />
           ) : null;
 
@@ -572,7 +580,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
                 {frequent}
                 <div
                   className="sb-group"
-                  onMouseEnter={(e) => showFlyout(i, e.currentTarget, 1)}
+                  onMouseEnter={(e) => showFlyout(item.label, e.currentTarget, 1)}
                   onMouseLeave={scheduleHide}
                 >
                 <Link
@@ -605,6 +613,9 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
                   </div>
                 )}
                 </div>
+                {dashboardIdx === visibleNav.length - 1 && i === dashboardIdx && (
+                  <FrequentlyPagesNav collapsed={collapsed} onExpandRail={onToggle} />
+                )}
               </Fragment>
             );
           }
@@ -615,12 +626,12 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
               {frequent}
               <div
                 className="sb-group"
-                onMouseEnter={(e) => showFlyout(i, e.currentTarget, children.length)}
+                onMouseEnter={(e) => showFlyout(item.label, e.currentTarget, children.length)}
                 onMouseLeave={scheduleHide}
               >
               <button
                 type="button"
-                onClick={() => openGroup(i, isOpen)}
+                onClick={() => openGroup(item.label, isOpen)}
                 className={
                   'sb-item ' +
                   (isActive ? 'sb-item-current' : '') +

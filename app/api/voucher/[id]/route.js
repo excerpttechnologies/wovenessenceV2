@@ -1,6 +1,13 @@
 import dbConnect from '@/lib/db';
 import Voucher from '@/models/Voucher';
 import { requireSession } from '@/lib/session';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+
+const VOUCHER_SCREENS = {
+  Receipt: SCREENS.RECEIPT_VOUCHER,
+  Contra: SCREENS.CONTRA_VOUCHER,
+  Payment: SCREENS.PAYMENT_VOUCHER,
+};
 
 /* /api/voucher/<id> - read one, delete.
 
@@ -20,6 +27,11 @@ export async function GET(req, { params }) {
 
   const doc = await Voucher.findById(id).lean();
   if (!doc) return json({ doc: null }, 404);
+  const screen = VOUCHER_SCREENS[doc.type];
+  if (screen) {
+    const denied = await screenDenial({ session, screen, action: PERM.READ, businessId: doc.businessId, label: `${doc.type} vouchers` });
+    if (denied) return json({ error: denied.message, code: denied.code }, 403);
+  }
   return json({ doc: { ...doc, _id: String(doc._id) } });
 }
 
@@ -30,8 +42,14 @@ export async function DELETE(req, { params }) {
   const { id } = await params;
   await dbConnect();
 
-  const existing = await Voucher.findById(id).select('adjustedAmount').lean();
+  const existing = await Voucher.findById(id).select('adjustedAmount type businessId').lean();
   if (!existing) return json({ ok: true });
+
+  const screen = VOUCHER_SCREENS[existing.type];
+  if (screen) {
+    const denied = await screenDenial({ session, screen, action: PERM.DELETE, businessId: existing.businessId, label: `${existing.type} vouchers` });
+    if (denied) return json({ error: denied.message, code: denied.code }, 403);
+  }
 
   /* Once part of a voucher has been allocated against an invoice, deleting
      it would leave that invoice pointing at money that no longer exists.

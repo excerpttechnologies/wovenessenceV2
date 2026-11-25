@@ -1,4 +1,6 @@
 import { PERMISSIONS, requirePermission } from '@/lib/rbac';
+import dbConnect from '@/lib/db';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { answerCsv, answerFilename, answerWorkbook } from '@/lib/ai-assistant/export';
 
 export const dynamic = 'force-dynamic';
@@ -19,7 +21,15 @@ function fail(status, message, code) {
    nothing from the database. Access is still gated by reports.view. */
 export async function POST(req) {
   try {
-    await requirePermission(PERMISSIONS.REPORTS_VIEW);
+    const session = await requirePermission(PERMISSIONS.REPORTS_VIEW);
+    await dbConnect();
+    const denied = await screenDenial({
+      session,
+      screen: SCREENS.AI_ASSISTANT,
+      action: PERM.READ,
+      label: 'AI Intelligence',
+    });
+    if (denied) return fail(403, denied.message, denied.code);
   } catch (err) {
     return fail(err?.status || 403, err?.message || 'You are not allowed to export this answer.', err?.code || 'FORBIDDEN');
   }

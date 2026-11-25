@@ -105,6 +105,7 @@
 import { isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import PosInvoice from '@/models/PosInvoice';
 import PosCounter from '@/models/PosCounter';
 import {
@@ -141,6 +142,8 @@ export async function GET(req) {
   await dbConnect();
 
   const scope = scopeOf(sp);
+  const denied = await screenDenial({ session, screen: SCREENS.POS_SUMMARY, action: PERM.READ, businessId: scope.businessId, label: 'the POS summary' });
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   if (!sp.get('fromDate') || !sp.get('toDate')) {
     return json({ error: 'Date From and Date To are required.' }, 422);

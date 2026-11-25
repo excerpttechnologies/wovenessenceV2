@@ -1,6 +1,7 @@
 import { isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { escapeRegex } from '@/lib/validate';
 
 import { findContactsOfKind } from '@/lib/contacts';
@@ -166,10 +167,19 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
+  const business = sp.get('business');
+  const denied = await screenDenial({
+    session,
+    screen: SCREENS.LEDGER_TRANSACTION,
+    action: PERM.READ,
+    businessId: business,
+    label: 'ledger transactions',
+  });
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
+
   const page = Math.max(1, Number(sp.get('page') || 1));
   const perPage = Math.min(500, Number(sp.get('perPage') || 10));
 
-  const business = sp.get('business');
   const location = sp.get('location');
   const finYear = sp.get('finYear') || '';
 

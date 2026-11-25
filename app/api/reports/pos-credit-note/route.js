@@ -71,6 +71,7 @@
 	 import { isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import PosReturn from '@/models/PosReturn';
 import CompanyLocation from '@/models/CompanyLocation';
 import {
@@ -96,6 +97,8 @@ export async function GET(req) {
   await dbConnect();
 
   const scope = scopeOf(sp);
+  const denied = await screenDenial({ session, screen: SCREENS.POS_CREDIT_NOTE, action: PERM.READ, businessId: scope.businessId, label: 'the POS credit note report' });
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
   const { page, perPage } = pageOf(sp);
 
   const returnScope = scopeFilter(scope);

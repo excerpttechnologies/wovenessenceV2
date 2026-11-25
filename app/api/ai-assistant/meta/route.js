@@ -1,4 +1,6 @@
 import { PERMISSIONS, requirePermission } from '@/lib/rbac';
+import dbConnect from '@/lib/db';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { assistantMeta } from '@/lib/ai-assistant/orchestrator';
 import { rateLimitStatus } from '@/lib/ai-assistant/guard';
 
@@ -17,6 +19,14 @@ const HEADERS = {
 export async function GET() {
   try {
     const session = await requirePermission(PERMISSIONS.REPORTS_VIEW);
+    await dbConnect();
+    const denied = await screenDenial({
+      session,
+      screen: SCREENS.AI_ASSISTANT,
+      action: PERM.READ,
+      label: 'AI Intelligence',
+    });
+    if (denied) return Response.json({ error: denied.message, code: denied.code }, { status: 403, headers: HEADERS });
     const meta = await assistantMeta(session);
     const key = String(session.id || session.email || 'anonymous');
     return Response.json({

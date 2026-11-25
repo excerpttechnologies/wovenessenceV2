@@ -41,6 +41,7 @@ import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import Topbar from '@/components/Topbar';
+import AdminAccessGuard from '@/components/AdminAccessGuard';
 import ChatBot, { ChatBotProvider } from '@/components/ChatBot';
 import FloatingAssistant from '@/components/ai-assistant/FloatingAssistant';
 import { ScopeProvider } from '@/components/ScopeContext';
@@ -99,7 +100,9 @@ export default function AdminLayout({ children }) {
           }
         >
           <Topbar onToggleSidebar={() => setMobileOpen((o) => !o)} />
-          <main className="px-3 pb-6 pt-4 sm:px-5">{children}</main>
+          <main className="px-3 pb-6 pt-4 sm:px-5">
+            <AdminAccessGuard>{children}</AdminAccessGuard>
+          </main>
         </div>
       </div>
 

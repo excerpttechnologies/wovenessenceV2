@@ -1,4 +1,6 @@
 import { requirePermission, PERMISSIONS } from '@/lib/rbac';
+import dbConnect from '@/lib/db';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { buildDashboardAnalytics } from '@/lib/dashboard/service';
 
 export const dynamic = 'force-dynamic';
@@ -28,6 +30,15 @@ export async function GET(req) {
   try {
     const session = await requirePermission(PERMISSIONS.REPORTS_VIEW);
     const sp = new URL(req.url).searchParams;
+    await dbConnect();
+    const denied = await screenDenial({
+      session,
+      screen: SCREENS.DASHBOARD,
+      action: PERM.READ,
+      businessId: sp.get('business') || sp.get('businessId'),
+      label: 'the dashboard',
+    });
+    if (denied) return Response.json({ error: denied.message, code: denied.code }, { status: 403, headers: HEADERS });
     const data = await buildDashboardAnalytics(session, sp);
     return Response.json(data, { headers: HEADERS });
   } catch (err) {

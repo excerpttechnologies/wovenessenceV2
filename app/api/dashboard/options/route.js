@@ -1,4 +1,6 @@
 import { requirePermission, PERMISSIONS } from '@/lib/rbac';
+import dbConnect from '@/lib/db';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { CHANNELS, loadDashboardOptions } from '@/lib/dashboard/access';
 import {
   defaultPeriod, financialYearLabel, financialYearOf, financialYearOptions, todayInIndia,
@@ -29,6 +31,14 @@ function fail(err) {
 export async function GET() {
   try {
     const session = await requirePermission(PERMISSIONS.REPORTS_VIEW);
+    await dbConnect();
+    const denied = await screenDenial({
+      session,
+      screen: SCREENS.DASHBOARD,
+      action: PERM.READ,
+      label: 'the dashboard',
+    });
+    if (denied) return json({ error: denied.message, code: denied.code }, 403);
     const access = await loadDashboardOptions(session);
 
     const currentFinancialYear = financialYearOf(todayInIndia());

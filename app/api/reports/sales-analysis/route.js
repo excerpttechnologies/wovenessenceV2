@@ -1,6 +1,7 @@
 import { isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import CompanyLocation from '@/models/CompanyLocation';
 import Item from '@/models/Item';
 import SalesInvoice from '@/models/SalesInvoice';
@@ -42,6 +43,15 @@ export async function GET(req) {
 
   const scope = scopeOf(sp);
   if (sp.get('allLocations') === '1') scope.locationId = null;
+
+  const denied = await screenDenial({
+    session,
+    screen: SCREENS.SALES_ANALYSIS,
+    action: PERM.READ,
+    businessId: scope.businessId,
+    label: 'sales analysis',
+  });
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   if (!sp.get('fromDate') || !sp.get('toDate')) {
     return json({ error: 'From Date and End Date are required.' }, 422);

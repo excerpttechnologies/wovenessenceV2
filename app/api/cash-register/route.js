@@ -2,6 +2,7 @@ import { isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
 import CashRegister, { OPEN } from '@/models/CashRegister';
 import { requireSession } from '@/lib/session';
+import { screenDenialAny, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { sortedPage } from '@/lib/listSort';
 
 /* /api/cash-register - list + open a register.
@@ -29,6 +30,15 @@ export async function GET(req) {
 
   const sp = new URL(req.url).searchParams;
   await dbConnect();
+
+  const denied = await screenDenialAny({
+    session,
+    screens: [SCREENS.CASH_REGISTER, SCREENS.OPEN_REGISTER],
+    action: PERM.READ,
+    businessId: sp.get('business'),
+    label: 'cash registers',
+  });
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const page = Math.max(1, Number(sp.get('page') || 1));
   const perPage = Math.min(500, Number(sp.get('perPage') || PER_PAGE));
@@ -78,6 +88,15 @@ export async function POST(req) {
 
   if (!businessId) return json({ error: 'No business selected.' }, 422);
   if (!locationId) return json({ error: 'No location selected.' }, 422);
+
+  const denied = await screenDenialAny({
+    session,
+    screens: [SCREENS.CASH_REGISTER, SCREENS.OPEN_REGISTER],
+    action: PERM.CREATE,
+    businessId,
+    label: 'cash registers',
+  });
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const already = await CashRegister.findOne({
     businessId, locationId, status: OPEN,

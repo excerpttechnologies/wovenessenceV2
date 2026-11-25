@@ -81,7 +81,7 @@
 
 
 'use client';
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
 /* The three top-bar selectors scope every query in the app:
    business -> location -> financial year. */
@@ -213,23 +213,51 @@ export function ScopeProvider({ children }) {
   }, [business]);
 
   /* Re-read on every business change: permissions are stored per business,
-       so the same role can be allowed more in one branch than another. */
+     so the same role can be allowed more in one branch than another. */
+  const permReqRef = useRef(0);
+  const lastPermFetchAt = useRef(0);
+
+  const refreshPermissions = useCallback(({ showLoading = false } = {}) => {
+    if (!businessReady) return Promise.resolve();
+    const seq = ++permReqRef.current;
+    if (showLoading) setPermsReady(false);
+    lastPermFetchAt.current = Date.now();
+
+    return fetch('/api/my-permissions?business=' + encodeURIComponent(business || ''), { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : { governed: false, screens: {} }))
+      .then((d) => {
+        if (permReqRef.current === seq) {
+          setPerms(d || { governed: false, screens: {} });
+        }
+      })
+      .catch(() => {
+        if (permReqRef.current === seq) {
+          setPerms({ governed: false, screens: {} });
+        }
+      })
+      .finally(() => {
+        if (permReqRef.current === seq) setPermsReady(true);
+      });
+  }, [business, businessReady]);
+
   useEffect(() => {
     if (!businessReady) return undefined;
-    let cancelled = false;
+    refreshPermissions({ showLoading: true });
+    return () => { permReqRef.current += 1; };
+  }, [businessReady, refreshPermissions]);
 
-    /* False while this business's matrix is being read. A branch change must
-       not leave the previous branch's answers on screen as though they applied
-       to the new one. */
-    setPermsReady(false);
-
-    fetch('/api/my-permissions?business=' + (business || ''), { cache: 'no-store' })
-      .then((r) => (r.ok ? r.json() : { governed: false, screens: {} }))
-      .then((d) => { if (!cancelled) setPerms(d || { governed: false, screens: {} }); })
-      .catch(() => { if (!cancelled) setPerms({ governed: false, screens: {} }); })
-      .finally(() => { if (!cancelled) setPermsReady(true); });
-    return () => { cancelled = true; };
-  }, [business, businessReady]);
+  /* Refresh effective permissions when returning to the tab so role changes
+     saved by an administrator take effect without forcing re-login. */
+  useEffect(() => {
+    if (!businessReady || typeof document === 'undefined') return undefined;
+    const onVisibility = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (Date.now() - lastPermFetchAt.current < 5000) return;
+      refreshPermissions({ showLoading: false });
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [businessReady, refreshPermissions]);
 
   useEffect(() => { if (business) localStorage.setItem(BUSINESS_KEY, business); }, [business]);
 
@@ -262,7 +290,7 @@ export function ScopeProvider({ children }) {
     businesses, locations, business, location, finYear,
     businessReady, locationReady, permsReady,
     setBusiness, setLocation, setFinYear,
-    perms, can,
+    perms, can, refreshPermissions,
     // appended to every list/save request
     query: () => new URLSearchParams({ business, location, finYear }).toString(),
   };

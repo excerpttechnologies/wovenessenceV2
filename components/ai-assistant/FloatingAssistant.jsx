@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import AiAssistantClient from './AiAssistantClient';
+import { useScope } from '../ScopeContext';
 
 /* A launcher available on every signed-in screen.
 
@@ -27,6 +28,7 @@ function SparkIcon({ size = 22 }) {
 
 export default function FloatingAssistant() {
   const pathname = usePathname();
+  const { user, userReady, permsReady, can } = useScope();
   const [open, setOpen] = useState(false);
 
   useEffect(() => { setOpen(false); }, [pathname]);
@@ -39,6 +41,11 @@ export default function FloatingAssistant() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open]);
+
+  const isSuperAdmin = user?.role === 'Super Admin';
+  if (!userReady || (!isSuperAdmin && !permsReady) || !can('/admin/ai-assistant', 'read')) {
+    return null;
+  }
 
   if (pathname && (pathname === '/admin/ai-assistant' || pathname.startsWith('/admin/ai-assistant/'))) {
     return null;

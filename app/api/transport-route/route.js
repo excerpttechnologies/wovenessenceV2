@@ -2,6 +2,7 @@ import { isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
 import TransportRoute from '@/models/TransportRoute';
 import { requireSession } from '@/lib/session';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { validate, escapeRegex } from '@/lib/validate';
 import { FIELDS } from '@/app/admin/transport/route/fields';
 import { sortedPage } from '@/lib/listSort';
@@ -17,6 +18,9 @@ export async function GET(req) {
 
   const sp = new URL(req.url).searchParams;
   await dbConnect();
+
+  const denied = await screenDenial({ session, screen: SCREENS.ROUTE, action: PERM.READ, businessId: sp.get('business'), label: 'routes' });
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const page = Math.max(1, Number(sp.get('page') || 1));
   const perPage = Math.min(500, Number(sp.get('perPage') || PER_PAGE));

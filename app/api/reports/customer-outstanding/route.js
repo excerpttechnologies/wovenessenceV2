@@ -1,6 +1,7 @@
 import { isValidObjectId, Types } from 'mongoose';
 import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import PosInvoice from '@/models/PosInvoice';
 import PosReturn from '@/models/PosReturn';
 import { Customer } from '@/lib/contacts';
@@ -47,6 +48,8 @@ export async function GET(req) {
   await dbConnect();
 
   const scope = scopeOf(sp);
+  const denied = await screenDenial({ session, screen: SCREENS.CUSTOMER_OUTSTANDING, action: PERM.READ, businessId: scope.businessId, label: 'the customer outstanding report' });
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
   const { page, perPage } = pageOf(sp);
   const tab = sp.get('tab') === 'detailed' ? 'detailed' : 'summary';
 

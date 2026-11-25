@@ -315,6 +315,7 @@ export default function RolesPermissionsPage() {
       setSavedRoles((cur) => (cur.includes(role) ? cur : [...cur, role]));
       setSavedSnapshot((cur) => ({ ...cur, [role]: JSON.stringify(toApi(matrix[role])) }));
       setFlash({ type: 'ok', msg: 'Saved - ' + role + ' now holds ' + d.granted + ' permissions.' });
+      scope.refreshPermissions?.();
     } catch {
       setFlash({ type: 'err', msg: 'Could not save.' });
     } finally {
@@ -342,6 +343,7 @@ export default function RolesPermissionsPage() {
         ...cur, [role]: JSON.stringify(toApi(DEFAULT_MATRIX[role] || {})),
       }));
       setFlash({ type: 'ok', msg: role + ' is back to its default permissions.' });
+      scope.refreshPermissions?.();
     } catch {
       setFlash({ type: 'err', msg: 'Could not reset.' });
     } finally {
@@ -380,6 +382,7 @@ export default function RolesPermissionsPage() {
       }
       setFlash({ type: 'ok', msg: user.name + ' updated.' });
       loadUsers();
+      scope.refreshPermissions?.();
     } catch {
       setFlash({ type: 'err', msg: 'Could not save that change.' });
     } finally {
@@ -507,11 +510,9 @@ export default function RolesPermissionsPage() {
 
       {/* The one thing somebody has to know before trusting this screen. */}
       <div className="note-box mt-3 text-[12px]">
-        <b>Saved, but not yet enforced.</b> Permissions are stored per business and
-        survive a reload, and the users are real accounts. Nothing reads these
-        permissions when deciding what a screen allows - that wiring is a separate
-        job. Until it is done, a role&apos;s real reach is still whatever
-        <code> lib/rbac.js</code> says.
+        <b>Enforced across sidebar, pages, and APIs.</b> Permissions are stored per
+        business. Disabling <b>Read</b> for a screen immediately hides its menu and
+        parent group from the sidebar and blocks direct URL and API access for that role.
       </div>
 
       {flash && (

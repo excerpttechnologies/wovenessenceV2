@@ -1,6 +1,7 @@
 import { Types } from 'mongoose';
 import dbConnect from '@/lib/db';
 import { requireUser } from '@/lib/rbac';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { handler } from '@/lib/apiError';
 import StockMovement, { MOVEMENT_TYPES } from '@/models/StockMovement';
 import CompanyLocation from '@/models/CompanyLocation';
@@ -30,11 +31,19 @@ import { json, r2, scopeOf, pageOf, paged } from '@/lib/reports';
    history that was never captured. */
 
 export const GET = handler(async (req) => {
-  await requireUser();
+  const session = await requireUser();
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
   const scope = scopeOf(sp);
+  const denied = await screenDenial({
+    session,
+    screen: SCREENS.STOCK_MOVEMENT,
+    action: PERM.READ,
+    businessId: scope.businessId,
+    label: 'the stock movement report',
+  });
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
   const { page, perPage } = pageOf(sp);
   const tab = ['bytype', 'bylocation', 'bybarcode', 'bydocument'].includes(sp.get('tab'))
     ? sp.get('tab') : 'daily';

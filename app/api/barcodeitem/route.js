@@ -3,6 +3,7 @@ import dbConnect from '@/lib/db';
 import BarcodeItem, { LABEL_FIELD } from '@/models/BarcodeItem';
 import ProductImage from '@/models/ProductImage';
 import { requireSession } from '@/lib/session';
+import { screenDenialAny, BARCODE_LIST_SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { resolveRefLabels } from '@/lib/refLabels';
 import { validate, escapeRegex } from '@/lib/validate';
 import { imageUrl } from '@/lib/inventory';
@@ -18,6 +19,9 @@ export async function GET(req) {
 
   const sp = new URL(req.url).searchParams;
   await dbConnect();
+
+  const denied = await screenDenialAny({ session, screens: BARCODE_LIST_SCREENS, action: PERM.READ, businessId: sp.get('business'), label: 'barcode items' });
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const page = Math.max(1, Number(sp.get('page') || 1));
   const perPage = Math.min(500, Number(sp.get('perPage') || PER_PAGE));

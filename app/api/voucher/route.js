@@ -2,7 +2,14 @@ import { isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
 import Voucher from '@/models/Voucher';
 import { requireSession } from '@/lib/session';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { escapeRegex } from '@/lib/validate';
+
+const VOUCHER_SCREENS = {
+  Receipt: SCREENS.RECEIPT_VOUCHER,
+  Contra: SCREENS.CONTRA_VOUCHER,
+  Payment: SCREENS.PAYMENT_VOUCHER,
+};
 import { nextSeriesNumber } from '@/lib/docnumber';
 import { SPECS, ROLE_SIDE, totalsOf, num, r2 } from '@/app/admin/voucher/fields';
 import { sortedPage } from '@/lib/listSort';
@@ -30,6 +37,12 @@ export async function GET(req) {
   if (!type || !SPECS[type]) return json({ error: 'Unknown voucher type' }, 400);
 
   await dbConnect();
+
+  const screen = VOUCHER_SCREENS[type];
+  if (screen) {
+    const denied = await screenDenial({ session, screen, action: PERM.READ, businessId: sp.get('business'), label: `${type} vouchers` });
+    if (denied) return json({ error: denied.message, code: denied.code }, 403);
+  }
 
   const page = Math.max(1, Number(sp.get('page') || 1));
   const perPage = Math.min(500, Number(sp.get('perPage') || PER_PAGE));
@@ -108,6 +121,12 @@ export async function POST(req) {
   const locationId = isValidObjectId(body.location) ? body.location : null;
   const finYear = body.finYear || '';
   if (!businessId) return json({ error: 'No business selected.' }, 422);
+
+  const screen = VOUCHER_SCREENS[type];
+  if (screen) {
+    const denied = await screenDenial({ session, screen, action: PERM.CREATE, businessId, label: `${type} vouchers` });
+    if (denied) return json({ error: denied.message, code: denied.code }, 403);
+  }
 
   const incoming = Array.isArray(body.lines) ? body.lines : [];
   if (incoming.length < 2) {

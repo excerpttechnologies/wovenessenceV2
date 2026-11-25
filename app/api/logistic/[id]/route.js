@@ -1,6 +1,7 @@
 import dbConnect from '@/lib/db';
 import Logistic from '@/models/Logistic';
 import { requireSession } from '@/lib/session';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { validate } from '@/lib/validate';
 import { FIELDS } from '@/app/admin/logistic/fields';
 
@@ -17,6 +18,8 @@ export async function GET(req, { params }) {
 
   const doc = await Logistic.findById(id).lean();
   if (!doc) return json({ doc: null }, 404);
+  const denied = await screenDenial({ session, screen: SCREENS.LOGISTIC, action: PERM.READ, businessId: doc.businessId, label: 'logistics' });
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
   return json({ doc: { ...doc, _id: String(doc._id) } });
 }
 
@@ -27,6 +30,11 @@ export async function PUT(req, { params }) {
   const { id } = await params;
   const body = await req.json();
   await dbConnect();
+
+  const existing = await Logistic.findById(id).select('businessId').lean();
+  if (!existing) return json({ error: 'Not found' }, 404);
+  const denied = await screenDenial({ session, screen: SCREENS.LOGISTIC, action: PERM.UPDATE, businessId: existing.businessId, label: 'logistics' });
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const { errors, doc, ok } = validate(FIELDS, body.data || {});
   if (!ok) return json({ errors }, 422);
@@ -43,6 +51,11 @@ export async function DELETE(req, { params }) {
 
   const { id } = await params;
   await dbConnect();
+
+  const existing = await Logistic.findById(id).select('businessId').lean();
+  if (!existing) return json({ ok: true });
+  const denied = await screenDenial({ session, screen: SCREENS.LOGISTIC, action: PERM.DELETE, businessId: existing.businessId, label: 'logistics' });
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   await Logistic.findByIdAndDelete(id);
   return json({ ok: true });

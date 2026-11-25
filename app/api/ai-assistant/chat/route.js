@@ -1,5 +1,7 @@
 import { requireSession } from '@/lib/session';
 import { PERMISSIONS, requirePermission } from '@/lib/rbac';
+import dbConnect from '@/lib/db';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { answerQuestion } from '@/lib/ai-assistant/orchestrator';
 import { rateLimit, recordAudit } from '@/lib/ai-assistant/guard';
 
@@ -46,6 +48,16 @@ export async function POST(req) {
      403 into an opaque 500. */
   try {
     await requirePermission(PERMISSIONS.REPORTS_VIEW);
+    await dbConnect();
+    const denied = await screenDenial({
+      session,
+      screen: SCREENS.AI_ASSISTANT,
+      action: PERM.READ,
+      label: 'AI Intelligence',
+    });
+    if (denied) {
+      return Response.json({ error: denied.message, code: denied.code }, { status: 403, headers: HEADERS });
+    }
   } catch (err) {
     return fail(err);
   }

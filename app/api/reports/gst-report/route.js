@@ -1,6 +1,7 @@
 import { isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
+import { screenDenialAny, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import PosInvoice from '@/models/PosInvoice';
 import PosReturn from '@/models/PosReturn';
 import SalesInvoice from '@/models/SalesInvoice';
@@ -197,6 +198,14 @@ export async function GET(req) {
   }
 
   await dbConnect();
+  const denied = await screenDenialAny({
+    session,
+    screens: [SCREENS.GST_REPORT, SCREENS.GST_SUMMARY, SCREENS.HSN_SUMMARY],
+    action: PERM.READ,
+    businessId: scope.businessId,
+    label: 'the GST report',
+  });
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
   const requested = (sp.get('types') || ALL_TYPES.join(',')).split(',').map((type) => type.trim());
   const selectedTypes = new Set(requested.filter((type) => ALL_TYPES.includes(type)));
   if (!selectedTypes.size) return json({ error: 'Select at least one report type.' }, 422);

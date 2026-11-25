@@ -1,6 +1,7 @@
 import { isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import CompanyLocation from '@/models/CompanyLocation';
 import { Agent } from '@/lib/contacts';
 import DeliveryChallan from '@/models/DeliveryChallan';
@@ -46,6 +47,8 @@ export async function GET(req) {
   await dbConnect();
 
   const scope = scopeOf(sp);
+  const denied = await screenDenial({ session, screen: SCREENS.SALES_PERSON_REPORT, action: PERM.READ, businessId: scope.businessId, label: 'the sales person report' });
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
   const tab = sp.get('tab') === 'billwise' ? 'billwise' : 'general';
 
   if (!sp.get('fromDate') || !sp.get('toDate')) {

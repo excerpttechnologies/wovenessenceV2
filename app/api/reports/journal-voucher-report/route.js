@@ -1,6 +1,7 @@
 import { isValidObjectId, Types } from 'mongoose';
 import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import JournalEntry from '@/models/JournalEntry';
 import AccountsMaster, { ACCOUNT_TYPES } from '@/models/AccountsMaster';
 import CompanyLocation from '@/models/CompanyLocation';
@@ -63,6 +64,8 @@ export async function GET(request) {
 
   const scope = scopeOf(params);
   if (!scope.businessId) return json({ error: 'Select a business in the top bar.' }, 422);
+  const denied = await screenDenial({ session, screen: SCREENS.JOURNAL_VOUCHER_REPORT, action: PERM.READ, businessId: scope.businessId, label: 'the journal voucher report' });
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
   if (params.get('allLocations') === '1') scope.locationId = null;
 
   const ledgerId = params.get('ledgerId') || '';
