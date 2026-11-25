@@ -5847,7 +5847,7 @@ function AddItemModal({ open, onClose, onSubmit, barcodeFormat, business = "", m
      picking in either box updates the other and pulls the GST slab with it.
      Fully editable in both places: this is a live search, never locked. */
   const renderHsnField = () => (
-    <div className="space-y-1">
+    <div className="space-y-1 w-full">
       <label className="block text-[11px] font-semibold text-gray-700">HSN *</label>
       <SearchSelect
         placeholder="Search HSN…"
@@ -5868,7 +5868,7 @@ function AddItemModal({ open, onClose, onSubmit, barcodeFormat, business = "", m
      hsnLabel / hsnOptions and writes through handleHsnSelection, so changing
      either box changes both at once and the row carries one HSN, not two. */
   const renderHsn2Field = () => (
-    <div className="space-y-1">
+    <div className="space-y-1 w-full">
       <label className="block text-[11px] font-semibold text-gray-700">HSN *</label>
       <SearchSelect
         placeholder="Search HSN…"
@@ -6790,7 +6790,7 @@ function AddItemModal({ open, onClose, onSubmit, barcodeFormat, business = "", m
               Bill Sl No. here is a locked read-back of the value entered in row 2
               — one value, two windows, hidden with it. Serial No. is the same
               bill line, locked. */}
-          <div className={`mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 ${SHOW_BILL_SL_NO ? "xl:grid-cols-[90px_90px_170px_230px_230px]" : "xl:grid-cols-[90px_170px_230px_230px]"}`}>
+          <div className={`mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 ${SHOW_BILL_SL_NO ? "xl:grid-cols-[90px_90px_minmax(170px,1fr)_auto]" : "xl:grid-cols-[90px_minmax(170px,1fr)_auto]"}`}>
             {SHOW_BILL_SL_NO && <SerialNoField value={form.serialNo} readOnlyClass={readOnlyClass} locked />}
             <div className="space-y-1">
               <label className="block text-[11px] font-semibold text-gray-700">Serial No. *</label>
@@ -6823,11 +6823,11 @@ function AddItemModal({ open, onClose, onSubmit, barcodeFormat, business = "", m
 
             {renderHsn2Field()}
 
-            <div className="flex items-end gap-0">
-              <label className="flex w-fit cursor-pointer items-center justify-start gap-3 whitespace-nowrap rounded-md border border-[#dfe4eb] bg-white px-3 py-2 text-sm text-gray-700">
+            <div className="flex items-end gap-2 flex-wrap">
+              <label className="flex w-fit cursor-pointer items-center justify-start gap-2 whitespace-nowrap rounded-md border border-[#dfe4eb] bg-white px-3 py-2 text-sm text-gray-700">
                 <input type="checkbox" checked={form.uniqueBarcode} onChange={(event) => updateField("uniqueBarcode", event.target.checked)} className="h-4 w-4 accent-[#0d5ddc]" /> Unique Barcode
               </label>
-              <label className="flex w-fit cursor-pointer items-center justify-start gap-3 whitespace-nowrap rounded-md border border-[#dfe4eb] bg-white px-3 py-2 text-sm text-gray-700">
+              <label className="flex w-fit cursor-pointer items-center justify-start gap-2 whitespace-nowrap rounded-md border border-[#dfe4eb] bg-white px-3 py-2 text-sm text-gray-700">
                 <input type="checkbox" checked={form.isMtr} onChange={(event) => {
                   const checked = event.target.checked;
                   updateField("isMtr", checked);
@@ -6842,7 +6842,7 @@ function AddItemModal({ open, onClose, onSubmit, barcodeFormat, business = "", m
                   }
                 }} className="h-4 w-4 accent-[#0d5ddc]" /> MTR
               </label>
-              <label className="flex w-fit cursor-pointer items-center justify-start gap-3 whitespace-nowrap rounded-md border border-[#dfe4eb] bg-white px-3 py-2 text-sm text-gray-700">
+              <label className="flex w-fit cursor-pointer items-center justify-start gap-2 whitespace-nowrap rounded-md border border-[#dfe4eb] bg-white px-3 py-2 text-sm text-gray-700">
                 <input type="checkbox" checked={form.offerApplicable} onChange={(event) => updateField("offerApplicable", event.target.checked)} className="h-4 w-4 accent-[#0d5ddc]" /> OFFER APPLICABLE
               </label>
             </div>
