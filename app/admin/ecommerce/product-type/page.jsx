@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Icon from '@/components/Icon';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import { useScope } from '@/components/ScopeContext';
 
 /* E-commerce -> Product Type */
@@ -27,7 +28,6 @@ const defaultFilterMeta = (key, index) => ({
 
 const defaultGroupConfig = (row) => ({
   displayName: row?.displayName || row?.label || '',
-  slug: row?.ecommerceSlug || '',
   description: row?.description || '',
   displayOrder: row?.displayOrder ?? 0,
   isActive: row?.isActive !== false,
@@ -60,6 +60,8 @@ export default function ProductTypePage() {
 
   const [showAdd, setShowAdd] = useState(false);
   const [addError, setAddError] = useState('');
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   /*
    * Load Product Types.
@@ -266,7 +268,6 @@ export default function ProductTypePage() {
           name,
           displayName: editEcom?.displayName ?? '',
           description: editEcom?.description ?? '',
-          ecommerceSlug: editEcom?.slug ?? '',
           displayOrder: editEcom?.displayOrder ?? 0,
           isActive: editEcom?.isActive !== false,
           ecommerceVisible: editEcom?.ecommerceVisible !== false,
@@ -316,6 +317,32 @@ export default function ProductTypePage() {
       await load();
     } catch (err) {
       setError(err.message || 'Could not update it.');
+    }
+  }
+
+  async function confirmDelete() {
+    const row = pendingDelete;
+    if (!row || !business || deleting) return;
+    setDeleting(true);
+    setError('');
+    setFlash('');
+    try {
+      const q = new URLSearchParams({
+        business,
+        value: row.value || '',
+        ...(row._id ? { id: row._id } : {}),
+      });
+      const r = await fetch('/api/v1/admin/product-types?' + q.toString(), { method: 'DELETE' });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || 'Could not delete product type.');
+      setPendingDelete(null);
+      setFlash('"' + (row.label || row.value) + '" deleted.');
+      await load();
+    } catch (err) {
+      setPendingDelete(null);
+      setError(err.message || 'Could not delete product type.');
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -374,7 +401,7 @@ export default function ProductTypePage() {
       {/* Add Product Type Modal */}
       {showAdd && (
         <div
-          className="fixed inset-0 z-[80] flex items-start justify-center bg-black/45 p-4 pt-24"
+          className="fixed inset-0 z-[80] flex items-center justify-center overflow-y-auto bg-black/45 p-4"
           onMouseDown={() => {
             if (!saving) setShowAdd(false);
           }}
@@ -450,17 +477,17 @@ export default function ProductTypePage() {
 
       {editing && (
         <div
-          className="fixed inset-0 z-[80] flex items-start justify-center bg-black/45 p-4 pt-24"
+          className="fixed inset-0 z-[80] flex items-center justify-center overflow-y-auto bg-black/45 p-4"
           onMouseDown={() => {
             if (!editSaving) setEditing(null);
           }}
         >
           <form
-            className="w-full max-w-[680px] rounded-lg bg-white shadow-pop"
+            className="flex max-h-[90vh] w-full max-w-[680px] flex-col overflow-hidden rounded-lg bg-white shadow-pop"
             onMouseDown={(e) => e.stopPropagation()}
             onSubmit={saveEdit}
           >
-            <div className="flex items-center border-b border-line px-4 py-3">
+            <div className="flex shrink-0 items-center border-b border-line px-4 py-3">
               <span className="text-[15px] font-bold">Edit Product Type</span>
               <span className="flex-1" />
               <button
@@ -474,7 +501,7 @@ export default function ProductTypePage() {
               </button>
             </div>
 
-            <div className="px-4 py-4">
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
               <label className="f-label">
                 Product Type name <span className="text-danger">*</span>
               </label>
@@ -493,7 +520,7 @@ export default function ProductTypePage() {
               <div className="mt-4 rounded border border-line p-3">
                 <div className="f-label">E-commerce group</div>
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <div>
+                  <div className="sm:col-span-2">
                     <label className="f-label">Display name</label>
                     <input
                       className="f-input w-full"
@@ -501,16 +528,6 @@ export default function ProductTypePage() {
                       disabled={editSaving}
                       placeholder={editName || 'e.g. Sarees'}
                       onChange={(e) => setEditEcom((c) => ({ ...(c || {}), displayName: e.target.value }))}
-                    />
-                  </div>
-                  <div>
-                    <label className="f-label">Collection slug</label>
-                    <input
-                      className="f-input w-full"
-                      value={editEcom?.slug ?? ''}
-                      disabled={editSaving}
-                      placeholder="auto from display name"
-                      onChange={(e) => setEditEcom((c) => ({ ...(c || {}), slug: e.target.value }))}
                     />
                   </div>
                   <div className="sm:col-span-2">
@@ -720,25 +737,25 @@ export default function ProductTypePage() {
               </div>
 
               {editError && <div className="f-err mt-2">{editError}</div>}
+            </div>
 
-              <div className="mt-4 flex justify-end gap-2">
-                <button
-                  type="button"
-                  className="btn"
-                  disabled={editSaving}
-                  onClick={() => setEditing(null)}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="btn btn-primary"
-                  disabled={editSaving}
-                >
-                  <Icon name="save" size={14} />
-                  {editSaving ? 'Saving...' : 'Save'}
-                </button>
-              </div>
+            <div className="flex shrink-0 justify-end gap-2 border-t border-line bg-white px-4 py-3">
+              <button
+                type="button"
+                className="btn"
+                disabled={editSaving}
+                onClick={() => setEditing(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={editSaving}
+              >
+                <Icon name="save" size={14} />
+                {editSaving ? 'Saving...' : 'Save'}
+              </button>
             </div>
           </form>
         </div>
@@ -773,11 +790,10 @@ export default function ProductTypePage() {
           <table className="dt">
             <thead>
               <tr>
-                <th style={{ width: 90 }}>Action</th>
+                <th style={{ width: 110 }}>Action</th>
                 <th style={{ width: 70 }}>Sl. No.</th>
                 <th style={{ minWidth: 160 }}>Product Type</th>
                 <th style={{ minWidth: 140 }}>Group</th>
-                <th style={{ minWidth: 140 }}>Slug</th>
                 <th style={{ width: 90 }}>Store</th>
                 <th style={{ minWidth: 280 }}>Filters</th>
               </tr>
@@ -787,7 +803,7 @@ export default function ProductTypePage() {
               {loading && (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={6}
                     className="text-center text-inkmuted"
                   >
                     Loading...
@@ -798,11 +814,11 @@ export default function ProductTypePage() {
               {!loading && !shown.length && (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={6}
                     className="text-center text-inkmuted"
                   >
                     {business
-                      ? 'No product types yet - use Add.'
+                      ? (needle ? 'No matching records found.' : 'No records found. Please add new records.')
                       : '-'}
                   </td>
                 </tr>
@@ -824,22 +840,31 @@ export default function ProductTypePage() {
                             type="button"
                             title="Edit"
                             aria-label={'Edit ' + row.label}
-                            className="flex h-7 w-7 items-center justify-center rounded bg-blue-600 text-white"
+                            className="act-btn act-blue"
                             onClick={() => startEdit(row)}
                           >
-                            <Icon name="pencil" size={14} />
+                            <Icon name="pencil" size={13} />
                           </button>
                           <button
                             type="button"
                             title={row.isActive === false ? 'Enable' : 'Disable'}
                             aria-label={(row.isActive === false ? 'Enable ' : 'Disable ') + row.label}
                             className={
-                              'flex h-7 w-7 items-center justify-center rounded text-white '
-                              + (row.isActive === false ? 'bg-emerald-600' : 'bg-danger')
+                              'act-btn '
+                              + (row.isActive === false ? 'act-green' : 'act-amber')
                             }
                             onClick={() => toggleActive(row)}
                           >
-                            <Icon name={row.isActive === false ? 'check' : 'x'} size={14} />
+                            <Icon name={row.isActive === false ? 'check' : 'x'} size={13} />
+                          </button>
+                          <button
+                            type="button"
+                            title="Delete"
+                            aria-label={'Delete ' + row.label}
+                            className="act-btn act-red"
+                            onClick={() => setPendingDelete(row)}
+                          >
+                            <Icon name="trash" size={13} />
                           </button>
                         </div>
                       </td>
@@ -852,7 +877,6 @@ export default function ProductTypePage() {
 
                       {/* Ecommerce group */}
                       <td>{row.displayName || row.label}</td>
-                      <td className="font-mono text-[12px]">{row.ecommerceSlug || '-'}</td>
                       <td>
                         {row.isActive === false ? (
                           <span className="inline-flex rounded bg-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
@@ -905,6 +929,21 @@ export default function ProductTypePage() {
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={Boolean(pendingDelete)}
+        danger
+        busy={deleting}
+        title="Delete Product Type"
+        message={
+          pendingDelete
+            ? `Delete "${pendingDelete.label || pendingDelete.value}"? This will fail cleanly if any products still reference it.`
+            : ''
+        }
+        confirmLabel="Delete"
+        onCancel={() => !deleting && setPendingDelete(null)}
+        onConfirm={confirmDelete}
+      />
     </div>
   );
 }

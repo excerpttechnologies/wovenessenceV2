@@ -4081,26 +4081,26 @@ async function listAllErpBarcodes({
   ]).map((value) => String(value || '').trim()).filter((value) => isValidObjectId(value)))];
   const groupNameById = new Map();
   const typeByGroupName = new Map();
-  if (pageGroupIds.length) {
-    const [pageGroups, typeRows] = await Promise.all([
-      database.collection('productgroup')
+  const [pageGroups, typeRows] = await Promise.all([
+    pageGroupIds.length
+      ? database.collection('productgroup')
         .find({ _id: { $in: pageGroupIds.map((gid) => new Types.ObjectId(gid)) } })
-        .project({ name: 1 }).toArray(),
-      database.collection('producttypes')
-        .find(isBusinessScoped
-          ? { businessId: { $in: [businessId, new Types.ObjectId(businessId)] }, isActive: { $ne: false } }
-          : { isActive: { $ne: false } })
-        .project({ value: 1, label: 1 }).toArray(),
-    ]);
-    pageGroups.forEach((group) => groupNameById.set(String(group._id), String(group.name || '')));
-    typeRows.forEach((type) => {
-      const value = String(type.value || '').trim();
-      if (!value) return;
-      if (!typeByGroupName.has(value.toLowerCase())) typeByGroupName.set(value.toLowerCase(), value);
-      const label = String(type.label || '').trim().toLowerCase();
-      if (label && !typeByGroupName.has(label)) typeByGroupName.set(label, value);
-    });
-  }
+        .project({ name: 1 }).toArray()
+      : Promise.resolve([]),
+    database.collection('producttypes')
+      .find(isBusinessScoped
+        ? { businessId: { $in: [businessId, new Types.ObjectId(businessId)] }, isActive: { $ne: false } }
+        : { isActive: { $ne: false } })
+      .project({ value: 1, label: 1 }).toArray(),
+  ]);
+  pageGroups.forEach((group) => groupNameById.set(String(group._id), String(group.name || '')));
+  typeRows.forEach((type) => {
+    const value = String(type.value || '').trim();
+    if (!value) return;
+    if (!typeByGroupName.has(value.toLowerCase())) typeByGroupName.set(value.toLowerCase(), value);
+    const label = String(type.label || '').trim().toLowerCase();
+    if (label && !typeByGroupName.has(label)) typeByGroupName.set(label, value);
+  });
   /* one pass over the rows, keyed by each item - never a scan per group */
   const typeByItemId = new Map();
   if (typeByGroupName.size) {
@@ -4150,6 +4150,13 @@ async function listAllErpBarcodes({
         || '',
       ...barcodeCodes,
     );
+    const liveQty = barcodeRow.qtyNum != null
+      ? Number(barcodeRow.qtyNum) || 0
+      : barcodeRow.qty != null ? Number(barcodeRow.qty) || 0 : null;
+    const savedQty = productForBarcode?.barcodeQtyOverride;
+    const requiredQty = savedQty !== undefined && savedQty !== null && savedQty !== ''
+      ? Number(savedQty)
+      : liveQty;
     return {
       ...(product
         ? (productForBarcode ? plain(product) : withoutPerBarcodeFields(plain(product)))
@@ -4166,13 +4173,8 @@ async function listAllErpBarcodes({
       productType: resolvedProductType,
       isPublished: productVisibleForBarcode(product, barcode),
       salesCount: product?.salesCount || 0,
-      /* qtyNum comes from the live barcodeLabel row - this is the stock
-         quantity in the DB, not the override stored in the ecommerceproduct.
-         qty is the older imported spelling and is read only when qtyNum is
-         missing, exactly as the query above reads it. */
-      dbQty: barcodeRow.qtyNum != null
-        ? Number(barcodeRow.qtyNum) || 0
-        : barcodeRow.qty != null ? Number(barcodeRow.qty) || 0 : null,
+      dbQty: liveQty,
+      requiredQty,
       createdAt: product?.createdAt || barcodeRow.createdAt,
       updatedAt: product?.updatedAt || barcodeRow.updatedAt,
       _searchText: [
@@ -5217,6 +5219,8 @@ export async function GET(req) {
           oldBarcode: 1,
           imageUrl: 1,
           filePath: 1,
+          qtyNum: 1,
+          qty: 1,
         },
       })
       .collation({ locale: 'en', strength: 2 })
@@ -5263,6 +5267,8 @@ export async function GET(req) {
             oldBarcode: 1,
             imageUrl: 1,
             filePath: 1,
+            qtyNum: 1,
+            qty: 1,
           },
         })
         .collation({ locale: 'en', strength: 2 })
@@ -5282,6 +5288,8 @@ export async function GET(req) {
   }
   const barcodeByItemId = new Map();
   const barcodeByItemCode = new Map();
+  const qtyByBarcode = new Map();
+  const qtyByItemId = new Map();
   const imageByBarcode = new Map();
   const imageByItemId = new Map();
   const imageByItemCode = new Map();
@@ -5292,8 +5300,16 @@ export async function GET(req) {
       .filter(Boolean);
     const value = values[0] || '';
     const itemId = barcode.itemId ? String(barcode.itemId) : '';
+    const liveQty = barcode.qtyNum != null
+      ? Number(barcode.qtyNum) || 0
+      : barcode.qty != null ? Number(barcode.qty) || 0 : null;
     if (itemId && value && !barcodeByItemId.has(itemId)) barcodeByItemId.set(itemId, value);
-    values.forEach((barcodeValue) => barcodeValues.add(barcodeValue));
+    if (itemId && liveQty != null && !qtyByItemId.has(itemId)) qtyByItemId.set(itemId, liveQty);
+    values.forEach((barcodeValue) => {
+      barcodeValues.add(barcodeValue);
+      const bKey = barcodeValue.toLowerCase();
+      if (liveQty != null && !qtyByBarcode.has(bKey)) qtyByBarcode.set(bKey, liveQty);
+    });
     const itemCodeKey = itemCodeMapKey(barcode.businessId, barcode.itemCode);
     const currentItemCodeKey = itemCodeMapKey(barcode.currentBusinessId, barcode.itemCode);
     if (barcode.itemCode && value && !barcodeByItemCode.has(itemCodeKey)) {
@@ -5411,6 +5427,8 @@ export async function GET(req) {
         businessName: businessName || '',
         itemLabel: item ? [item.itemCode, item.name].filter(Boolean).join(' - ') : '',
         ecommItemCode: row.ecommItemCode || item?.itemCode || '',
+        dbQty: qtyByBarcode.get(String(barcode).trim().toLowerCase()) ?? qtyByItemId.get(String(r.itemId)) ?? null,
+        requiredQty: row.barcodeQtyOverride ?? qtyByBarcode.get(String(barcode).trim().toLowerCase()) ?? qtyByItemId.get(String(r.itemId)) ?? null,
         _id: String(r._id),
       };
     }),

@@ -38,6 +38,11 @@ export default function ClassificationOptionsPage({ type, label }) {
   /* the Add pop-up (28-10-2026): open, and its own error line */
   const [showAdd, setShowAdd] = useState(false);
   const [addError, setAddError] = useState('');
+  /* Edit pop-up */
+  const [editing, setEditing] = useState(null);
+  const [editName, setEditName] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState('');
   /* delete asks through the app's ConfirmDialog; client-side paging (30-10-2026) */
   const [pendingDelete, setPendingDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -96,6 +101,33 @@ export default function ClassificationOptionsPage({ type, label }) {
       setAddError(err.message || 'Could not add it.');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function saveEdit(e) {
+    e.preventDefault();
+    const name = editName.trim().replace(/\s+/g, ' ');
+    if (!name) { setEditError('Enter a name.'); return; }
+    if (!business || !editing || editSaving) return;
+    setEditSaving(true);
+    setError('');
+    setEditError('');
+    setFlash('');
+    try {
+      const r = await fetch('/api/v1/admin/product-classification-options/' + editing._id, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ business, name }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || 'Could not update it.');
+      setEditing(null);
+      setFlash('"' + (d.option?.name || name) + '" updated.');
+      load();
+    } catch (err) {
+      setEditError(err.message || 'Could not update it.');
+    } finally {
+      setEditSaving(false);
     }
   }
 
@@ -175,6 +207,38 @@ export default function ClassificationOptionsPage({ type, label }) {
         </div>
       )}
 
+      {/* EDIT POP-UP */}
+      {editing && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center overflow-y-auto bg-black/45 p-4" onMouseDown={() => { if (!editSaving) setEditing(null); }}>
+          <form className="w-full max-w-[420px] rounded-lg bg-white shadow-pop" onMouseDown={(e) => e.stopPropagation()} onSubmit={saveEdit}>
+            <div className="flex items-center border-b border-line px-4 py-3">
+              <span className="text-[15px] font-bold">Edit {label} - {groupLabel}</span>
+              <span className="flex-1" />
+              <button type="button" aria-label="Close" className="flex h-6 w-6 items-center justify-center rounded-full bg-[#e0342c] text-white" disabled={editSaving} onClick={() => setEditing(null)}>
+                <Icon name="x" size={12} />
+              </button>
+            </div>
+            <div className="px-4 py-4">
+              <label className="f-label">{label} name <span className="text-danger">*</span></label>
+              <input
+                className="f-input w-full"
+                autoFocus
+                value={editName}
+                disabled={editSaving}
+                onChange={(e) => { setEditName(e.target.value); setEditError(''); }}
+              />
+              {editError && <div className="f-err mt-1">{editError}</div>}
+              <div className="mt-4 flex justify-end gap-2">
+                <button type="button" className="btn" disabled={editSaving} onClick={() => setEditing(null)}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={editSaving}>
+                  <Icon name="save" size={14} /> {editSaving ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      )}
+
       <div className="card-body">
         {!business && <div className="flash flash-err">Select a company in the top bar.</div>}
         {flash && <div className="flash flash-ok">{flash}</div>}
@@ -200,13 +264,30 @@ export default function ClassificationOptionsPage({ type, label }) {
             </thead>
             <tbody>
               {loading && <tr><td colSpan={3} className="text-center text-inkmuted">Loading...</td></tr>}
-              {!loading && !shown.length && <tr><td colSpan={3} className="text-center text-inkmuted">{business ? 'Nothing in ' + groupLabel + ' yet - use Add.' : '-'}</td></tr>}
+              {!loading && !shown.length && <tr><td colSpan={3} className="text-center text-inkmuted">{business ? (needle ? 'No matching records found.' : 'No records found. Please add new records.') : '-'}</td></tr>}
               {!loading && shown.map((row, i) => (
                 <tr key={row._id}>
                   <td>
-                    <button type="button" title="Delete" aria-label={'Delete ' + row.name} className="act-btn act-red" onClick={() => setPendingDelete(row)}>
-                      <Icon name="trash" size={12} />
-                    </button>
+                    <span className="inline-flex items-center gap-1">
+                      <button
+                        type="button"
+                        title="Edit"
+                        aria-label={'Edit ' + row.name}
+                        className="act-btn act-blue"
+                        onClick={() => { setEditing(row); setEditName(row.name || ''); setEditError(''); setFlash(''); }}
+                      >
+                        <Icon name="pencil" size={12} />
+                      </button>
+                      <button
+                        type="button"
+                        title="Delete"
+                        aria-label={'Delete ' + row.name}
+                        className="act-btn act-red"
+                        onClick={() => setPendingDelete(row)}
+                      >
+                        <Icon name="trash" size={12} />
+                      </button>
+                    </span>
                   </td>
                   <td>{offset + i + 1}</td>
                   <td>{row.name}</td>

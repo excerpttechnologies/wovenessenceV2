@@ -100,14 +100,14 @@
 
 
 
-import { isValidObjectId } from 'mongoose';
+import { isValidObjectId, Types } from 'mongoose';
 import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
 import { CLASSIFICATION_TYPES, PRODUCT_TYPES } from '@/lib/productClassificationConstants';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { businessMatch } from '@/lib/classificationCollections';
 import { bumpCatalogVersion } from '@/lib/ecommerceCatalog';
-import { normalizeFilterConfig, normalizeGroupConfig, slugify } from '@/lib/ecommerceFilterConfig';
+import { normalizeFilterConfig, normalizeGroupConfig } from '@/lib/ecommerceFilterConfig';
 
 const json = (data, status = 200) => Response.json(data, { status });
 const TYPE_COLLECTION = 'producttypes';
@@ -129,34 +129,22 @@ export async function GET(req) {
 
   const connection = await dbConnect();
   const collection = connection.connection.db.collection(TYPE_COLLECTION);
-  const defaults = PRODUCT_TYPES.filter((type) => type.value).map((type, index) => ({
-    businessId,
-    value: type.value,
-    label: type.label,
-    displayOrder: index,
-    isActive: true,
-  }));
+  const bScope = businessMatch(businessId);
 
-  await collection.bulkWrite(defaults.map((type) => ({
-    updateOne: {
-      filter: { businessId, value: type.value },
-      update: { $setOnInsert: type },
-      upsert: true,
-    },
-  })));
-
-  const types = await collection.find(all ? { businessId } : { businessId, isActive: true })
+  const types = await collection.find(all ? { businessId: bScope } : { businessId: bScope, isActive: { $ne: false } })
     .sort({ displayOrder: 1, label: 1 })
     .project({
       value: 1, label: 1, filters: 1, filterConfig: 1, displayOrder: 1,
-      displayName: 1, ecommerceSlug: 1, ecommerceVisible: 1,
-      description: 1, isActive: 1, _id: 0,
+      displayName: 1, ecommerceVisible: 1,
+      description: 1, isActive: 1, _id: 1,
     })
     .toArray();
-  const groups = types.filter((type) => {
-    const value = String(type.value || '').trim();
-    return value && value.toUpperCase() !== 'SIMPLE';
-  });
+  const groups = types
+    .map((type) => ({ ...type, _id: String(type._id) }))
+    .filter((type) => {
+      const value = String(type.value || '').trim();
+      return value && value.toUpperCase() !== 'SIMPLE';
+    });
 
   return json({
     types: all ? groups : [{ value: '', label: 'Not Specified' }, ...groups],
@@ -226,8 +214,9 @@ export async function PUT(req) {
   const connection = await dbConnect();
   const db = connection.connection.db;
   const collection = db.collection(TYPE_COLLECTION);
+  const bScope = businessMatch(businessId);
   /* disabled rows are editable too, so a group can be re-enabled */
-  const current = await collection.findOne({ businessId, value: oldValue });
+  const current = await collection.findOne({ businessId: bScope, value: oldValue });
   if (!current) return json({ error: 'Product type not found.' }, 404);
 
   /* Unknown filter keys are a client bug, not something to drop silently. */
@@ -259,29 +248,14 @@ export async function PUT(req) {
   const ecom = hasEcom ? normalizeGroupConfig(body, { label, value: newValue }) : null;
 
   const others = await collection.find({
-    businessId, isActive: { $ne: false }, _id: { $ne: current._id },
+    businessId: businessMatch(businessId), isActive: { $ne: false }, _id: { $ne: current._id },
   }).project({
-    value: 1, label: 1, displayName: 1, ecommerceSlug: 1, ecommerceVisible: 1,
+    value: 1, label: 1, displayName: 1, ecommerceVisible: 1,
   }).toArray();
 
   const labelKey = label.toUpperCase();
   if (others.some((row) => [row.value, row.label].some((value) => String(value || '').trim().toUpperCase() === labelKey))) {
     return json({ error: '"' + label + '" already exists.' }, 409);
-  }
-
-  /* duplicate live slugs would make two collections share one URL */
-  if (ecom) {
-    const clash = others.find((row) => {
-      if (row.ecommerceVisible === false) return false;
-      const slug = String(row.ecommerceSlug || '').trim()
-        || slugify(row.displayName || row.label || row.value);
-      return slug === ecom.ecommerceSlug;
-    });
-    if (clash) {
-      return json({
-        error: `Slug "${ecom.ecommerceSlug}" is already used by "${clash.displayName || clash.label}".`,
-      }, 409);
-    }
   }
 
   const hasOrder = body.displayOrder !== undefined && Number.isFinite(Number(body.displayOrder));
@@ -320,4 +294,62 @@ export async function PUT(req) {
       ...(filterConfig ? { filterConfig, filters } : {}),
     },
   });
+}
+
+export async function DELETE(req) {
+  const session = await requireSession();
+  if (!session) return json({ error: 'Unauthorized' }, 401);
+
+  const params = new URL(req.url).searchParams;
+  const body = await req.json().catch(() => ({}));
+  const businessId = String(params.get('business') || body.business || '').trim();
+  const id = String(params.get('id') || body.id || body._id || '').trim();
+  const value = String(params.get('value') || body.value || '').trim().toUpperCase();
+
+  if (!isValidObjectId(businessId)) {
+    return json({ error: 'Valid business ID required' }, 422);
+  }
+  if (!value && !isValidObjectId(id)) {
+    return json({ error: 'Product type identifier required' }, 422);
+  }
+
+  const denial = await screenDenial({
+    session,
+    screen: SCREENS.ECOM_PRODUCT_TYPE,
+    action: PERM.DELETE,
+    businessId,
+    label: 'Product Type',
+  });
+  if (denial) return json({ error: denial.message, code: denial.code }, 403);
+
+  const connection = await dbConnect();
+  const db = connection.connection.db;
+  const collection = db.collection(TYPE_COLLECTION);
+  const bScope = businessMatch(businessId);
+
+  const filter = isValidObjectId(id)
+    ? { _id: new Types.ObjectId(id), businessId: bScope }
+    : { businessId: bScope, value };
+  const existing = await collection.findOne(filter);
+  if (!existing) {
+    return json({ error: 'Product type not found.' }, 404);
+  }
+
+  const targetValue = String(existing.value || '').trim();
+  const usedCount = targetValue
+    ? await db.collection('ecommerceproduct').countDocuments({
+        businessId: bScope,
+        productType: targetValue,
+      })
+    : 0;
+  if (usedCount > 0) {
+    return json({
+      error: `Cannot delete "${existing.label || targetValue}" because it is used by ${usedCount} product(s). Change their Product Type first.`,
+    }, 409);
+  }
+
+  await collection.deleteOne({ _id: existing._id });
+  await bumpCatalogVersion(businessId);
+
+  return json({ ok: true, deletedValue: targetValue });
 }

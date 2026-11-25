@@ -4816,7 +4816,7 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
           )}
 
           <div className="mt-3 overflow-x-auto">
-            <table className={"dt" + (cfg.nowrapHead ? " dt-nowrap-head" : "")}>
+            <table className={"dt" + (cfg.nowrapHead ? " dt-nowrap-head" : "") + (cfg.compact ? " dt-compact" : "")}>
               <thead>
                 <tr>
                   {actionPos === "left" && <th>Action</th>}
@@ -4914,48 +4914,38 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
                              places - POS has view, payments and print - which
                              the icons variant below cannot express, because it
                              builds every destination as base + /:id. */
-                          <span className="inline-flex flex-nowrap items-center gap-1 whitespace-nowrap">
+                          <span className={"inline-flex flex-nowrap items-center whitespace-nowrap " + (cfg.compact ? "gap-1" : "gap-1.5")}>
                             {rowActions(row).length === 0 ? (
                               <span className="text-[11px] text-inkmuted">No actions</span>
-                            ) : rowActions(row).map((m) => (
+                            ) : rowActions(row).map((m, mIdx) => {
+                              const actLabel = typeof m.label === 'function' ? m.label(row) : m.label;
+                              const actIcon = typeof m.icon === 'function' ? m.icon(row) : m.icon;
+                              const actTone = typeof m.tone === 'function' ? m.tone(row) : m.tone;
+                              return (
                               <button
-                                key={m.label}
+                                key={actLabel || mIdx}
                                 type="button"
-                                /* flex-nowrap above and whitespace-nowrap here
-                                   keep the set on ONE line - they were wrapping
-                                   onto a second row and pushing every other
-                                   column narrow enough to wrap in turn. */
-                                /* ICON ONLY. The label moves to title and
-                                   aria-label, so the button still says what it
-                                   is to a tooltip and to a screen reader while
-                                   the column gives its width back to the data.
-                                   Square and 32px tall - big enough to hit
-                                   accurately at a counter. */
                                 className={'act-btn shrink-0 '
-                                  + (m.tone
+                                  + (actTone
                                     || (m.action === 'delete' ? ACTION_TONE.trash : '')
-                                    || ACTION_TONE[m.icon]
+                                    || ACTION_TONE[actIcon]
                                     || 'act-blue')}
-                                title={m.label}
-                                aria-label={m.label}
+                                title={actLabel}
+                                aria-label={actLabel}
                                 onClick={() => {
                                   if (m.action === 'delete') { remove(m.rowId); return; }
-                                  /* `onClick` lets a screen handle the action
-                                     itself - POS opens View in a popup */
                                   if (m.onClick) { m.onClick(m.row); return; }
-                                  /* a View entry that only navigates opens the quick-view modal first,
-                                     with the full page one click away - View is a popup everywhere */
-                                  if (m.icon === "eye" && m.href) { setDetailHref(m.href); setDetailRow(m.row); return; }
+                                  if (actIcon === "eye" && m.href) { setDetailHref(m.href); setDetailRow(m.row); return; }
                                   if (m.href) {
-                                    /* Edit opens in a new browser tab (30-10-2026) */
-                                    if (m.icon === "pencil") { window.open(m.href, "_blank", "noopener"); return; }
+                                    if (actIcon === "pencil") { window.open(m.href, "_blank", "noopener"); return; }
                                     router.push(m.href);
                                   }
                                 }}
                               >
-                                <Icon name={m.icon || 'eye'} size={15} />
+                                <Icon name={actIcon || 'eye'} size={cfg.compact ? 13 : 15} />
                               </button>
-                            ))}
+                              );
+                            })}
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1.5">

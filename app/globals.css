@@ -625,6 +625,10 @@ select {
   .dt tbody tr:nth-child(odd) { @apply bg-rowalt; }
   .dt tbody tr:hover { @apply bg-[#eaf6f0]; }
   .dt-empty { @apply py-1.5 text-center text-inkmuted; }
+  .dt-compact { @apply text-[12px] leading-[1.15]; }
+  .dt-compact th { @apply px-2 py-1.5 text-[11px]; }
+  .dt-compact td { @apply px-2 py-1 text-[12px]; }
+  .dt-compact .act-btn { @apply h-6 w-6 rounded-md; }
 
   /* On a narrow screen the columns were squeezing instead of scrolling, so
      every cell wrapped to three lines. A floor on the table width makes the

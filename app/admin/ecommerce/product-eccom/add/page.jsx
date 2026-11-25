@@ -9,7 +9,6 @@ import { useScope } from '@/components/ScopeContext';
 import {
   CLASSIFICATION_GROUPS,
   PRODUCT_TYPE_CLASSIFICATIONS,
-  PRODUCT_TYPES,
 } from '@/lib/productClassificationConstants';
 import { parseEcommerceVisibility } from '@/lib/ecommerceVisibility';
 
@@ -28,7 +27,7 @@ import { parseEcommerceVisibility } from '@/lib/ecommerceVisibility';
                    by the server */
 
 const KNOWN = {
-  displayName: 'text', ecommItemCode: 'text', productType: 'text', status: 'text', slug: 'text',
+  displayName: 'text', productType: 'text', status: 'text', slug: 'text',
   isFeatured: 'boolean',
   /* listed in the website's Best Buy section (29-10-2026) */
   isBestBuy: 'boolean',
@@ -44,7 +43,7 @@ const KNOWN = {
 const FIRST = [
   'printDescriptionOverride',
   'displayName', 'image', 'productType', 'byWeave', 'byFabric', 'byCraft', 'byOccasion', 'byColour',
-  'status', 'ecommItemCode', 'itemId',
+  'status', 'itemId',
   'slug', 'isBestBuy', 'isFeatured', 'salesCount',
 ];
 const ALL_CLASSIFICATION_TYPES = [
@@ -58,6 +57,7 @@ const SKIP = new Set([
   'isPublished',
   'isActive',
   'status',
+  'ecommItemCode',
   'businessId', 'createdAt', 'updatedAt', 'seoDescription', 'barcode',
   /* per-barcode visibility is owned by the server; never render or echo it */
   'barcodes', 'publishedBarcodes',
@@ -77,7 +77,6 @@ const DEFAULT_DATA = { status: 'active', isActive: true, isPublished: false, isF
 /* Fields the lookup panel offers besides the barcode, which has its own box. */
 const IDENTIFY_FIELDS = [
   { value: 'itemCode', label: 'Item Code', placeholder: 'Item code' },
-  { value: 'ecommItemCode', label: 'E-commerce Item Code', placeholder: 'E-commerce item code' },
   { value: 'name', label: 'Product Name', placeholder: 'Type a product name' },
   { value: 'supplierCode', label: 'Supplier Code', placeholder: 'Supplier code' },
 ];
@@ -86,7 +85,7 @@ const labelOf = (k) => k.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/^./, (c
 const fieldLabel = (k) => ({
   ecommOffPercent: 'E-Comm Off (%)',
   barcodePriceOverride: 'Price',
-  barcodeQtyOverride: 'Quantity',
+  barcodeQtyOverride: 'Required Quantity',
   printDescriptionOverride: 'Print Description',
   displayName: 'Product Name',
   status: 'Active Status',
@@ -98,7 +97,7 @@ export default function ProductEccomAddPage() {
   const { business } = useScope();
   const [fields, setFields] = useState(null);
   const [items, setItems] = useState([]);
-  const [productTypes, setProductTypes] = useState(PRODUCT_TYPES);
+  const [productTypes, setProductTypes] = useState([{ value: '', label: 'Not Specified' }]);
   const [classificationOptions, setClassificationOptions] = useState({});
   const [classificationOptionsLoading, setClassificationOptionsLoading] = useState(false);
   const [classificationOptionsError, setClassificationOptionsError] = useState('');
@@ -164,7 +163,11 @@ export default function ProductEccomAddPage() {
       });
       setFields(all);
       setItems((it.options || []).map((o) => ({ ...o, value: String(o.value) })));
-      setProductTypes(Array.isArray(pt.types) && pt.types.length ? pt.types : PRODUCT_TYPES);
+      setProductTypes(
+        Array.isArray(pt.types) && pt.types.length
+          ? pt.types
+          : [{ value: '', label: 'Not Specified' }]
+      );
     });
     return () => { off = true; };
   }, [business]);
@@ -239,7 +242,6 @@ export default function ProductEccomAddPage() {
       ...DEFAULT_DATA,
       itemId: match.itemId,
       displayName: match.name || '',
-      ecommItemCode: match.itemCode || '',
     });
   }, []);
 
@@ -755,7 +757,7 @@ export default function ProductEccomAddPage() {
               )}
             </div>
 
-            <div className="mb-3 grid grid-cols-1 gap-x-6 gap-y-3 md:grid-cols-3">
+            <div className="mb-3 grid grid-cols-1 gap-x-4 gap-y-2.5 md:grid-cols-3">
               <div>
                 <label className="f-label">Barcode</label>
                 <div className="relative">
@@ -836,7 +838,7 @@ export default function ProductEccomAddPage() {
                 <input className="f-input" value={itemDetails?.hsnCode || ''} readOnly />
               </div>
               <div>
-                <label className="f-label">Quantity</label>
+                <label className="f-label">Required Quantity</label>
                 <input
                   className="f-input"
                   type="number"
@@ -846,7 +848,7 @@ export default function ProductEccomAddPage() {
                 />
               </div>
             </div>
-            <div className="grid grid-cols-1 gap-x-6 gap-y-3 md:grid-cols-3">
+            <div className="grid grid-cols-1 gap-x-4 gap-y-2.5 md:grid-cols-3">
               {ordered.map((f) => (
                 <div key={f.k} className={wide(f) ? 'md:col-span-3' : undefined}>
                   {kindOf(f) !== 'boolean' && kindOf(f) !== 'classification' && (

@@ -252,8 +252,12 @@ import { useScope } from '@/components/ScopeContext';
 
 /* shown first, in this order, when the collection has them */
 const FIRST = [
-  'ecommItemCode', 'isPublished', 'productType', 'isFeatured',
-  'ecommOffPercent', 'barcodePriceOverride', 'barcodeQtyOverride', 'salesCount',
+  'isPublished', 'productType', 'barcodeQtyOverride',
+];
+const TRAILING = ['ecommOffPercent', 'salesCount'];
+const CORE_FIELD_KEYS = [
+  'barcode', 'isPublished', 'productType', 'barcodeQtyOverride', 'businessId', 'itemId',
+  'ecommOffPercent', 'salesCount',
 ];
 const PRODUCT_LIST_FIXED_QUERY = { allErpBarcodes: '1' };
 
@@ -269,7 +273,7 @@ const CLASSIFICATION_FILTERS = [
   ['byColour', 'By Colour'],
 ];
 const HIDDEN_COLUMNS = new Set([
-  'barcodeQtyOverride', 'barcodeQualityOverride', 'barcodePriceOverride',
+  'ecommItemCode', 'barcodeQualityOverride', 'barcodePriceOverride',
   'colorDescription', 'colourDescription', 'craftDescription', 'fabricDescription',
   'occasionDescription', 'printDescriptionOverride', 'weaveDescription',
   'image', 'images', 'additionalImages', 'byColour',
@@ -289,30 +293,57 @@ const selectedFiltersFor = (row) => CLASSIFICATION_FILTERS
   .filter(Boolean)
   .join('; ');
 
-function columnFor({ k, type }) {
+function columnFor({ k, type }, productTypeLabels) {
   if (k === 'barcode') return { k, t: 'Barcode', value: (r) => r.barcode || '' };
-  if (k === 'ecommItemCode') return { k, t: 'E-Comm Item Code' };
   if (k === 'isPublished') {
     return {
       k,
-      t: 'E-Commerce Status',
+      t: 'Status',
+      sortKey: 'isPublished',
+      value: (r) => (r.isPublished ? 'Active' : 'Inactive'),
       render: (r) => (
         <span
-          className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold ${
+          title={r.isPublished ? 'Active' : 'Inactive'}
+          aria-label={r.isPublished ? 'Active' : 'Inactive'}
+          className={`inline-flex h-5 w-5 items-center justify-center rounded-full ${
             r.isPublished
-              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-              : 'bg-slate-100 text-slate-600 border border-slate-300'
+              ? 'bg-emerald-100 text-emerald-700'
+              : 'bg-rose-100 text-rose-700'
           }`}
         >
-          {r.isPublished ? 'Published' : 'Hidden'}
+          <Icon name={r.isPublished ? 'check' : 'x'} size={12} stroke={2.4} />
         </span>
       ),
     };
   }
+  if (k === 'productType') {
+    return {
+      k,
+      t: 'Product Type',
+      value: (r) => {
+        const raw = String(r.productType || '').trim();
+        if (!raw) return '';
+        return productTypeLabels?.get(raw.toUpperCase()) || raw;
+      },
+    };
+  }
+  if (k === 'barcodeQtyOverride') {
+    return {
+      k,
+      t: 'Required Quantity',
+      sortKey: 'requiredQty',
+      value: (r) => {
+        const q = r.requiredQty ?? r.barcodeQtyOverride ?? r.dbQty;
+        return q !== undefined && q !== null ? q : '';
+      },
+    };
+  }
+  if (k === 'ecommOffPercent') return { k, t: 'Ecomm Off Percent', value: (r) => r.ecommOffPercent ?? '' };
+  if (k === 'salesCount') return { k, t: 'Sales Count', value: (r) => r.salesCount ?? '' };
   if (k === 'businessId') return { k, t: 'Business', value: (r) => r.businessName || r.businessId || '' };
   if (k === 'itemId') return { k, t: 'Item', value: (r) => r.itemLabel || r.itemId || '' };
   if (CLASSIFICATION_COLUMNS.has(k)) {
-    return { k, t: labelOf(k), minWidth: 170, value: (r) => r[`${k}Display`] || '' };
+    return { k, t: labelOf(k), minWidth: 150, value: (r) => r[`${k}Display`] || '' };
   }
   const t = labelOf(k);
   if (type === 'boolean') return { k, t, f: 'yesno' };
@@ -341,16 +372,13 @@ const editHref = (r) => '/admin/ecommerce/product-eccom/add' + (r.barcode ? '?ba
 const VIEW_FIELDS = [
   ['Barcode', (r) => r.barcode],
   ['Product Name', (r) => r.displayName],
-  ['E-Comm Item Code', (r) => r.ecommItemCode],
   ['Product Type', (r) => r.productType],
   ['Item', (r) => r.itemLabel],
   ['Business', (r) => r.businessName],
-  ['Is Published', (r) => (r.isPublished ? 'Yes' : 'No')],
+  ['Status', (r) => (r.isPublished ? 'Active' : 'Inactive')],
   ['Is Featured', (r) => (r.isFeatured ? 'Yes' : 'No')],
   ['Price', (r) => r.barcodePriceOverride],
-  /* Quantity comes from the live DB (barcodeLabel.qtyNum); fall back to the
-     stored override only when no live row was found */
-  ['Quantity', (r) => (r.dbQty != null ? r.dbQty : r.barcodeQtyOverride)],
+  ['Required Quantity', (r) => (r.requiredQty ?? r.barcodeQtyOverride ?? r.dbQty)],
   ['E-Comm Off (%)', (r) => r.ecommOffPercent],
   /* Collection fields — only shown when the array is non-empty */
   ['By Weave', (r) => r.byWeaveDisplay || null],
@@ -397,6 +425,7 @@ export default function ProductEccomPage() {
   const router = useRouter();
   const { business, location, businessReady } = useScope();
   const [fields, setFields] = useState(null);
+  const [productTypeLabels, setProductTypeLabels] = useState(() => new Map());
   const [viewing, setViewing] = useState(null);
   /* Map<_id, { barcode, itemId }>: the listing row is a barcode, not the
      ecommerceproduct _id, so the barcode is what the PATCH must receive. */
@@ -560,22 +589,48 @@ export default function ProductEccomPage() {
     return () => { off = true; };
   }, [business]);
 
+  useEffect(() => {
+    if (!business) {
+      setProductTypeLabels(new Map());
+      return undefined;
+    }
+    let off = false;
+    fetch('/api/v1/admin/product-types?all=1&business=' + encodeURIComponent(business), { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((d) => {
+        if (off) return;
+        const map = new Map();
+        (Array.isArray(d.types) ? d.types : []).forEach((pt) => {
+          const val = String(pt?.value || '').trim().toUpperCase();
+          const lbl = String(pt?.label || pt?.displayName || pt?.value || '').trim();
+          if (val && lbl) map.set(val, lbl);
+        });
+        setProductTypeLabels(map);
+      })
+      .catch(() => { if (!off) setProductTypeLabels(new Map()); });
+    return () => { off = true; };
+  }, [business]);
+
   const cfg = useMemo(() => {
     const list = fields || [];
-    /* NOTE: only displayName is excluded here. ecommItemCode must stay in
-       `visible` — it's also the first entry in FIRST/preferred below, and
-       excluding it here meant that lookup returned nothing for it, so the
-       column (and the data under it) silently vanished from the table via
-       the final .filter(Boolean), even though the field and its data exist
-       on every row. */
     const visible = list.filter((f) => f.k !== 'displayName' && !HIDDEN_COLUMNS.has(f.k));
+    const fieldOf = (k) => visible.find((f) => f.k === k)
+      || (CORE_FIELD_KEYS.includes(k)
+        ? {
+          k,
+          type: ['ecommOffPercent', 'salesCount', 'barcodeQtyOverride'].includes(k)
+            ? 'number'
+            : k === 'isPublished'
+              ? 'boolean'
+              : 'text',
+        }
+        : null);
     const preferred = ['barcode', ...FIRST, 'businessId', 'itemId'];
-    const ordered = [
-      ...preferred.map((k) => visible.find((f) => f.k === k)
-        || (['barcode', 'businessId', 'itemId'].includes(k) ? { k, type: 'text' }
-          : null)).filter(Boolean),
-      ...visible.filter((f) => !preferred.includes(f.k)),
+    const mainOrdered = [
+      ...preferred.map(fieldOf).filter(Boolean),
+      ...visible.filter((f) => !preferred.includes(f.k) && !TRAILING.includes(f.k)),
     ];
+    const trailingOrdered = TRAILING.map(fieldOf).filter(Boolean);
     return {
       title: 'E-commerce Products',
       basePath: '/admin/ecommerce/',
@@ -697,16 +752,16 @@ export default function ProductEccomPage() {
       /* ADD opens a form with every field of the collection (./add) */
       addHref: '/admin/ecommerce/product-eccom/add',
       beforeTable: listResult && (
-        <div className="mb-3 flex flex-wrap items-center gap-2 rounded border border-line bg-white p-3">
-          <span className="mr-2 text-[13px] font-medium text-ink">
+        <div className="mb-2 flex flex-wrap items-center gap-1.5 rounded border border-line bg-white px-2.5 py-2">
+          <span className="mr-1.5 text-[12px] font-medium text-ink">
             {listResult.total} PRODUCTS FOUND
           </span>
-          <span className="mr-2 text-[13px] font-medium text-ink">
+          <span className="mr-1.5 text-[12px] font-medium text-ink">
             {selectedProducts.size} PRODUCTS SELECTED
           </span>
           <button
             type="button"
-            className="btn"
+            className="btn !h-7 !px-2.5 !text-[12px]"
             disabled={selectingAll || bulkSaving || !listResult.total}
             onClick={selectedProducts.size === listResult.total && listResult.total > 0
               ? clearProductSelection
@@ -720,7 +775,7 @@ export default function ProductEccomPage() {
           </button>
           <button
             type="button"
-            className="btn btn-primary"
+            className="btn btn-primary !h-7 !px-2.5 !text-[12px]"
             disabled={bulkSaving || selectingAll || selectedProducts.size === 0}
             onClick={enableSelectedProducts}
           >
@@ -728,7 +783,7 @@ export default function ProductEccomPage() {
           </button>
           <button
             type="button"
-            className="btn border border-rose-300 text-rose-700 hover:bg-rose-50"
+            className="btn !h-7 !px-2.5 !text-[12px] border border-rose-300 text-rose-700 hover:bg-rose-50"
             disabled={bulkSaving || selectingAll || selectedProducts.size === 0}
             onClick={disableSelectedProducts}
           >
@@ -736,7 +791,7 @@ export default function ProductEccomPage() {
           </button>
           <button
             type="button"
-            className="btn btn-ghost"
+            className="btn btn-ghost !h-7 !px-2.5 !text-[12px]"
             disabled={bulkSaving || selectingAll || selectedProducts.size === 0}
             onClick={clearProductSelection}
           >
@@ -749,6 +804,7 @@ export default function ProductEccomPage() {
       sortable: true,
       actionVariant: 'buttons',
       nowrapHead: true,
+      compact: true,
       actionMenu: [
         { label: 'View', icon: 'eye', onClick: (r) => setViewing(r) },
         {
@@ -758,10 +814,12 @@ export default function ProductEccomPage() {
           to: editHref,
         },
         {
-          label: 'Show on Website',
-          icon: 'check',
+          label: (r) => (r.isPublished ? 'Disable (Hide from Website)' : 'Enable (Show on Website)'),
+          icon: (r) => (r.isPublished ? 'x' : 'check'),
+          tone: (r) => (r.isPublished ? 'act-red' : 'act-green'),
           onClick: async (r) => {
             if (!r.barcode) return;
+            const nextPublished = !r.isPublished;
             try {
               const res = await fetch('/api/product-eccom', {
                 method: 'PATCH',
@@ -769,43 +827,17 @@ export default function ProductEccomPage() {
                 body: JSON.stringify({
                   business: r.businessId || business,
                   items: [{ barcode: r.barcode, itemId: r.itemId }],
-                  isPublished: true,
+                  isPublished: nextPublished,
                 }),
               });
               if (!res.ok) {
                 const err = await res.json().catch(() => ({}));
-                alert(err.error || 'Failed to enable product');
+                alert(err.error || 'Failed to update product status');
                 return;
               }
               setListVersion((v) => v + 1);
             } catch (e) {
-              alert(e.message || 'Failed to enable product');
-            }
-          },
-        },
-        {
-          label: 'Hide from Website',
-          icon: 'close',
-          onClick: async (r) => {
-            if (!r.barcode) return;
-            try {
-              const res = await fetch('/api/product-eccom', {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  business: r.businessId || business,
-                  items: [{ barcode: r.barcode, itemId: r.itemId }],
-                  isPublished: false,
-                }),
-              });
-              if (!res.ok) {
-                const err = await res.json().catch(() => ({}));
-                alert(err.error || 'Failed to hide product');
-                return;
-              }
-              setListVersion((v) => v + 1);
-            } catch (e) {
-              alert(e.message || 'Failed to hide product');
+              alert(e.message || 'Failed to update product status');
             }
           },
         },
@@ -835,13 +867,14 @@ export default function ProductEccomPage() {
           ),
         },
         { k: 'barcodeImage', t: 'Images', f: 'image', value: (r) => r.barcodeImage || '' },
-        ...ordered.map(columnFor),
+        ...mainOrdered.map((field) => columnFor(field, productTypeLabels)),
         {
           k: 'selectedFilters',
           t: 'Selected Filters',
-          minWidth: 280,
+          minWidth: 240,
           value: selectedFiltersFor,
         },
+        ...trailingOrdered.map((field) => columnFor(field, productTypeLabels)),
       ],
     };
   }, [
@@ -856,6 +889,7 @@ export default function ProductEccomPage() {
     handleSelectionContextChange,
     listResult,
     location,
+    productTypeLabels,
     selectAllFilteredProducts,
     selectingAll,
     selectedProducts,
