@@ -154,7 +154,7 @@
 // // // // //     else doc[k] = v === null || v === undefined ? '' : String(v);
 // // // // //   });
 // // // // //   /* the shape the e-commerce project writes when a field is left empty */
-// // // // //   ID_LIST_FIELDS.forEach((k) => { if (!doc[k]) doc[k] = []; });
+// // // // //   idListFields.forEach((k) => { if (!doc[k]) doc[k] = []; });
 // // // // //   if (!doc.additionalImages) doc.additionalImages = [];
 // // // // //   if (!doc.status) doc.status = 'active';
 
@@ -684,7 +684,7 @@
 // // // //     else doc[k] = v === null || v === undefined ? '' : String(v);
 // // // //   });
 // // // //   /* the shape the e-commerce project writes when a field is left empty */
-// // // //   ID_LIST_FIELDS.forEach((k) => { if (!doc[k]) doc[k] = []; });
+// // // //   idListFields.forEach((k) => { if (!doc[k]) doc[k] = []; });
 // // // //   if (!doc.additionalImages) doc.additionalImages = [];
 // // // //   if (!doc.status) doc.status = 'active';
 // // // //   if (doc.isActive === undefined) doc.isActive = true;
@@ -1578,7 +1578,7 @@
 // // //     ].map((id) => new Types.ObjectId(id));
 // // //   }
 // // //   /* the shape the e-commerce project writes when a field is left empty */
-// // //   ID_LIST_FIELDS.forEach((k) => { if (!doc[k]) doc[k] = []; });
+// // //   idListFields.forEach((k) => { if (!doc[k]) doc[k] = []; });
 // // //   if (!doc.additionalImages) doc.additionalImages = [];
 // // //   if (!doc.status) doc.status = 'active';
 // // //   if (doc.isActive === undefined) doc.isActive = true;
@@ -2472,7 +2472,7 @@
 // //     ].map((id) => new Types.ObjectId(id));
 // //   }
 // //   /* the shape the e-commerce project writes when a field is left empty */
-// //   ID_LIST_FIELDS.forEach((k) => { if (!doc[k]) doc[k] = []; });
+// //   idListFields.forEach((k) => { if (!doc[k]) doc[k] = []; });
 // //   if (!doc.additionalImages) doc.additionalImages = [];
 // //   if (!doc.status) doc.status = 'active';
 // //   if (doc.isActive === undefined) doc.isActive = true;
@@ -3372,7 +3372,7 @@
 //     ].map((id) => new Types.ObjectId(id));
 //   }
 //   /* the shape the e-commerce project writes when a field is left empty */
-//   ID_LIST_FIELDS.forEach((k) => { if (!doc[k]) doc[k] = []; });
+//   idListFields.forEach((k) => { if (!doc[k]) doc[k] = []; });
 //   if (!doc.additionalImages) doc.additionalImages = [];
 //   if (!doc.status) doc.status = 'active';
 //   if (doc.isActive === undefined) doc.isActive = true;
@@ -3428,7 +3428,8 @@ import { parseEcommerceVisibility } from '@/lib/ecommerceVisibility';
 import ProductImage from '@/models/ProductImage';
 import { barcodeFilter as inventoryBarcodeFilter, erpImageForBarcode, imageUrl, unitFor } from '@/lib/inventory';
 import { BARCODE_STATUS } from '@/lib/barcodeLabel';
-import { classificationOptionsById, listClassificationOptions } from '@/lib/classificationCollections';
+import { CLASSIFICATION_FIELDS, classificationOptionsById, listClassificationOptions } from '@/lib/classificationCollections';
+import { getValidFilterKeys } from '@/lib/ecommerceFilterMaster';
 import { Agent, Supplier } from '@/lib/contacts';
 import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 import { barcodeLocationFilter } from '@/lib/reports';
@@ -4282,8 +4283,15 @@ async function listAllErpBarcodes({
     });
   }
 
+  const allFilterKeys = isBusinessScoped
+    ? await getValidFilterKeys(businessId, { includeInactive: true })
+    : [...new Set([
+      ...CLASSIFICATION_FIELDS,
+      ...(await database.collection('ecommercefilters').distinct('key', { isActive: { $ne: false } })),
+    ])];
+
   const classificationIds = [...new Set(rows.flatMap((row) =>
-    ['byFabric', 'byColour', 'byCraft', 'byOccasion', 'byWeave']
+    allFilterKeys
       .flatMap((key) => Array.isArray(row[key]) ? row[key] : [])
       .map((value) => String(value || ''))
       .filter(isValidObjectId)
@@ -4306,7 +4314,7 @@ async function listAllErpBarcodes({
       delete row._searchText;
       return {
         ...row,
-        ...Object.fromEntries(['byFabric', 'byColour', 'byCraft', 'byOccasion', 'byWeave'].map((key) => [
+        ...Object.fromEntries(allFilterKeys.map((key) => [
           `${key}Display`,
           (Array.isArray(row[key]) ? row[key] : [])
             .map((value) => classificationNameById.get(String(value)) || String(value || ''))
@@ -4909,6 +4917,7 @@ export async function GET(req) {
     }
     if (!item) return json({ error: 'No inventory item is linked to this barcode.' }, 404);
 
+    const validFilterKeys = await getValidFilterKeys(b, { includeInactive: false });
     const [group, hsn, product, productTypes, classificationOptions] = await Promise.all([
       item.subGroupId && isValidObjectId(String(item.subGroupId))
         ? mongoose.connection.db.collection('productgroup').findOne({ _id: new Types.ObjectId(String(item.subGroupId)) })
@@ -4932,7 +4941,7 @@ export async function GET(req) {
         .find({ businessId: { $in: [b, new Types.ObjectId(b)] }, isActive: { $ne: false } })
         .project({ value: 1, label: 1 })
         .toArray(),
-      listClassificationOptions(b),
+      listClassificationOptions(b, { types: validFilterKeys }),
     ]);
     const barcodeImageCodes = [...new Set([
       barcodeRow.barcodeGenerated,
@@ -5017,7 +5026,7 @@ export async function GET(req) {
       option,
     ]));
     const classificationDefaults = Object.fromEntries(
-      ['byWeave', 'byFabric', 'byCraft', 'byOccasion', 'byColour'].map((field) => {
+      validFilterKeys.map((field) => {
         const savedValues = savedProduct[field] ?? product?.[field];
         const barcodeValues = barcodeRow[field] ?? barcodeRow.customFields?.[field];
         const source = (Array.isArray(barcodeValues) && barcodeValues.length)
@@ -5118,7 +5127,8 @@ export async function GET(req) {
 
   /* the by* choices for the Add form, from byweave / byfabric / ... (29-10-2026) */
   if (sp.get('classifications') === '1') {
-    const opts = b && isValidObjectId(b) ? await listClassificationOptions(b) : [];
+    const validKeys = b && isValidObjectId(b) ? await getValidFilterKeys(b, { includeInactive: false }) : CLASSIFICATION_FIELDS;
+    const opts = b && isValidObjectId(b) ? await listClassificationOptions(b, { types: validKeys }) : [];
     const byType = {};
     opts.forEach((o) => { (byType[o.type] ||= []).push({ value: String(o._id), label: o.name || '' }); });
     return json({ classifications: byType });
@@ -5129,6 +5139,8 @@ export async function GET(req) {
     const sample = await col.find(filter).limit(500).toArray();
     const seen = [];
     sample.forEach((d) => Object.keys(d).forEach((k) => { if (!HIDDEN.has(k) && !seen.includes(k)) seen.push(k); }));
+    const dynamicKeys = b && isValidObjectId(b) ? await getValidFilterKeys(b, { includeInactive: false }) : CLASSIFICATION_FIELDS;
+    dynamicKeys.forEach((k) => { if (!seen.includes(k)) seen.push(k); });
     const types = {};
     sample.forEach((d) => seen.forEach((k) => {
       if (types[k] || d[k] === undefined || d[k] === null || d[k] === '') return;
@@ -5136,6 +5148,7 @@ export async function GET(req) {
       types[k] = Array.isArray(v) ? 'array' : v instanceof Date ? 'date' : typeof v === 'boolean' ? 'boolean'
         : typeof v === 'number' ? 'number' : (v instanceof Types.ObjectId || v?._bsontype === 'ObjectId') ? 'id' : 'text';
     }));
+    dynamicKeys.forEach((k) => { if (!types[k]) types[k] = 'array'; });
     return json({ fields: seen.map((k) => ({ k, type: types[k] || 'text' })) });
   }
 
@@ -5180,8 +5193,15 @@ export async function GET(req) {
     .limit(perPage)
     .toArray();
 
+  const allFilterKeys = b && isValidObjectId(b)
+    ? await getValidFilterKeys(b, { includeInactive: true })
+    : [...new Set([
+      ...CLASSIFICATION_FIELDS,
+      ...(await mongoose.connection.db.collection('ecommercefilters').distinct('key', { isActive: { $ne: false } })),
+    ])];
+
   const classificationIds = [...new Set(rows.flatMap((row) =>
-    ['byFabric', 'byColour', 'byCraft', 'byOccasion', 'byWeave']
+    allFilterKeys
       .flatMap((key) => Array.isArray(row[key]) ? row[key] : [])
       .map((value) => String(value || ''))
       .filter(isValidObjectId)
@@ -5436,7 +5456,7 @@ export async function GET(req) {
       }).find((value) => typeof value === 'string' && value.trim());
       return {
         ...row,
-        ...Object.fromEntries(['byFabric', 'byColour', 'byCraft', 'byOccasion', 'byWeave'].map((key) => [
+        ...Object.fromEntries(allFilterKeys.map((key) => [
           `${key}Display`,
           (Array.isArray(r[key]) ? r[key] : [])
             .map((value) => classificationNameById.get(String(value)) || String(value || ''))
@@ -5493,6 +5513,9 @@ export async function PATCH(req) {
 
   const body = await req.json().catch(() => ({}));
   await dbConnect();
+
+  const dynamicFilterKeys = await getValidFilterKeys(business, { includeInactive: true });
+  const idListFields = new Set([...ID_LIST_FIELDS, ...dynamicFilterKeys]);
 
   const scope = await resolveAuthorizedScope(session, {
     businessId: body.business,
@@ -5928,6 +5951,9 @@ export async function POST(req) {
 
   await dbConnect();
 
+  const dynamicFilterKeys = await getValidFilterKeys(business, { includeInactive: true });
+  const idListFields = new Set([...ID_LIST_FIELDS, ...dynamicFilterKeys]);
+
   const scope = await resolveAuthorizedScope(session, {
     businessId: business,
     locationId: body.location,
@@ -6061,7 +6087,7 @@ export async function POST(req) {
       }
       doc[k] = parsed;
     } else if (NUMBER_FIELDS.has(k)) doc[k] = v === '' || v === null || v === undefined ? 0 : Number(v) || 0;
-    else if (ID_LIST_FIELDS.has(k)) doc[k] = (Array.isArray(v) ? v : []).filter((x) => isValidObjectId(x)).map((x) => new Types.ObjectId(x));
+    else if (idListFields.has(k)) doc[k] = (Array.isArray(v) ? v : []).filter((x) => isValidObjectId(x)).map((x) => new Types.ObjectId(x));
     else if (k === 'additionalImages') doc[k] = (Array.isArray(v) ? v : String(v || '').split(/\r?\n/)).map((x) => String(x).trim()).filter(Boolean);
     else if (Array.isArray(v)) doc[k] = v;
     else doc[k] = v === null || v === undefined ? '' : String(v);
@@ -6106,6 +6132,10 @@ export async function POST(req) {
     }
     if (requestedBarcode) {
       try {
+        const filterSyncPatch = { updatedAt: now };
+        dynamicFilterKeys.forEach((filterKey) => {
+          if (doc[filterKey] !== undefined) filterSyncPatch[filterKey] = doc[filterKey];
+        });
         await mongoose.connection.db.collection('barcodeLabel').updateMany(
           {
             $or: [
@@ -6114,16 +6144,7 @@ export async function POST(req) {
               { oldBarcode: requestedBarcode },
             ],
           },
-          {
-            $set: {
-              byFabric: doc.byFabric,
-              byWeave: doc.byWeave,
-              byCraft: doc.byCraft,
-              byOccasion: doc.byOccasion,
-              byColour: doc.byColour,
-              updatedAt: now,
-            },
-          }
+          { $set: filterSyncPatch }
         );
       } catch {}
     }
@@ -6140,7 +6161,7 @@ export async function POST(req) {
 
   /* Apply collection defaults only to new products. Partial updates must not
      reset visibility, status, or classifications omitted from the request. */
-  ID_LIST_FIELDS.forEach((k) => { if (!doc[k]) doc[k] = []; });
+  idListFields.forEach((k) => { if (!doc[k]) doc[k] = []; });
   if (!doc.additionalImages) doc.additionalImages = [];
   if (!doc.status) doc.status = 'active';
   if (doc.isActive === undefined) doc.isActive = true;
@@ -6164,6 +6185,10 @@ export async function POST(req) {
     const res = await col.insertOne(doc);
     if (requestedBarcode) {
       try {
+        const filterSyncPatch = { updatedAt: now };
+        dynamicFilterKeys.forEach((filterKey) => {
+          if (doc[filterKey] !== undefined) filterSyncPatch[filterKey] = doc[filterKey];
+        });
         await mongoose.connection.db.collection('barcodeLabel').updateMany(
           {
             $or: [
@@ -6172,16 +6197,7 @@ export async function POST(req) {
               { oldBarcode: requestedBarcode },
             ],
           },
-          {
-            $set: {
-              byFabric: doc.byFabric,
-              byWeave: doc.byWeave,
-              byCraft: doc.byCraft,
-              byOccasion: doc.byOccasion,
-              byColour: doc.byColour,
-              updatedAt: now,
-            },
-          }
+          { $set: filterSyncPatch }
         );
       } catch {}
     }

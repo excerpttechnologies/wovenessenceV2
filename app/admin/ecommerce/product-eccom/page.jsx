@@ -233,6 +233,7 @@ import { useRouter } from 'next/navigation';
 import ListView from '@/components/ListviewEccom';
 import Modal from '@/components/Modal';
 import Icon from '@/components/Icon';
+import ProductImage from '@/components/ProductImage';
 import { useScope } from '@/components/ScopeContext';
 
 /* E-commerce -> product-eccom (19-10-2026).
@@ -250,15 +251,20 @@ import { useScope } from '@/components/ScopeContext';
    ADD opens ./add - a form with one input per field of the collection. The
    row action opens the Item the product was made from. */
 
-/* shown first, in this order, when the collection has them */
-const FIRST = [
-  'isPublished', 'productType', 'barcodeQtyOverride',
+/* Mandatory visible grid field keys (after Action, Select, Images).
+   Other fields remain stored in MongoDB and visible inside the View popup. */
+const GRID_FIELD_KEYS = [
+  'barcode',
+  'isPublished',
+  'barcodeQtyOverride',
+  'productType',
+  'byWeave',
+  'byFabric',
+  'byCraft',
+  'byOccasion',
+  'businessId',
 ];
-const TRAILING = ['ecommOffPercent', 'salesCount'];
-const CORE_FIELD_KEYS = [
-  'barcode', 'isPublished', 'productType', 'barcodeQtyOverride', 'businessId', 'itemId',
-  'ecommOffPercent', 'salesCount',
-];
+const CORE_FIELD_KEYS = GRID_FIELD_KEYS;
 const PRODUCT_LIST_FIXED_QUERY = { allErpBarcodes: '1' };
 
 /* camelCase -> "Camel Case" */
@@ -272,18 +278,6 @@ const CLASSIFICATION_FILTERS = [
   ['byOccasion', 'By Occasion'],
   ['byColour', 'By Colour'],
 ];
-const HIDDEN_COLUMNS = new Set([
-  'ecommItemCode', 'barcodeQualityOverride', 'barcodePriceOverride',
-  'colorDescription', 'colourDescription', 'craftDescription', 'fabricDescription',
-  'occasionDescription', 'printDescriptionOverride', 'weaveDescription',
-  'image', 'images', 'additionalImages', 'byColour',
-  'slug',
-  'isFeatured',
-  /* per-barcode internals; the checkbox already answers visibility */
-  'barcodes', 'publishedBarcodes',
-  /* only Is Published decides what the website shows */
-  'status', 'isActive',
-]);
 
 const selectedFiltersFor = (row) => CLASSIFICATION_FILTERS
   .map(([key, label]) => {
@@ -294,12 +288,22 @@ const selectedFiltersFor = (row) => CLASSIFICATION_FILTERS
   .join('; ');
 
 function columnFor({ k, type }, productTypeLabels) {
-  if (k === 'barcode') return { k, t: 'Barcode', value: (r) => r.barcode || '' };
+  if (k === 'barcode') {
+    return {
+      k,
+      t: 'Barcode',
+      thClass: 'w-[1%] whitespace-nowrap !px-2',
+      tdClass: 'w-[1%] whitespace-nowrap !px-2 !py-1',
+      value: (r) => r.barcode || '',
+    };
+  }
   if (k === 'isPublished') {
     return {
       k,
       t: 'Status',
       sortKey: 'isPublished',
+      thClass: 'w-[1%] whitespace-nowrap text-center !px-1.5',
+      tdClass: 'w-[1%] whitespace-nowrap text-center !px-1.5 !py-1',
       value: (r) => (r.isPublished ? 'Active' : 'Inactive'),
       render: (r) => (
         <span
@@ -316,10 +320,25 @@ function columnFor({ k, type }, productTypeLabels) {
       ),
     };
   }
+  if (k === 'barcodeQtyOverride') {
+    return {
+      k,
+      t: 'QTY',
+      sortKey: 'requiredQty',
+      thClass: 'w-[1%] whitespace-nowrap text-center !px-1.5',
+      tdClass: 'w-[1%] whitespace-nowrap text-center font-medium !px-1.5 !py-1',
+      value: (r) => {
+        const q = r.requiredQty ?? r.barcodeQtyOverride ?? r.dbQty;
+        return q !== undefined && q !== null ? q : '';
+      },
+    };
+  }
   if (k === 'productType') {
     return {
       k,
       t: 'Product Type',
+      thClass: 'whitespace-nowrap !px-2',
+      tdClass: 'whitespace-nowrap !px-2 !py-1',
       value: (r) => {
         const raw = String(r.productType || '').trim();
         if (!raw) return '';
@@ -327,23 +346,23 @@ function columnFor({ k, type }, productTypeLabels) {
       },
     };
   }
-  if (k === 'barcodeQtyOverride') {
+  if (k === 'businessId') {
     return {
       k,
-      t: 'Required Quantity',
-      sortKey: 'requiredQty',
-      value: (r) => {
-        const q = r.requiredQty ?? r.barcodeQtyOverride ?? r.dbQty;
-        return q !== undefined && q !== null ? q : '';
-      },
+      t: 'Business',
+      thClass: 'whitespace-nowrap !px-2',
+      tdClass: '!px-2 !py-1',
+      value: (r) => r.businessName || r.businessId || '',
     };
   }
-  if (k === 'ecommOffPercent') return { k, t: 'Ecomm Off Percent', value: (r) => r.ecommOffPercent ?? '' };
-  if (k === 'salesCount') return { k, t: 'Sales Count', value: (r) => r.salesCount ?? '' };
-  if (k === 'businessId') return { k, t: 'Business', value: (r) => r.businessName || r.businessId || '' };
-  if (k === 'itemId') return { k, t: 'Item', value: (r) => r.itemLabel || r.itemId || '' };
   if (CLASSIFICATION_COLUMNS.has(k)) {
-    return { k, t: labelOf(k), minWidth: 150, value: (r) => r[`${k}Display`] || '' };
+    return {
+      k,
+      t: labelOf(k),
+      thClass: 'whitespace-nowrap !px-2',
+      tdClass: '!px-2 !py-1',
+      value: (r) => r[`${k}Display`] || '',
+    };
   }
   const t = labelOf(k);
   if (type === 'boolean') return { k, t, f: 'yesno' };
@@ -427,6 +446,7 @@ export default function ProductEccomPage() {
   const [fields, setFields] = useState(null);
   const [productTypeLabels, setProductTypeLabels] = useState(() => new Map());
   const [viewing, setViewing] = useState(null);
+  const [previewImage, setPreviewImage] = useState(null);
   /* Map<_id, { barcode, itemId }>: the listing row is a barcode, not the
      ecommerceproduct _id, so the barcode is what the PATCH must receive. */
   const [selectedProducts, setSelectedProducts] = useState(() => new Map());
@@ -613,24 +633,18 @@ export default function ProductEccomPage() {
 
   const cfg = useMemo(() => {
     const list = fields || [];
-    const visible = list.filter((f) => f.k !== 'displayName' && !HIDDEN_COLUMNS.has(f.k));
-    const fieldOf = (k) => visible.find((f) => f.k === k)
+    const fieldOf = (k) => list.find((f) => f.k === k)
       || (CORE_FIELD_KEYS.includes(k)
         ? {
           k,
-          type: ['ecommOffPercent', 'salesCount', 'barcodeQtyOverride'].includes(k)
+          type: k === 'barcodeQtyOverride'
             ? 'number'
             : k === 'isPublished'
               ? 'boolean'
               : 'text',
         }
         : null);
-    const preferred = ['barcode', ...FIRST, 'businessId', 'itemId'];
-    const mainOrdered = [
-      ...preferred.map(fieldOf).filter(Boolean),
-      ...visible.filter((f) => !preferred.includes(f.k) && !TRAILING.includes(f.k)),
-    ];
-    const trailingOrdered = TRAILING.map(fieldOf).filter(Boolean);
+    const gridFields = GRID_FIELD_KEYS.map(fieldOf).filter(Boolean);
     return {
       title: 'E-commerce Products',
       basePath: '/admin/ecommerce/',
@@ -803,6 +817,7 @@ export default function ProductEccomPage() {
       pager: 'numbered',
       sortable: true,
       actionVariant: 'buttons',
+      actionLayout: 'vertical',
       nowrapHead: true,
       compact: true,
       actionMenu: [
@@ -814,7 +829,8 @@ export default function ProductEccomPage() {
           to: editHref,
         },
         {
-          label: (r) => (r.isPublished ? 'Disable (Hide from Website)' : 'Enable (Show on Website)'),
+          label: (r) => (r.isPublished ? 'Remove' : 'Enable'),
+          tooltip: (r) => (r.isPublished ? 'Disable (Hide from Website)' : 'Enable (Show on Website)'),
           icon: (r) => (r.isPublished ? 'x' : 'check'),
           tone: (r) => (r.isPublished ? 'act-red' : 'act-green'),
           onClick: async (r) => {
@@ -846,6 +862,8 @@ export default function ProductEccomPage() {
         {
           k: 'selectProduct',
           t: 'Select',
+          thClass: 'w-[1%] whitespace-nowrap text-center !px-1.5',
+          tdClass: 'w-[1%] whitespace-nowrap text-center !px-1.5 !py-1',
           render: (row) => (
             <input
               type="checkbox"
@@ -866,15 +884,29 @@ export default function ProductEccomPage() {
             />
           ),
         },
-        { k: 'barcodeImage', t: 'Images', f: 'image', value: (r) => r.barcodeImage || '' },
-        ...mainOrdered.map((field) => columnFor(field, productTypeLabels)),
         {
-          k: 'selectedFilters',
-          t: 'Selected Filters',
-          minWidth: 240,
-          value: selectedFiltersFor,
+          k: 'barcodeImage',
+          t: 'Images',
+          f: 'image',
+          thClass: 'w-[1%] whitespace-nowrap text-center !px-1',
+          tdClass: 'w-[1%] whitespace-nowrap !p-1 align-middle',
+          value: (r) => r.barcodeImage || '',
+          render: (r) => (
+            <ProductImage
+              src={r.barcodeImage ? String(r.barcodeImage) : ''}
+              alt={String(r.displayName || r.barcode || '')}
+              size={44}
+              fit="contain"
+              onOpen={r.barcodeImage
+                ? () => setPreviewImage({
+                  src: String(r.barcodeImage),
+                  title: [r.barcode, r.displayName].filter(Boolean).join(' — ') || 'Product Image',
+                })
+                : undefined}
+            />
+          ),
         },
-        ...trailingOrdered.map((field) => columnFor(field, productTypeLabels)),
+        ...gridFields.map((field) => columnFor(field, productTypeLabels)),
       ],
     };
   }, [
@@ -918,6 +950,27 @@ export default function ProductEccomPage() {
         )}
       >
         {viewing && <ProductView row={viewing} />}
+      </Modal>
+      <Modal
+        open={Boolean(previewImage)}
+        title={previewImage?.title || 'Product Image'}
+        size="md"
+        onClose={() => setPreviewImage(null)}
+        footer={
+          <button type="button" className="btn" onClick={() => setPreviewImage(null)}>
+            Close
+          </button>
+        }
+      >
+        {previewImage && (
+          <div className="flex items-center justify-center bg-[#f8fafc] p-2 rounded">
+            <img
+              src={previewImage.src}
+              alt={previewImage.title || 'Product image preview'}
+              className="mx-auto max-h-[75vh] w-auto max-w-full rounded object-contain"
+            />
+          </div>
+        )}
       </Modal>
     </>
   );

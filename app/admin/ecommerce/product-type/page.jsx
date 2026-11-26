@@ -1,19 +1,41 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Icon from '@/components/Icon';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import { useScope } from '@/components/ScopeContext';
+import { LuPlus } from 'react-icons/lu';
+import {
+  BUILT_IN_FILTER_DEFS,
+  FILTER_ICON_CHOICES,
+  resolveFilterIconComponent,
+} from '@/lib/ecommerceFilterIcons';
 
 /* E-commerce -> Product Type */
 
-const FILTER_TYPES = {
-  byWeave: 'By Weave',
-  byFabric: 'By Fabric',
-  byCraft: 'By Craft',
-  byOccasion: 'By Occasion',
-  byColour: 'By Colour',
+const suggestFilterKey = (input) => {
+  const raw = String(input || '').trim();
+  if (/^[a-zA-Z][a-zA-Z0-9]*$/.test(raw)) {
+    return (raw.charAt(0).toLowerCase() + raw.slice(1)).slice(0, 48);
+  }
+  const words = raw
+    .replace(/[^a-zA-Z0-9]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!words.length) return '';
+  return words
+    .map((w, i) => (i === 0 ? w.toLowerCase() : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()))
+    .join('');
 };
+
+const suggestFilterSlug = (input) =>
+  String(input || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64);
 
 /* defaults mirror the stored filterConfig entry shape in
    lib/ecommerceFilterConfig.js - the server re-validates anyway. */
@@ -59,16 +81,43 @@ export default function ProductTypePage() {
   const [previewError, setPreviewError] = useState('');
 
   const [showAdd, setShowAdd] = useState(false);
+  const [filterDefs, setFilterDefs] = useState(() => BUILT_IN_FILTER_DEFS);
+  const [newFilters, setNewFilters] = useState(() => BUILT_IN_FILTER_DEFS.map((f) => f.key));
   const [addError, setAddError] = useState('');
   const [pendingDelete, setPendingDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
+  /* Custom Filter creation modal */
+  const [showAddFilter, setShowAddFilter] = useState(false);
+  const [filterName, setFilterName] = useState('');
+  const [filterLabel, setFilterLabel] = useState('');
+  const [filterKey, setFilterKey] = useState('');
+  const [filterSlug, setFilterSlug] = useState('');
+  const [filterKeyEdited, setFilterKeyEdited] = useState(false);
+  const [filterSlugEdited, setFilterSlugEdited] = useState(false);
+  const [filterLabelEdited, setFilterLabelEdited] = useState(false);
+  const [filterIcon, setFilterIcon] = useState('tag');
+  const [filterActive, setFilterActive] = useState(true);
+  const [filterVisible, setFilterVisible] = useState(true);
+  const [filterSaving, setFilterSaving] = useState(false);
+  const [filterError, setFilterError] = useState('');
+
+  const activeFilterDefs = useMemo(
+    () => filterDefs.filter((f) => f.isActive !== false),
+    [filterDefs]
+  );
+  const filterMap = useMemo(
+    () => Object.fromEntries(filterDefs.map((f) => [f.key, f])),
+    [filterDefs]
+  );
+
   /*
-   * Load Product Types.
+   * Load Product Types + Registered Filters.
    */
   const load = useCallback(async () => {
     if (!business) {
       setRows([]);
+      setFilterDefs(BUILT_IN_FILTER_DEFS);
       return;
     }
 
@@ -76,18 +125,23 @@ export default function ProductTypePage() {
     setError('');
 
     try {
-      const r = await fetch(
-        '/api/v1/admin/product-types?all=1&business=' +
-          encodeURIComponent(business),
-        { cache: 'no-store' }
-      );
+      const [ptRes, fRes] = await Promise.all([
+        fetch('/api/v1/admin/product-types?all=1&business=' + encodeURIComponent(business), { cache: 'no-store' }),
+        fetch('/api/v1/admin/ecommerce-filters?includeInactive=1&business=' + encodeURIComponent(business), { cache: 'no-store' }),
+      ]);
 
-      const d = await r.json().catch(() => ({}));
+      const d = await ptRes.json().catch(() => ({}));
+      const fd = fRes.ok ? await fRes.json().catch(() => ({})) : {};
 
-      if (!r.ok) {
+      if (!ptRes.ok) {
         throw new Error(d.error || 'Could not load the list.');
       }
 
+      if (Array.isArray(fd.filters) && fd.filters.length) {
+        setFilterDefs(fd.filters);
+      } else {
+        setFilterDefs(BUILT_IN_FILTER_DEFS);
+      }
       setRows((d.types || []).filter((type) => type.value));
     } catch (e) {
       setRows([]);
@@ -136,7 +190,16 @@ export default function ProductTypePage() {
       const r = await fetch('/api/v1/admin/product-types', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ business, name }),
+        body: JSON.stringify({
+          business,
+          name,
+          filters: newFilters,
+          filterConfig: newFilters.map((key, index) => ({
+            key,
+            ...defaultFilterMeta(key, index),
+            displayLabel: filterMap[key]?.name || filterMap[key]?.label || key,
+          })),
+        }),
       });
 
       const d = await r.json().catch(() => ({}));
@@ -170,7 +233,7 @@ export default function ProductTypePage() {
     });
     const listed = Array.isArray(row.filters) ? row.filters : [];
     const filters = [...new Set([...listed, ...Object.keys(stored)])]
-      .filter((filter) => Object.prototype.hasOwnProperty.call(FILTER_TYPES, filter))
+      .filter((filter) => Boolean(filterMap[filter]))
       .sort((a, b) => {
         const orderA = Number(stored[a]?.displayOrder);
         const orderB = Number(stored[b]?.displayOrder);
@@ -182,7 +245,7 @@ export default function ProductTypePage() {
       meta[key] = { ...defaultFilterMeta(key, index), ...(stored[key] || {}) };
     });
     Object.keys(stored).forEach((key) => {
-      if (!meta[key] && Object.prototype.hasOwnProperty.call(FILTER_TYPES, key)) {
+      if (!meta[key] && filterMap[key]) {
         meta[key] = { ...defaultFilterMeta(key, filters.length), ...stored[key] };
       }
     });
@@ -222,6 +285,91 @@ export default function ProductTypePage() {
       return next;
     });
   };
+
+  const openAddFilterModal = () => {
+    setFilterName('');
+    setFilterLabel('');
+    setFilterKey('');
+    setFilterSlug('');
+    setFilterKeyEdited(false);
+    setFilterSlugEdited(false);
+    setFilterLabelEdited(false);
+    setFilterIcon('tag');
+    setFilterActive(true);
+    setFilterVisible(true);
+    setFilterError('');
+    setShowAddFilter(true);
+  };
+
+  async function saveCustomFilter(e) {
+    e.preventDefault();
+    if (!business || filterSaving) return;
+    const trimmedName = filterName.trim().replace(/\s+/g, ' ');
+    const trimmedLabel = (filterLabel.trim() || trimmedName).replace(/\s+/g, ' ');
+    const nextKey = (filterKey.trim() || suggestFilterKey(trimmedLabel));
+    const nextSlug = (filterSlug.trim() || suggestFilterSlug(trimmedLabel));
+
+    if (!trimmedName) {
+      setFilterError('Enter a filter name.');
+      return;
+    }
+    if (!nextKey) {
+      setFilterError('Enter a valid filter key.');
+      return;
+    }
+    if (!nextSlug) {
+      setFilterError('Enter a valid slug.');
+      return;
+    }
+
+    setFilterSaving(true);
+    setFilterError('');
+    try {
+      const res = await fetch('/api/v1/admin/ecommerce-filters', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          business,
+          name: trimmedName,
+          label: trimmedLabel,
+          key: nextKey,
+          slug: nextSlug,
+          icon: filterIcon,
+          isActive: filterActive,
+          ecommerceVisible: filterVisible,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Could not create filter.');
+
+      const created = data.filter;
+      if (created) {
+        setFilterDefs((cur) => {
+          const filtered = cur.filter((f) => f.key !== created.key);
+          return [...filtered, created];
+        });
+        if (editing) {
+          setEditFilters((cur) => (cur.includes(created.key) ? cur : [...cur, created.key]));
+          setFilterMeta(created.key, {
+            displayLabel: created.name || created.label,
+            displayOrder: editFilters.length,
+            isActive: created.isActive !== false,
+            isVisible: created.ecommerceVisible !== false,
+          });
+        }
+        if (showAdd) {
+          setNewFilters((cur) => (cur.includes(created.key) ? cur : [...cur, created.key]));
+        }
+        window.dispatchEvent(new Event('ecommerce-filters-updated'));
+        setFlash(`Filter "${created.name}" created.`);
+      }
+      setShowAddFilter(false);
+    } catch (err) {
+      setFilterError(err.message || 'Could not create filter.');
+    } finally {
+      setFilterSaving(false);
+    }
+  }
 
   /* Live values from the same builder the storefront uses. */
   async function loadPreview() {
@@ -388,6 +536,7 @@ export default function ProductTypePage() {
           disabled={!business}
           onClick={() => {
             setNewName('');
+            setNewFilters(activeFilterDefs.map((f) => f.key));
             setAddError('');
             setFlash('');
             setShowAdd(true);
@@ -446,6 +595,50 @@ export default function ProductTypePage() {
                   setAddError('');
                 }}
               />
+
+              <div className="mt-3">
+                <div className="f-label">Filters for this type</div>
+                <div className="flex flex-wrap items-center gap-2 rounded-md border border-line bg-[#f8fafc] p-2">
+                  {activeFilterDefs.map((def) => {
+                    const checked = newFilters.includes(def.key);
+                    const FilterIcon = resolveFilterIconComponent(def.icon, def.key);
+                    const tooltip = def.name || def.label || def.key;
+                    return (
+                      <button
+                        key={def.key}
+                        type="button"
+                        title={tooltip}
+                        aria-label={tooltip}
+                        aria-pressed={checked}
+                        disabled={saving}
+                        onClick={() => {
+                          setNewFilters((cur) => (checked
+                            ? cur.filter((k) => k !== def.key)
+                            : [...new Set([...cur, def.key])]));
+                        }}
+                        className={
+                          'inline-flex h-9 w-9 items-center justify-center rounded-md border transition ' +
+                          (checked
+                            ? 'border-primary bg-primary/10 text-primary shadow-sm ring-1 ring-primary/30'
+                            : 'border-line bg-white text-inkmuted hover:border-slate-300 hover:bg-slate-50 hover:text-ink')
+                        }
+                      >
+                        <FilterIcon size={17} />
+                      </button>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    title="Add Filter"
+                    aria-label="Add Filter"
+                    disabled={saving}
+                    onClick={openAddFilterModal}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-dashed border-primary/60 bg-primary/5 text-primary transition hover:border-primary hover:bg-primary/15"
+                  >
+                    <LuPlus size={17} />
+                  </button>
+                </div>
+              </div>
 
               {addError && (
                 <div className="f-err mt-1">{addError}</div>
@@ -574,127 +767,175 @@ export default function ProductTypePage() {
               </div>
 
               <div className="mt-4">
-                <div className="f-label">Filters for this group</div>
+                <div className="mb-1.5 flex items-center justify-between gap-2">
+                  <div className="f-label mb-0">Filters for this group</div>
+                  <span className="text-[11px] text-inkmuted">{editFilters.length} selected</span>
+                </div>
+
+                {/* Icon-only filter toggle bar + Add Filter (+) button */}
+                <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-line bg-[#f8fafc] p-2.5">
+                  {activeFilterDefs.map((def) => {
+                    const included = editFilters.includes(def.key);
+                    const FilterIcon = resolveFilterIconComponent(def.icon, def.key);
+                    const tooltip = def.name || def.label || def.key;
+                    return (
+                      <button
+                        key={def.key}
+                        type="button"
+                        title={tooltip}
+                        aria-label={tooltip}
+                        aria-pressed={included}
+                        disabled={editSaving}
+                        onClick={() => {
+                          setEditFilters((current) =>
+                            included
+                              ? current.filter((filter) => filter !== def.key)
+                              : [...current, def.key]
+                          );
+                          if (!included) setFilterMeta(def.key, {});
+                        }}
+                        className={
+                          'inline-flex h-9 w-9 items-center justify-center rounded-md border transition ' +
+                          (included
+                            ? 'border-primary bg-primary/10 text-primary shadow-sm ring-1 ring-primary/30'
+                            : 'border-line bg-white text-inkmuted hover:border-slate-300 hover:bg-slate-50 hover:text-ink')
+                        }
+                      >
+                        <FilterIcon size={17} />
+                      </button>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    title="Add Filter"
+                    aria-label="Add Filter"
+                    disabled={editSaving}
+                    onClick={openAddFilterModal}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-dashed border-primary/60 bg-primary/5 text-primary transition hover:border-primary hover:bg-primary/15"
+                  >
+                    <LuPlus size={17} />
+                  </button>
+                </div>
+
+                {/* Per-filter display configuration for enabled filters */}
                 <div className="space-y-2">
-                  {Object.entries(FILTER_TYPES).map(([type, label]) => {
-                    const included = editFilters.includes(type);
-                    const meta = editFilterMeta[type] || defaultFilterMeta(type, 0);
+                  {editFilters.length === 0 && (
+                    <div className="rounded border border-dashed border-line px-3 py-2 text-[12px] text-inkmuted">
+                      No filters enabled for this group. Click filter icons above to enable them.
+                    </div>
+                  )}
+                  {editFilters.map((type, idx) => {
+                    const def = filterMap[type];
+                    const label = def?.name || def?.label || type;
+                    const FilterIcon = resolveFilterIconComponent(def?.icon, type);
+                    const meta = editFilterMeta[type] || defaultFilterMeta(type, idx);
                     return (
                       <div key={type} className="rounded border border-line">
-                        <label className="flex cursor-pointer items-center gap-2 px-3 py-2 text-[13px]">
-                          <input
-                            type="checkbox"
-                            checked={included}
-                            disabled={editSaving}
-                            onChange={(e) => {
-                              const on = e.target.checked;
-                              setEditFilters((current) => on
-                                ? [...current, type]
-                                : current.filter((filter) => filter !== type));
-                              if (on) setFilterMeta(type, {});
-                            }}
-                          />
+                        <div className="flex items-center gap-2 px-3 py-2 text-[13px]">
+                          <span className="inline-flex h-6 w-6 items-center justify-center rounded bg-slate-100 text-primary">
+                            <FilterIcon size={14} />
+                          </span>
                           <span className="font-medium">{label}</span>
-                          {!included && (
-                            <span className="text-[11px] text-inkmuted">not used by this type</span>
+                          {def?.isActive === false && (
+                            <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
+                              Filter inactive
+                            </span>
                           )}
-                          {included && (
-                            <>
-                              <span className="flex-1" />
-                              <span
-                                role="button"
-                                tabIndex={0}
-                                title="Move up"
-                                className={editFilters.indexOf(type) === 0 ? 'text-inkmuted' : 'text-ink'}
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  moveFilter(type, -1);
-                                }}
-                              >
-                                <Icon name="chevR" size={14} className="-rotate-90" />
-                              </span>
-                              <span
-                                role="button"
-                                tabIndex={0}
-                                title="Move down"
-                                className={editFilters.indexOf(type) === editFilters.length - 1 ? 'text-inkmuted' : 'text-ink'}
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  moveFilter(type, 1);
-                                }}
-                              >
-                                <Icon name="chevR" size={14} className="rotate-90" />
-                              </span>
-                            </>
-                          )}
-                        </label>
-                        {included && (
-                          <div className="grid grid-cols-2 gap-2 border-t border-line px-3 py-2 sm:grid-cols-4">
-                            <div className="col-span-2 sm:col-span-1">
-                              <label className="f-label">Label</label>
-                              <input
-                                className="f-input w-full"
-                                value={meta.displayLabel || ''}
-                                placeholder={label}
-                                disabled={editSaving}
-                                onChange={(e) => setFilterMeta(type, { displayLabel: e.target.value })}
-                              />
-                            </div>
-                            <div>
-                              <label className="f-label">Order</label>
-                              <input
-                                className="f-input w-full"
-                                type="number"
-                                value={meta.displayOrder ?? 0}
-                                disabled={editSaving}
-                                onChange={(e) => setFilterMeta(type, { displayOrder: Number(e.target.value) || 0 })}
-                              />
-                            </div>
-                            <div>
-                              <label className="f-label">Selection</label>
-                              <select
-                                className="f-input w-full"
-                                value={meta.selectionMode || 'multiple'}
-                                disabled={editSaving}
-                                onChange={(e) => setFilterMeta(type, { selectionMode: e.target.value })}
-                              >
-                                <option value="multiple">Multiple</option>
-                                <option value="single">Single</option>
-                              </select>
-                            </div>
-                            <div className="col-span-2 flex flex-wrap items-center gap-x-4 gap-y-1 sm:col-span-1 sm:flex-col sm:items-start sm:justify-center">
-                              <label className="flex cursor-pointer items-center gap-1.5 text-[12px]">
-                                <input
-                                  type="checkbox"
-                                  checked={meta.isActive !== false}
-                                  disabled={editSaving}
-                                  onChange={(e) => setFilterMeta(type, { isActive: e.target.checked })}
-                                />
-                                Active
-                              </label>
-                              <label className="flex cursor-pointer items-center gap-1.5 text-[12px]">
-                                <input
-                                  type="checkbox"
-                                  checked={meta.isVisible !== false}
-                                  disabled={editSaving}
-                                  onChange={(e) => setFilterMeta(type, { isVisible: e.target.checked })}
-                                />
-                                Visible on store
-                              </label>
-                              <label className="flex cursor-pointer items-center gap-1.5 text-[12px]">
-                                <input
-                                  type="checkbox"
-                                  checked={meta.isFilterable !== false}
-                                  disabled={editSaving}
-                                  onChange={(e) => setFilterMeta(type, { isFilterable: e.target.checked })}
-                                />
-                                Filterable
-                              </label>
-                            </div>
+                          <span className="flex-1" />
+                          <button
+                            type="button"
+                            title="Move up"
+                            aria-label={'Move ' + label + ' up'}
+                            disabled={idx === 0 || editSaving}
+                            className={idx === 0 ? 'text-inkmuted opacity-40' : 'text-ink hover:text-primary'}
+                            onClick={() => moveFilter(type, -1)}
+                          >
+                            <Icon name="chevR" size={14} className="-rotate-90" />
+                          </button>
+                          <button
+                            type="button"
+                            title="Move down"
+                            aria-label={'Move ' + label + ' down'}
+                            disabled={idx === editFilters.length - 1 || editSaving}
+                            className={idx === editFilters.length - 1 ? 'text-inkmuted opacity-40' : 'text-ink hover:text-primary'}
+                            onClick={() => moveFilter(type, 1)}
+                          >
+                            <Icon name="chevR" size={14} className="rotate-90" />
+                          </button>
+                          <button
+                            type="button"
+                            title={'Disable ' + label}
+                            aria-label={'Disable ' + label}
+                            disabled={editSaving}
+                            className="ml-1 text-inkmuted hover:text-danger"
+                            onClick={() => setEditFilters((cur) => cur.filter((f) => f !== type))}
+                          >
+                            <Icon name="x" size={13} />
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 border-t border-line px-3 py-2 sm:grid-cols-4">
+                          <div className="col-span-2 sm:col-span-1">
+                            <label className="f-label">Label</label>
+                            <input
+                              className="f-input w-full"
+                              value={meta.displayLabel || ''}
+                              placeholder={label}
+                              disabled={editSaving}
+                              onChange={(e) => setFilterMeta(type, { displayLabel: e.target.value })}
+                            />
                           </div>
-                        )}
+                          <div>
+                            <label className="f-label">Order</label>
+                            <input
+                              className="f-input w-full"
+                              type="number"
+                              value={meta.displayOrder ?? 0}
+                              disabled={editSaving}
+                              onChange={(e) => setFilterMeta(type, { displayOrder: Number(e.target.value) || 0 })}
+                            />
+                          </div>
+                          <div>
+                            <label className="f-label">Selection</label>
+                            <select
+                              className="f-input w-full"
+                              value={meta.selectionMode || 'multiple'}
+                              disabled={editSaving}
+                              onChange={(e) => setFilterMeta(type, { selectionMode: e.target.value })}
+                            >
+                              <option value="multiple">Multiple</option>
+                              <option value="single">Single</option>
+                            </select>
+                          </div>
+                          <div className="col-span-2 flex flex-wrap items-center gap-x-4 gap-y-1 sm:col-span-1 sm:flex-col sm:items-start sm:justify-center">
+                            <label className="flex cursor-pointer items-center gap-1.5 text-[12px]">
+                              <input
+                                type="checkbox"
+                                checked={meta.isActive !== false}
+                                disabled={editSaving}
+                                onChange={(e) => setFilterMeta(type, { isActive: e.target.checked })}
+                              />
+                              Active
+                            </label>
+                            <label className="flex cursor-pointer items-center gap-1.5 text-[12px]">
+                              <input
+                                type="checkbox"
+                                checked={meta.isVisible !== false}
+                                disabled={editSaving}
+                                onChange={(e) => setFilterMeta(type, { isVisible: e.target.checked })}
+                              />
+                              Visible on store
+                            </label>
+                            <label className="flex cursor-pointer items-center gap-1.5 text-[12px]">
+                              <input
+                                type="checkbox"
+                                checked={meta.isFilterable !== false}
+                                disabled={editSaving}
+                                onChange={(e) => setFilterMeta(type, { isFilterable: e.target.checked })}
+                              />
+                              Filterable
+                            </label>
+                          </div>
+                        </div>
                       </div>
                     );
                   })}
@@ -828,8 +1069,7 @@ export default function ProductTypePage() {
                 shown.map((row, i) => {
                   const applicableFilters =
                     (Array.isArray(row.filters) ? row.filters : [])
-                      .filter((type) =>
-                        Object.prototype.hasOwnProperty.call(FILTER_TYPES, type));
+                      .filter((type) => Boolean(filterMap[type]));
 
                   return (
                     <tr key={row.value}>
@@ -901,18 +1141,22 @@ export default function ProductTypePage() {
                           </div>
                         ) : (
                           <div className="flex flex-wrap gap-2">
-                            {applicableFilters.map((type) => (
-                              <span
-                                key={type}
-                                className="inline-flex items-center gap-1 rounded border border-line bg-white px-2 py-1 text-[12px]"
-                              >
-                                {(() => {
-                                  const entry = (Array.isArray(row.filterConfig) ? row.filterConfig : [])
-                                    .find((f) => String(f?.key || f?.field || '') === type);
-                                  return entry?.displayLabel || entry?.label || FILTER_TYPES[type];
-                                })()}
-                              </span>
-                            ))}
+                            {applicableFilters.map((type) => {
+                              const def = filterMap[type];
+                              const FilterIcon = resolveFilterIconComponent(def?.icon, type);
+                              const entry = (Array.isArray(row.filterConfig) ? row.filterConfig : [])
+                                .find((f) => String(f?.key || f?.field || '') === type);
+                              const text = entry?.displayLabel || entry?.label || def?.name || def?.label || type;
+                              return (
+                                <span
+                                  key={type}
+                                  className="inline-flex items-center gap-1.5 rounded border border-line bg-white px-2 py-1 text-[12px]"
+                                >
+                                  <FilterIcon size={12} className="text-primary" />
+                                  {text}
+                                </span>
+                              );
+                            })}
                           </div>
                         )}
                       </td>
@@ -929,6 +1173,179 @@ export default function ProductTypePage() {
           </div>
         )}
       </div>
+
+      {/* Add Custom Filter Modal */}
+      {showAddFilter && (
+        <div
+          className="fixed inset-0 z-[90] flex items-center justify-center overflow-y-auto bg-black/50 p-4"
+          onMouseDown={() => {
+            if (!filterSaving) setShowAddFilter(false);
+          }}
+        >
+          <form
+            className="w-full max-w-[460px] rounded-lg bg-white shadow-pop"
+            onMouseDown={(e) => e.stopPropagation()}
+            onSubmit={saveCustomFilter}
+          >
+            <div className="flex items-center border-b border-line px-4 py-3">
+              <span className="text-[15px] font-bold">Add Custom Filter</span>
+              <span className="flex-1" />
+              <button
+                type="button"
+                aria-label="Close"
+                className="flex h-6 w-6 items-center justify-center rounded-full bg-[#e0342c] text-white"
+                disabled={filterSaving}
+                onClick={() => setShowAddFilter(false)}
+              >
+                <Icon name="x" size={12} />
+              </button>
+            </div>
+
+            <div className="space-y-3 px-4 py-4">
+              <div>
+                <label className="f-label">
+                  Filter Name <span className="text-danger">*</span>
+                </label>
+                <input
+                  className="f-input w-full"
+                  placeholder="e.g. By Material"
+                  autoFocus
+                  value={filterName}
+                  disabled={filterSaving}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setFilterName(val);
+                    if (!filterLabelEdited) setFilterLabel(val);
+                    if (!filterKeyEdited) setFilterKey(suggestFilterKey(val));
+                    if (!filterSlugEdited) setFilterSlug(suggestFilterSlug(val));
+                    setFilterError('');
+                  }}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="f-label">Filter Label</label>
+                  <input
+                    className="f-input w-full"
+                    placeholder="e.g. By Material"
+                    value={filterLabel}
+                    disabled={filterSaving}
+                    onChange={(e) => {
+                      setFilterLabelEdited(true);
+                      setFilterLabel(e.target.value);
+                      setFilterError('');
+                    }}
+                  />
+                </div>
+                <div>
+                  <label className="f-label">Filter Key</label>
+                  <input
+                    className="f-input w-full font-mono text-[12px]"
+                    placeholder="e.g. byMaterial"
+                    value={filterKey}
+                    disabled={filterSaving}
+                    onChange={(e) => {
+                      setFilterKeyEdited(true);
+                      setFilterKey(e.target.value);
+                      setFilterError('');
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="f-label">Sidebar Route Slug</label>
+                <input
+                  className="f-input w-full font-mono text-[12px]"
+                  placeholder="e.g. by-material"
+                  value={filterSlug}
+                  disabled={filterSaving}
+                  onChange={(e) => {
+                    setFilterSlugEdited(true);
+                    setFilterSlug(e.target.value);
+                    setFilterError('');
+                  }}
+                />
+                <div className="mt-1 text-[11px] text-inkmuted">
+                  Menu page: <span className="font-mono">/admin/ecommerce/filters/{filterSlug || 'custom-filter'}</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="f-label">Icon</label>
+                <div className="flex flex-wrap gap-1.5 rounded border border-line bg-[#f8fafc] p-2">
+                  {FILTER_ICON_CHOICES.map((choice) => {
+                    const ChoiceIcon = choice.Icon;
+                    const active = filterIcon === choice.key;
+                    return (
+                      <button
+                        key={choice.key}
+                        type="button"
+                        title={choice.label}
+                        aria-label={choice.label}
+                        aria-pressed={active}
+                        disabled={filterSaving}
+                        onClick={() => setFilterIcon(choice.key)}
+                        className={
+                          'inline-flex h-8 w-8 items-center justify-center rounded border transition ' +
+                          (active
+                            ? 'border-primary bg-primary/10 text-primary ring-1 ring-primary/30'
+                            : 'border-line bg-white text-inkmuted hover:border-slate-300 hover:text-ink')
+                        }
+                      >
+                        <ChoiceIcon size={15} />
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-5 pt-1">
+                <label className="flex cursor-pointer items-center gap-2 text-[13px]">
+                  <input
+                    type="checkbox"
+                    checked={filterActive}
+                    disabled={filterSaving}
+                    onChange={(e) => setFilterActive(e.target.checked)}
+                  />
+                  Active
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 text-[13px]">
+                  <input
+                    type="checkbox"
+                    checked={filterVisible}
+                    disabled={filterSaving}
+                    onChange={(e) => setFilterVisible(e.target.checked)}
+                  />
+                  Visible on E-commerce Store
+                </label>
+              </div>
+
+              {filterError && <div className="f-err">{filterError}</div>}
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={filterSaving}
+                  onClick={() => setShowAddFilter(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={filterSaving}
+                >
+                  <Icon name="save" size={14} />
+                  {filterSaving ? 'Creating...' : 'Create Filter'}
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      )}
 
       <ConfirmDialog
         open={Boolean(pendingDelete)}

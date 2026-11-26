@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { isValidObjectId, Types } from 'mongoose';
+import mongoose, { isValidObjectId, Types } from 'mongoose';
 import dbConnect from '@/lib/db';
 import EcommerceProduct from '@/models/EcommerceProduct';
 import Item from '@/models/Item';
@@ -8,7 +8,12 @@ import {
   classificationOptionsById,
   businessMatch,
   CLASSIFICATION_FIELDS,
+  CLASSIFICATION_COLLECTIONS,
 } from '@/lib/classificationCollections';
+import {
+  ECOMMERCE_FILTER_VALUES_COLLECTION,
+  getValidFilterKeys,
+} from '@/lib/ecommerceFilterMaster';
 import { BarcodeLabel, BARCODE_STATUS } from '@/lib/barcodeLabel';
 import { getStorefrontCatalog, findCatalogGroup } from '@/lib/ecommerceCatalog';
 import {
@@ -62,11 +67,12 @@ export async function GET(req) {
   const includeFacets = params.get('facets') !== '0';
   const productTypeParam = String(params.get('group') || params.get('productType') || '').trim();
 
-  const { selections, errors } = parseFilterSelections(params);
+  await dbConnect();
+  const validFilterKeys = await getValidFilterKeys(businessId, { includeInactive: false });
+  const { selections, errors } = parseFilterSelections(params, { validKeys: validFilterKeys });
   if (errors.length) return json({ error: errors[0] }, 422);
   const hasSelections = Object.keys(selections).length > 0;
 
-  await dbConnect();
   const catalog = await getStorefrontCatalog(businessId);
 
   /* An unknown or disabled group is unavailable, never an empty listing. */
@@ -87,15 +93,26 @@ export async function GET(req) {
     for (const [key, ids] of Object.entries(selections)) {
       const filter = group.filters.find((f) => f.key === key);
       const label = filter?.displayLabel || filter?.label || key;
-      const found = await classificationCollection(key)
-        .find({
-          _id: { $in: ids.map((id) => new Types.ObjectId(id)) },
-          businessId: businessMatch(businessId),
-          isActive: { $ne: false },
-          productType: { $regex: `^${escapeRegex(classGroup)}$`, $options: 'i' },
-        })
-        .project({ _id: 1 })
-        .toArray();
+      const isBuiltIn = Boolean(CLASSIFICATION_COLLECTIONS[key]);
+      const col = isBuiltIn
+        ? classificationCollection(key)
+        : mongoose.connection.db.collection(ECOMMERCE_FILTER_VALUES_COLLECTION);
+      const query = {
+        _id: { $in: ids.map((id) => new Types.ObjectId(id)) },
+        businessId: businessMatch(businessId),
+        isActive: { $ne: false },
+        ...(isBuiltIn ? {} : { $or: [{ filterKey: key }, { type: key }] }),
+        $and: [{
+          $or: [
+            { productType: { $regex: `^${escapeRegex(classGroup)}$`, $options: 'i' } },
+            { productType: { $regex: `^${escapeRegex(group.key)}$`, $options: 'i' } },
+            { productType: { $exists: false } },
+            { productType: null },
+            { productType: '' },
+          ],
+        }],
+      };
+      const found = await col.find(query).project({ _id: 1 }).toArray();
       const foundIds = new Set(found.map((row) => String(row._id).toLowerCase()));
       if (ids.some((id) => !foundIds.has(id))) {
         return json({ error: `One or more selected ${label} values are not available for this group.` }, 422);
@@ -134,8 +151,14 @@ export async function GET(req) {
     : [];
   const itemById = new Map(items.map((item) => [String(item._id), item]));
 
+  const allFilterKeys = [...new Set([
+    ...CLASSIFICATION_FIELDS,
+    ...validFilterKeys,
+    ...(group ? group.filters.map((f) => f.key) : []),
+  ])];
+
   const classificationIds = [...new Set(products.flatMap((product) =>
-    CLASSIFICATION_FIELDS.flatMap((field) => product[field] || [])
+    allFilterKeys.flatMap((field) => product[field] || [])
   ).map(String))];
   const classificationById = new Map([...(await classificationOptionsById(classificationIds))]
     .filter(([, option]) => option.isActive)
@@ -147,7 +170,7 @@ export async function GET(req) {
     const item = itemById.get(String(product.itemId));
     if (!item) return [];
     const ids = {};
-    CLASSIFICATION_FIELDS.forEach((field) => {
+    allFilterKeys.forEach((field) => {
       ids[field] = new Set((product[field] || []).map(String));
     });
     return [{
@@ -169,7 +192,7 @@ export async function GET(req) {
       seoTitle: product.seoTitle || '',
       seoDescription: product.seoDescription || '',
       classifications: Object.fromEntries(
-        CLASSIFICATION_FIELDS.map((field) => [
+        allFilterKeys.map((field) => [
           field,
           [...ids[field]]
             .map((classificationId) => classificationById.get(classificationId))
@@ -181,7 +204,7 @@ export async function GET(req) {
   });
 
   const matchesSelections = (row, exceptKey) => Object.entries(selections)
-    .every(([key, ids]) => key === exceptKey || ids.some((id) => row._ids[key].has(id)));
+    .every(([key, ids]) => key === exceptKey || ids.some((id) => row._ids[key]?.has(id)));
 
   const filteredRows = rowsBase.filter((row) => matchesSelections(row, null));
 
@@ -196,11 +219,14 @@ export async function GET(req) {
       const candidates = rowsBase.filter((row) => matchesSelections(row, filter.key));
       const counts = new Map();
       candidates.forEach((row) => {
-        row._ids[filter.key].forEach((id) => counts.set(id, (counts.get(id) || 0) + 1));
+        (row._ids[filter.key] || new Set()).forEach((id) => counts.set(id, (counts.get(id) || 0) + 1));
       });
       const meta = new Map([...(await classificationOptionsById([...counts.keys()]))]
-        .filter(([, option]) => option.isActive
-          && String(option.productType || '').trim().toUpperCase() === classGroup));
+        .filter(([, option]) => {
+          if (!option.isActive) return false;
+          const optPt = String(option.productType || '').trim().toUpperCase();
+          return !optPt || optPt === classGroup || optPt === group.key.toUpperCase();
+        }));
       optionsByFilter[filter.key] = [...counts.entries()]
         .map(([id, count]) => ({ id, count, option: meta.get(id) }))
         .filter(({ option }) => Boolean(option))

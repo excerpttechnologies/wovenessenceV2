@@ -3977,6 +3977,7 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
      cfg.actionPosition is no longer read */
   const actionPos = "left";
   const actionVariant = cfg.actionVariant || "icons";
+  const verticalActions = cfg.actionLayout === "vertical";
 
   /* Colour for an action button, taken from the icon the cfg already names -
      so a list says what an action IS and gets the colour that goes with it,
@@ -4816,10 +4817,12 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
           )}
 
           <div className="mt-3 overflow-x-auto">
-            <table className={"dt" + (cfg.nowrapHead ? " dt-nowrap-head" : "") + (cfg.compact ? " dt-compact" : "")}>
+            <table className={"dt" + (cfg.nowrapHead ? " dt-nowrap-head" : "") + (cfg.compact ? " dt-compact" : "") + (cfg.tableClass ? " " + cfg.tableClass : "")}>
               <thead>
                 <tr>
-                  {actionPos === "left" && <th>Action</th>}
+                  {actionPos === "left" && (
+                    <th className={verticalActions ? "w-[1%] whitespace-nowrap !px-1 text-center" : undefined}>Action</th>
+                  )}
                   {cfg.serialNumber && <th>#</th>}
                   {visible.map((c, i) => (
                     c.k && (cfg.sortable === true || (cfg.sortable || []).includes(c.k)) ? (
@@ -4828,17 +4831,21 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
                         label={c.t}
                         sortKey={c.sortKey || c.k}
                         sort={sort}
+                        className={c.thClass}
                         style={c.minWidth ? { minWidth: c.minWidth, width: c.minWidth } : undefined}
                         onSort={(next) => { setSort(next); setPage(1); }}
                       />
                     ) : (
                       <th
                         key={c.t + i}
+                        className={c.thClass}
                         style={c.minWidth ? { minWidth: c.minWidth, width: c.minWidth } : undefined}
                       >{c.t}</th>
                     )
                   ))}
-                  {actionPos === "right" && <th>Action</th>}
+                  {actionPos === "right" && (
+                    <th className={verticalActions ? "w-[1%] whitespace-nowrap !px-1 text-center" : undefined}>Action</th>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -4885,7 +4892,7 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
                 {!loading && !scopePending &&
                   state.rows.map((row, rowIndex) => {
                     const actions = (
-                      <td>
+                      <td className={verticalActions ? "w-[1%] whitespace-nowrap !px-1 !py-1 align-middle" : undefined}>
                         {actionVariant === "dropdown" ? (
                           <ActionMenu
                             items={rowActions(row)}
@@ -4910,28 +4917,32 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
                           />
                         ) : actionVariant === "buttons" ? (
                           /* The same entries the dropdown would list, laid out
-                             in a row. Used where the actions go to different
-                             places - POS has view, payments and print - which
-                             the icons variant below cannot express, because it
-                             builds every destination as base + /:id. */
-                          <span className={"inline-flex flex-nowrap items-center whitespace-nowrap " + (cfg.compact ? "gap-1" : "gap-1.5")}>
+                             either horizontally or in a compact vertical stack. */
+                          <span className={verticalActions
+                            ? "inline-flex w-max flex-col items-stretch gap-[2px]"
+                            : ("inline-flex flex-nowrap items-center whitespace-nowrap " + (cfg.compact ? "gap-1" : "gap-1.5"))
+                          }>
                             {rowActions(row).length === 0 ? (
                               <span className="text-[11px] text-inkmuted">No actions</span>
                             ) : rowActions(row).map((m, mIdx) => {
                               const actLabel = typeof m.label === 'function' ? m.label(row) : m.label;
+                              const actTooltip = typeof m.tooltip === 'function' ? m.tooltip(row) : (m.tooltip || actLabel);
                               const actIcon = typeof m.icon === 'function' ? m.icon(row) : m.icon;
                               const actTone = typeof m.tone === 'function' ? m.tone(row) : m.tone;
+                              const toneCls = actTone
+                                || (m.action === 'delete' ? ACTION_TONE.trash : '')
+                                || ACTION_TONE[actIcon]
+                                || 'act-blue';
                               return (
                               <button
                                 key={actLabel || mIdx}
                                 type="button"
-                                className={'act-btn shrink-0 '
-                                  + (actTone
-                                    || (m.action === 'delete' ? ACTION_TONE.trash : '')
-                                    || ACTION_TONE[actIcon]
-                                    || 'act-blue')}
-                                title={actLabel}
-                                aria-label={actLabel}
+                                className={verticalActions
+                                  ? ('eccom-act-btn ' + toneCls)
+                                  : ('act-btn shrink-0 ' + toneCls)
+                                }
+                                title={actTooltip}
+                                aria-label={actTooltip}
                                 onClick={() => {
                                   if (m.action === 'delete') { remove(m.rowId); return; }
                                   if (m.onClick) { m.onClick(m.row); return; }
@@ -4942,7 +4953,8 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
                                   }
                                 }}
                               >
-                                <Icon name={actIcon || 'eye'} size={cfg.compact ? 13 : 15} />
+                                <Icon name={actIcon || 'eye'} size={verticalActions ? 10 : (cfg.compact ? 13 : 15)} />
+                                {verticalActions && <span>{actLabel}</span>}
                               </button>
                               );
                             })}
@@ -5039,6 +5051,7 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
                         {visible.map((c, i) => (
                           <td
                             key={c.t + i}
+                            className={c.tdClass}
                             style={c.minWidth ? { minWidth: c.minWidth, width: c.minWidth } : undefined}
                           >{cellValue(row, c)}</td>
                         ))}

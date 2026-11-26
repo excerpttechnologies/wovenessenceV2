@@ -82,15 +82,14 @@ const IDENTIFY_FIELDS = [
 ];
 
 const labelOf = (k) => k.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/^./, (c) => c.toUpperCase());
-const fieldLabel = (k) => ({
+const STATIC_FIELD_LABELS = {
   ecommOffPercent: 'E-Comm Off (%)',
   barcodePriceOverride: 'Price',
   barcodeQtyOverride: 'Required Quantity',
   printDescriptionOverride: 'Print Description',
   displayName: 'Product Name',
   status: 'Active Status',
-}[k] || labelOf(k));
-const kindOf = (f) => (f.k === 'itemId' ? 'item' : KNOWN[f.k] || (f.type === 'boolean' ? 'boolean' : f.type === 'number' ? 'number' : f.type === 'array' ? 'lines' : 'text'));
+};
 
 export default function ProductEccomAddPage() {
   const router = useRouter();
@@ -98,6 +97,7 @@ export default function ProductEccomAddPage() {
   const [fields, setFields] = useState(null);
   const [items, setItems] = useState([]);
   const [productTypes, setProductTypes] = useState([{ value: '', label: 'Not Specified' }]);
+  const [filterDefs, setFilterDefs] = useState([]);
   const [classificationOptions, setClassificationOptions] = useState({});
   const [classificationOptionsLoading, setClassificationOptionsLoading] = useState(false);
   const [classificationOptionsError, setClassificationOptionsError] = useState('');
@@ -143,6 +143,27 @@ export default function ProductEccomAddPage() {
   const [saving, setSaving] = useState(false);
   const [imageHovered, setImageHovered] = useState(false);
 
+  const filterKeySet = useMemo(
+    () => new Set([...ALL_CLASSIFICATION_TYPES, ...filterDefs.map((f) => f.key)]),
+    [filterDefs]
+  );
+  const filterDefMap = useMemo(
+    () => Object.fromEntries(filterDefs.map((f) => [f.key, f])),
+    [filterDefs]
+  );
+  const fieldLabel = useCallback(
+    (k) => filterDefMap[k]?.name || filterDefMap[k]?.label || STATIC_FIELD_LABELS[k] || labelOf(k),
+    [filterDefMap]
+  );
+  const kindOf = useCallback(
+    (f) => {
+      if (f.k === 'itemId') return 'item';
+      if (filterKeySet.has(f.k)) return 'classification';
+      return KNOWN[f.k] || (f.type === 'boolean' ? 'boolean' : f.type === 'number' ? 'number' : f.type === 'array' ? 'lines' : 'text');
+    },
+    [filterKeySet]
+  );
+
   useEffect(() => {
     if (!business) return undefined;
     let off = false;
@@ -153,12 +174,17 @@ export default function ProductEccomAddPage() {
       fetch('/api/v1/admin/product-types?business=' + encodeURIComponent(business), { cache: 'no-store' })
         .then((r) => r.ok ? r.json() : Promise.reject(new Error('Unable to load product types')))
         .catch((e) => { console.error('Failed to load product types:', e); return {}; }),
-    ]).then(([f, it, pt]) => {
+      fetch('/api/v1/admin/ecommerce-filters?business=' + encodeURIComponent(business), { cache: 'no-store' })
+        .then((r) => (r.ok ? r.json() : {}))
+        .catch(() => ({})),
+    ]).then(([f, it, pt, ef]) => {
       if (off) return;
-      /* the known fields always, plus whatever else the collection carries */
+      const activeFilters = (Array.isArray(ef.filters) ? ef.filters : []).filter((x) => x.isActive !== false);
+      setFilterDefs(activeFilters);
+      /* the known fields always, plus whatever else the collection and registered filters carry */
       const seen = (f.fields || []).filter((x) => !SKIP.has(x.k));
       const all = [...seen];
-      ['itemId', ...Object.keys(KNOWN)].forEach((k) => {
+      ['itemId', ...Object.keys(KNOWN), ...activeFilters.map((x) => x.key)].forEach((k) => {
         if (!SKIP.has(k) && !all.some((x) => x.k === k)) all.push({ k, type: 'text' });
       });
       setFields(all);
@@ -388,7 +414,7 @@ export default function ProductEccomAddPage() {
     const configuredType = productTypes.find((option) => option.value === productType);
     const applicableClassifications = Array.isArray(configuredType?.filters)
       ? configuredType.filters
-      : PRODUCT_TYPE_CLASSIFICATIONS[productType] || ALL_CLASSIFICATION_TYPES;
+      : PRODUCT_TYPE_CLASSIFICATIONS[productType] || [...filterKeySet];
     return [
       ...FIRST.map((k) => list.find((f) => f.k === k)).filter((field) =>
         field && (kindOf(field) !== 'classification'
@@ -402,7 +428,7 @@ export default function ProductEccomAddPage() {
           || applicableClassifications.includes(field.k))
       ),
     ];
-  }, [fields, data.productType, productTypes]);
+  }, [fields, data.productType, productTypes, filterKeySet, kindOf]);
 
   const classificationFields = useMemo(
     () => ordered.filter((field) => kindOf(field) === 'classification'),
@@ -623,8 +649,11 @@ export default function ProductEccomAddPage() {
           title={locked ? 'Set from the barcode\'s item group' : undefined}
           onChange={(event) => {
             set(k, event.target.value);
-            /* the by* names belong to a Product Type group - a new type starts them empty (29-10-2026) */
-            setData((d) => ({ ...d, byWeave: [], byFabric: [], byCraft: [], byOccasion: [], byColour: [] }));
+            /* the by* / custom filter names belong to a Product Type group - a new type starts them empty */
+            setData((d) => {
+              const resetPatch = Object.fromEntries([...filterKeySet].map((fk) => [fk, []]));
+              return { ...d, ...resetPatch };
+            });
           }}
         >
           {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
@@ -657,6 +686,7 @@ export default function ProductEccomAddPage() {
       return (
         <ClassificationPicker
           type={k}
+          label={fieldLabel(k)}
           value={Array.isArray(v) ? v.map(String) : []}
           onChange={(value) => set(k, value)}
           businessId={business}

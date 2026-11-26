@@ -686,6 +686,13 @@ select {
            transition-colors focus:outline-none focus-visible:ring-2
            focus-visible:ring-brand/40 disabled:opacity-50;
   }
+  .eccom-act-btn {
+    @apply inline-flex w-full items-center justify-center gap-1 rounded border
+           border-line bg-pillgrey px-1.5 py-[2px] text-[10.5px] font-semibold
+           leading-[1.2] text-cell cursor-pointer whitespace-nowrap
+           transition-colors focus:outline-none focus-visible:ring-2
+           focus-visible:ring-brand/40 disabled:opacity-50;
+  }
   .act-blue   { @apply border-[#cfe1fb] bg-[#eff5fe] text-[#2366bc]; }
   .act-blue:hover   { @apply border-[#b4d1f8] bg-[#dfebfd]; }
   .act-amber  { @apply border-[#fae3ab] bg-[#fff8e6] text-[#a87a00]; }

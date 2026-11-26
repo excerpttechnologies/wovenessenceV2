@@ -1,9 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Icon from '@/components/Icon';
 import { useScope } from '@/components/ScopeContext';
-import { classificationGroupsFor } from '@/lib/productClassificationConstants';
+import { CLASSIFICATION_GROUPS, classificationGroupsFor } from '@/lib/productClassificationConstants';
 import NumberedPager from '@/components/NumberedPager';
 import ConfirmDialog from '@/components/ConfirmDialog';
 
@@ -23,11 +23,16 @@ import ConfirmDialog from '@/components/ConfirmDialog';
    product-eccom picker shows the names of the product's own Product Type.
    Delete removes the name and unticks it on the e-commerce products. */
 
-export default function ClassificationOptionsPage({ type, label }) {
+export default function ClassificationOptionsPage({ type, label, isCustom = false }) {
   const { business } = useScope();
-  const groups = classificationGroupsFor(type);
-  const [group, setGroup] = useState(groups[0]?.value || '');
-  const groupLabel = groups.find((g) => g.value === group)?.label || '';
+  const baseGroups = useMemo(
+    () => (isCustom ? CLASSIFICATION_GROUPS : classificationGroupsFor(type)),
+    [isCustom, type]
+  );
+  const [dynamicGroups, setDynamicGroups] = useState([]);
+  const groups = dynamicGroups.length ? dynamicGroups : baseGroups;
+  const [group, setGroup] = useState(baseGroups[0]?.value || '');
+  const groupLabel = groups.find((g) => g.value === group)?.label || group;
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -66,6 +71,39 @@ export default function ClassificationOptionsPage({ type, label }) {
       setLoading(false);
     }
   }, [business, type, group]);
+
+  useEffect(() => {
+    if (!business) {
+      setDynamicGroups([]);
+      return undefined;
+    }
+    let off = false;
+    fetch('/api/v1/admin/product-types?all=1&business=' + encodeURIComponent(business), { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : {}))
+      .then((d) => {
+        if (off) return;
+        const fromDb = (Array.isArray(d.types) ? d.types : [])
+          .filter((pt) => pt?.value && pt.isActive !== false)
+          .filter((pt) => !Array.isArray(pt.filters) || !pt.filters.length || pt.filters.includes(type) || baseGroups.some((g) => g.value === String(pt.value).toUpperCase()))
+          .map((pt) => ({
+            value: String(pt.value).trim().toUpperCase(),
+            label: String(pt.label || pt.displayName || pt.value).trim(),
+          }));
+        const merged = [];
+        const seen = new Set();
+        [...fromDb, ...baseGroups].forEach((g) => {
+          if (!g.value || seen.has(g.value)) return;
+          seen.add(g.value);
+          merged.push(g);
+        });
+        setDynamicGroups(merged);
+        if (merged.length && !merged.some((g) => g.value === group)) {
+          setGroup(merged[0].value);
+        }
+      })
+      .catch(() => { if (!off) setDynamicGroups([]); });
+    return () => { off = true; };
+  }, [business, type, baseGroups]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -141,7 +179,7 @@ export default function ClassificationOptionsPage({ type, label }) {
       const r = await fetch('/api/v1/admin/product-classification-options/' + row._id, { method: 'DELETE' });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || 'Could not delete it.');
-      setFlash('"' + row.name + '" deleted.' + (d.productsUpdated ? ' Removed from ' + d.productsUpdated + ' product(s).' : ''));
+      setFlash('"' + row.name + '" deleted.' + (d.usedCount ? ' Existing ' + d.usedCount + ' product(s) retain their saved reference.' : ''));
       setPendingDelete(null);
       load();
     } catch (err) {
@@ -304,7 +342,7 @@ export default function ClassificationOptionsPage({ type, label }) {
       <ConfirmDialog
         open={Boolean(pendingDelete)}
         recordName={pendingDelete ? pendingDelete.name : ''}
-        message={pendingDelete ? 'It will be removed from ' + label + ' (' + groupLabel + ') and taken off the e-commerce products that have it.' : undefined}
+        message={pendingDelete ? 'It will be removed from active ' + label + ' (' + groupLabel + ') and filters. Existing products referencing it keep their saved data.' : undefined}
         busy={deleting}
         onCancel={() => setPendingDelete(null)}
         onConfirm={confirmDelete}

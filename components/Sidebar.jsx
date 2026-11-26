@@ -305,6 +305,7 @@ import { useScope } from './ScopeContext';
 import BrandMark from './BrandMark';
 import FrequentlyPagesNav from './FrequentlyPagesNav';
 import { filterNavItems } from '@/lib/navRegistry';
+import { resolveFilterIconComponent } from '@/lib/ecommerceFilterIcons';
 
 /* Logout is pinned to the foot of the rail rather than left as the last row
    of a list you have to scroll to reach. Split by href so the entry stays
@@ -335,16 +336,63 @@ function labelForHref(items, href) {
 
 export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile }) {
   const pathname = usePathname();
-  const { user, userReady, perms, permsReady, can } = useScope();
+  const { user, userReady, perms, permsReady, can, business } = useScope();
   const isSuperAdmin = user?.role === 'Super Admin';
   const isAdminUser = isSuperAdmin || user?.role === 'Admin';
   const navReady = userReady && (isSuperAdmin || permsReady);
   const [open, setOpen] = useState(null);
   const [openNested, setOpenNested] = useState(null);
+  const [customFilters, setCustomFilters] = useState([]);
+
+  useEffect(() => {
+    if (!navReady || !business) {
+      setCustomFilters([]);
+      return undefined;
+    }
+    let cancelled = false;
+    const loadFilters = () => {
+      fetch('/api/v1/admin/ecommerce-filters?business=' + encodeURIComponent(business), { cache: 'no-store' })
+        .then((r) => (r.ok ? r.json() : {}))
+        .then((d) => {
+          if (cancelled) return;
+          const list = Array.isArray(d.filters) ? d.filters : [];
+          setCustomFilters(list.filter((f) => f && !f.isBuiltIn && f.isActive !== false && f.slug));
+        })
+        .catch(() => { if (!cancelled) setCustomFilters([]); });
+    };
+    loadFilters();
+    const onUpdated = () => loadFilters();
+    window.addEventListener('ecommerce-filters-updated', onUpdated);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('ecommerce-filters-updated', onUpdated);
+    };
+  }, [navReady, business]);
+
+  const runtimeNavMain = useMemo(() => {
+    if (!customFilters.length) return NAV_MAIN;
+    return NAV_MAIN.map((section) => {
+      if (section.label !== 'E-commerce' || !Array.isArray(section.children)) return section;
+      const dynamicEntries = customFilters.map((f) => ({
+        label: f.name || f.label,
+        href: '/admin/ecommerce/filters/' + f.slug,
+        icon: resolveFilterIconComponent(f.icon, f.key),
+        permissionHref: '/admin/ecommerce/product-type',
+      }));
+      const children = [...section.children];
+      const byColourIdx = children.findIndex((c) => c.href === '/admin/ecommerce/by-colour');
+      if (byColourIdx >= 0) {
+        children.splice(byColourIdx + 1, 0, ...dynamicEntries);
+      } else {
+        children.push(...dynamicEntries);
+      }
+      return { ...section, children };
+    });
+  }, [customFilters]);
 
   const visibleNav = useMemo(
-    () => (navReady ? filterNavItems(NAV_MAIN, { can, user, isAdminUser }) : []),
-    [navReady, perms, user, isAdminUser]
+    () => (navReady ? filterNavItems(runtimeNavMain, { can, user, isAdminUser }) : []),
+    [navReady, runtimeNavMain, perms, user, isAdminUser]
   );
   const dashboardIdx = useMemo(
     () => visibleNav.findIndex((n) => n.href === '/admin'),
@@ -375,13 +423,13 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
       consider(item.href);
       visit(item.children);
     });
-    NAV.forEach((n) => {
+    runtimeNavMain.forEach((n) => {
       consider(n.href);
       visit(n.children);
     });
 
     return best;
-  }, [pathname]);
+  }, [pathname, runtimeNavMain]);
 
   /* Keep the parent of the current route expanded. Declared after
      activeHref, which it reads. */
@@ -399,7 +447,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
      "Edit Suppliers") so tabs opened from the menu can be told apart
      (30-10-2026). Screens outside the menu keep the site title. */
   useEffect(() => {
-    const label = labelForHref(NAV, activeHref);
+    const label = labelForHref(runtimeNavMain, activeHref);
     if (!label) return undefined;
     const rest = pathname.slice(activeHref.length);
     const title = rest === '/add' ? 'Add ' + label
@@ -410,7 +458,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
     /* Next.js writes the page's own title after a client-side move; put ours back */
     const t = setTimeout(() => { document.title = full; }, 50);
     return () => clearTimeout(t);
-  }, [activeHref, pathname]);
+  }, [activeHref, pathname, runtimeNavMain]);
 
   /* Nothing to fly out of once the labels are back. */
   useEffect(() => {

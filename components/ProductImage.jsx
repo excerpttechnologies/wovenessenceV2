@@ -20,7 +20,7 @@ import Icon from './Icon';
 
 /* `width` (optional, 21-10-2026) widens the box past `size` for the till's
    top-right photo; without it the box stays the square it always was */
-export default function ProductImage({ src, alt = '', size = 40, width, onOpen, className = '' }) {
+export default function ProductImage({ src, alt = '', size = 40, width, onOpen, className = '', fit = 'cover' }) {
   const [failed, setFailed] = useState(false);
 
   /* a new src gets a fresh chance - without this, one failure would
@@ -37,7 +37,7 @@ export default function ProductImage({ src, alt = '', size = 40, width, onOpen, 
       alt={alt}
       loading="lazy"
       decoding="async"
-      className="h-full w-full rounded object-cover"
+      className={'block h-full w-full rounded ' + (fit === 'contain' ? 'object-contain' : 'object-cover')}
       onError={() => setFailed(true)}
     />
   ) : (

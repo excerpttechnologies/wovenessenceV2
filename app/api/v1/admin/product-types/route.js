@@ -108,10 +108,11 @@ import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { businessMatch } from '@/lib/classificationCollections';
 import { bumpCatalogVersion } from '@/lib/ecommerceCatalog';
 import { normalizeFilterConfig, normalizeGroupConfig } from '@/lib/ecommerceFilterConfig';
+import { getValidFilterKeys } from '@/lib/ecommerceFilterMaster';
 
 const json = (data, status = 200) => Response.json(data, { status });
 const TYPE_COLLECTION = 'producttypes';
-const VALID_FILTERS = new Set(Object.values(CLASSIFICATION_TYPES));
+const BUILT_IN_FILTERS = new Set(Object.values(CLASSIFICATION_TYPES));
 
 export async function GET(req) {
   const session = await requireSession();
@@ -164,29 +165,54 @@ export async function POST(req) {
   if (!isValidObjectId(businessId)) return json({ error: 'Valid business ID required' }, 422);
   const denial = await screenDenial({ session, screen: SCREENS.ECOM_PRODUCT_TYPE, action: PERM.CREATE, businessId, label: 'Product Type' });
   if (denial) return json({ error: denial.message, code: denial.code }, 403);
-  const label = String(body.name || '').trim().replace(/\s+/g, ' ').toUpperCase();
+  const label = String(body.name || '').trim().replace(/\s+/g, ' ');
   if (!label) return json({ error: 'Enter a product type name.' }, 422);
   if (label.length > 60) return json({ error: 'Keep the name under 60 characters.' }, 422);
   const value = label.toUpperCase();
 
   const connection = await dbConnect();
+  const validFilterKeys = await getValidFilterKeys(businessId, { includeInactive: true });
+  const validSet = new Set([...BUILT_IN_FILTERS, ...validFilterKeys]);
+
+  const filterInput = body.filterConfig !== undefined ? body.filterConfig : body.filters;
+  const suppliedKeys = Array.isArray(filterInput)
+    ? filterInput.map((entry) => String(entry?.key || entry?.field || entry || '').trim())
+    : filterInput && typeof filterInput === 'object'
+      ? Object.keys(filterInput)
+      : [];
+  const unknown = suppliedKeys.filter((key) => key && !validSet.has(key));
+  if (unknown.length) {
+    return json({ error: `Unknown filter "${unknown[0]}".` }, 422);
+  }
+
+  let initialFilterPatch = {};
+  if (body.filterConfig !== undefined) {
+    const config = normalizeFilterConfig(body.filterConfig, { validKeys: [...validSet] });
+    initialFilterPatch = { filterConfig: config, filters: config.map((entry) => entry.key) };
+  } else if (Array.isArray(body.filters)) {
+    const config = normalizeFilterConfig(
+      [...new Set(body.filters.map((f) => String(f || '').trim()).filter((f) => validSet.has(f)))]
+        .map((key, index) => ({ key, displayOrder: index })),
+      { validKeys: [...validSet] },
+    );
+    initialFilterPatch = { filterConfig: config, filters: config.map((entry) => entry.key) };
+  }
+
   const collection = connection.connection.db.collection(TYPE_COLLECTION);
-  const existing = await collection.findOne({ businessId, value });
+  const bScope = businessMatch(businessId);
+  const existing = await collection.findOne({ businessId: bScope, value });
   if (existing?.isActive) return json({ error: '"' + label + '" already exists.' }, 409);
 
-  const last = await collection.find({ businessId }).sort({ displayOrder: -1 }).limit(1).toArray();
+  const last = await collection.find({ businessId: bScope }).sort({ displayOrder: -1 }).limit(1).toArray();
   const displayOrder = Number(last[0]?.displayOrder ?? -1) + 1;
   /* a type deleted before comes back instead of a second copy */
   await collection.updateOne(
-    { businessId, value },
+    { businessId: existing ? existing.businessId : businessId, value },
     {
       $set: {
         label, isActive: true, displayOrder, updatedAt: new Date(),
         ...(body.ecommerce ? normalizeGroupConfig(body.ecommerce, { label, value }) : {}),
-        ...(body.filterConfig ? (() => {
-          const config = normalizeFilterConfig(body.filterConfig);
-          return { filterConfig: config, filters: config.map((entry) => entry.key) };
-        })() : {}),
+        ...initialFilterPatch,
       },
       $setOnInsert: { businessId, value, createdAt: new Date() },
     },
@@ -220,24 +246,26 @@ export async function PUT(req) {
   if (!current) return json({ error: 'Product type not found.' }, 404);
 
   /* Unknown filter keys are a client bug, not something to drop silently. */
+  const validFilterKeys = await getValidFilterKeys(businessId, { includeInactive: true });
+  const validSet = new Set([...BUILT_IN_FILTERS, ...validFilterKeys]);
   const filterInput = body.filterConfig !== undefined ? body.filterConfig : body.filters;
   const suppliedKeys = Array.isArray(filterInput)
     ? filterInput.map((entry) => String(entry?.key || entry?.field || entry || '').trim())
     : filterInput && typeof filterInput === 'object'
       ? Object.keys(filterInput)
       : [];
-  const unknown = suppliedKeys.filter((key) => key && !VALID_FILTERS.has(key));
+  const unknown = suppliedKeys.filter((key) => key && !validSet.has(key));
   if (unknown.length) {
     return json({ error: `Unknown filter "${unknown[0]}".` }, 422);
   }
 
   const filterConfig = body.filterConfig !== undefined
-    ? normalizeFilterConfig(body.filterConfig)
+    ? normalizeFilterConfig(body.filterConfig, { validKeys: [...validSet] })
     : null;
   const filters = filterConfig
     ? filterConfig.map((entry) => entry.key)
     : Array.isArray(body.filters)
-      ? [...new Set(body.filters.map((filter) => String(filter || '').trim()).filter((filter) => VALID_FILTERS.has(filter)))]
+      ? [...new Set(body.filters.map((filter) => String(filter || '').trim()).filter((filter) => validSet.has(filter)))]
       : undefined;
 
   const builtIn = BUILT_IN.has(oldValue);

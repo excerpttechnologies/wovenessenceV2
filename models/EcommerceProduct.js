@@ -39,7 +39,7 @@ const EcommerceProductSchema = new mongoose.Schema(
     status: { type: String, enum: ['draft', 'active', 'archived'], default: 'draft', index: true },
     isPublished: { type: Boolean, default: false, index: true },
   },
-  { timestamps: true, collection: 'ecommerceproduct' }
+  { strict: false, timestamps: true, collection: 'ecommerceproduct' }
 );
 
 EcommerceProductSchema.index({ businessId: 1, itemId: 1 }, { unique: true });
