@@ -29,6 +29,28 @@ const DEFAULT_SOURCE_MATCH = /temple\s*fabric/i;
 const money = (v) => Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const qtyText = (v) => (Number.isInteger(Number(v)) ? String(v) : Number(v || 0).toFixed(3).replace(/0+$/, '').replace(/\.$/, ''));
 
+const todayLocalDate = () => {
+  const now = new Date();
+  return [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0'),
+  ].join('-');
+};
+
+const toLocalDateInput = (value) => {
+  if (!value) return todayLocalDate();
+  const str = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+  const parsed = new Date(str);
+  if (Number.isNaN(parsed.getTime())) return todayLocalDate();
+  return [
+    parsed.getFullYear(),
+    String(parsed.getMonth() + 1).padStart(2, '0'),
+    String(parsed.getDate()).padStart(2, '0'),
+  ].join('-');
+};
+
 export default function StockTransferForm({
   /* The E-commerce Direct Stock Transfer is this same screen and this same
      engine, with a different origin stamped on the document and a reference
@@ -39,19 +61,16 @@ export default function StockTransferForm({
   title = 'New Stock Transfer',
   referenceLabel = '',
   returnPath = '/admin/transaction/stocktransfers/transfer',
+  initialTransferDate = '',
 } = {}) {
   const router = useRouter();
   const scope = useScope();
   const { options: locations } = useOptions('companylocations');
   const { options: destLocations } = useOptions('companylocations', { transferTarget: '1' });
-  const { options: stockPoints } = useOptions('stockpoint', { transferTarget: '1' });
 
   const [fromLocationId, setFromLocationId] = useState('');
   const [toLocationId, setToLocationId] = useState('');
-  const [toStockPointId, setToStockPointId] = useState('');
-  const [transferDate, setTransferDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [waybill, setWaybill] = useState('');
-  const [remarks, setRemarks] = useState('');
+  const [transferDate, setTransferDate] = useState(() => toLocalDateInput(initialTransferDate));
   const [ecomReference, setEcomReference] = useState('');
 
   const [lines, setLines] = useState([]);
@@ -66,12 +85,31 @@ export default function StockTransferForm({
     business: scope.business, location: fromLocationId, intent: 'TRANSFER',
   });
 
-  /* --------------------------------------------------- default the source */
-  useEffect(() => {
-    if (fromLocationId || !locations.length) return;
+  /* --------------------------------------------------- resolve the source */
+  const resolvedSourceId = useMemo(() => {
+    if (!locations.length) return scope.location ? String(scope.location) : '';
+    if (scope.location && locations.some((l) => String(l.value) === String(scope.location))) {
+      return String(scope.location);
+    }
     const preferred = locations.find((l) => DEFAULT_SOURCE_MATCH.test(l.label));
-    setFromLocationId(preferred?.value || scope.location || locations[0]?.value || '');
-  }, [locations, scope.location, fromLocationId]);
+    return String(preferred?.value || scope.location || locations[0]?.value || '');
+  }, [locations, scope.location]);
+
+  useEffect(() => {
+    setFromLocationId(resolvedSourceId);
+  }, [resolvedSourceId]);
+
+  useEffect(() => {
+    if (initialTransferDate) {
+      setTransferDate(toLocalDateInput(initialTransferDate));
+    }
+  }, [initialTransferDate]);
+
+  useEffect(() => {
+    if (toLocationId && fromLocationId && String(toLocationId) === String(fromLocationId)) {
+      setToLocationId('');
+    }
+  }, [fromLocationId, toLocationId]);
 
   /* Destinations exclude the source: a transfer to itself is not a transfer,
      and offering it only produces a validation error later. */
@@ -151,8 +189,9 @@ export default function StockTransferForm({
     if (saving) return;                       // guards the double-click
     setFlash(null);
 
-    if (!fromLocationId) return setFlash({ type: 'err', msg: 'Choose the source location.' });
+    if (!fromLocationId) return setFlash({ type: 'err', msg: 'Select a company/location in the top bar first.' });
     if (!toLocationId) return setFlash({ type: 'err', msg: 'Choose the destination location.' });
+    if (!transferDate) return setFlash({ type: 'err', msg: 'Choose the transfer date.' });
     if (!lines.length) return setFlash({ type: 'err', msg: 'Scan at least one item into the transfer.' });
 
     setSaving(true);
@@ -164,8 +203,10 @@ export default function StockTransferForm({
           business: scope.business,
           finYear: scope.finYear,
           fromLocationId, toLocationId,
-          toStockPointId: toStockPointId || null,
-          transferDate, waybill, remarks,
+          toStockPointId: null,
+          transferDate,
+          waybill: '',
+          remarks: '',
           source, ecomReference,
           barcodes: lines.map((l) => l.barcodeNo),
         }),
@@ -187,7 +228,7 @@ export default function StockTransferForm({
     }
   }
 
-  const ready = fromLocationId && toLocationId && lines.length > 0;
+  const ready = Boolean(fromLocationId && toLocationId && transferDate && lines.length > 0);
 
   return (
     <div className="card">
@@ -222,52 +263,29 @@ export default function StockTransferForm({
         )}
 
         {/* ------------------------------------------------- header ------ */}
-        <div className="form-grid">
-          <label className="field-label">
-            Source Location<span className="f-req">*</span>
-            <select
-              className="f-input"
-              value={fromLocationId}
-              disabled={scope.isLocationLocked}
-              onChange={(e) => { setFromLocationId(e.target.value); setLines([]); }}
-            >
-              <option value="">Select...</option>
-              {locations.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-            <span className="mt-0.5 block text-[11px] text-inkmuted">
-              Changing the source clears the scanned items - they belong to the old location.
-            </span>
-          </label>
-
+        <div className={'mb-4 grid grid-cols-1 gap-4 ' + (referenceLabel ? 'md:grid-cols-3' : 'md:grid-cols-2')}>
           <label className="field-label">
             Destination Location<span className="f-req">*</span>
-            <select className="f-input" value={toLocationId} onChange={(e) => setToLocationId(e.target.value)}>
+            <select
+              className="f-input"
+              required
+              value={toLocationId}
+              onChange={(e) => setToLocationId(e.target.value)}
+            >
               <option value="">Select...</option>
               {destinations.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </label>
 
           <label className="field-label">
-            Destination Stock Point
-            <select className="f-input" value={toStockPointId} onChange={(e) => setToStockPointId(e.target.value)}>
-              <option value="">Select...</option>
-              {stockPoints.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-          </label>
-
-          <label className="field-label">
-            Transfer Date
-            <input type="date" className="f-input" value={transferDate} onChange={(e) => setTransferDate(e.target.value)} />
-          </label>
-
-          <label className="field-label">
-            Waybill / LR No
-            <input className="f-input" value={waybill} onChange={(e) => setWaybill(e.target.value)} />
-          </label>
-
-          <label className="field-label">
-            Remarks
-            <input className="f-input" value={remarks} onChange={(e) => setRemarks(e.target.value)} />
+            Transfer Date<span className="f-req">*</span>
+            <input
+              type="date"
+              required
+              className="f-input"
+              value={transferDate}
+              onChange={(e) => setTransferDate(e.target.value)}
+            />
           </label>
 
           {referenceLabel && (
@@ -320,35 +338,26 @@ export default function StockTransferForm({
             <thead>
               <tr>
                 <th style={{ width: 44 }}>#</th>
-                <th>Barcode</th>
-                <th>Item Code</th>
-                <th>Description</th>
-                <th>UOM</th>
-                <th>Type</th>
-                <th className="text-right">Qty</th>
-                <th className="text-right">Rate</th>
-                <th className="text-right">RSP</th>
-                <th>GRC</th>
-                <th style={{ width: 60 }} />
+                <th style={{ minWidth: 120 }}>Barcode</th>
+                <th style={{ minWidth: 220 }}>Description</th>
+                <th style={{ width: 80 }}>UOM</th>
+                <th style={{ width: 80 }} className="text-right">Qty</th>
+                <th style={{ width: 100 }} className="text-right">Rate</th>
+                <th style={{ width: 100 }} className="text-right">RSP</th>
+                <th style={{ minWidth: 110 }}>GRC</th>
+                <th style={{ width: 52 }} />
               </tr>
             </thead>
             <tbody>
               {lines.length === 0 && (
-                <tr><td colSpan={11} className="dt-empty">Nothing scanned yet.</td></tr>
+                <tr><td colSpan={9} className="dt-empty">Nothing scanned yet.</td></tr>
               )}
               {lines.map((l, i) => (
                 <tr key={l.barcodeNo} className={i === 0 ? 'bg-[#f0f7ff]' : ''}>
                   <td>{lines.length - i}</td>
                   <td className="font-mono text-[12px]">{l.barcodeNo}</td>
-                  <td>{l.itemCode || '-'}</td>
-                  <td className="max-w-[280px] truncate" title={l.itemName}>{l.itemName || l.description || '-'}</td>
+                  <td className="max-w-[320px] truncate" title={l.itemName || l.description}>{l.itemName || l.description || '-'}</td>
                   <td>{l.uom || l.uomType}</td>
-                  <td>
-                    <span className={'rounded px-1.5 py-0.5 text-[11px] ' +
-                      (l.batchType === 'batch' ? 'bg-[#fff4d6] text-[#8a6100]' : 'bg-[#e7f3ff] text-[#0d5ddc]')}>
-                      {l.batchType === 'batch' ? 'Batch' : 'Unique'}
-                    </span>
-                  </td>
                   <td className="text-right">{qtyText(l.qty)}</td>
                   <td className="text-right">{money(l.rate)}</td>
                   <td className="text-right">{money(l.rsp)}</td>

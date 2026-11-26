@@ -171,7 +171,11 @@ export const POST = handler(async (req) => {
       const doc = new StockTransfer({
         businessId: business, finYear: finYear || '',
         transferNo,
-        transferDate: transferDate ? new Date(transferDate) : new Date(),
+        transferDate: transferDate
+          ? (/^\d{4}-\d{2}-\d{2}$/.test(String(transferDate).trim())
+              ? new Date(`${String(transferDate).trim()}T00:00:00`)
+              : new Date(transferDate))
+          : new Date(),
         fromLocationId, fromLocationName: fromLoc.name || fromLoc.businessPrintName || '',
         fromGstn: fromLoc.gstin || '',
         fromAddress: address(fromLoc),
