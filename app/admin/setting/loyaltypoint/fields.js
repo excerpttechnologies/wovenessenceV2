@@ -1,13 +1,5 @@
-/* Form fields for Loyalty Point.
+/* Form fields for Loyalty Point schemes (/admin/setting/loyaltypoint).
    Lives beside the pages that use it - not in a global registry.
-
-   CUT DOWN TO SIX FIELDS on 30-09-2026, to the client's mock: Active, the
-   scheme's name, what a point is worth, how much purchase earns one point,
-   when points expire, and whether redemption wants an OTP. The earlier
-   percentage / min / max / ledger fields are gone from the SCREEN; values
-   already saved under them stay on the document untouched, and
-   lib/loyalty.js still honours a percentage-era config that has never been
-   re-saved.
 
    EARNING under this model: one point for every full "purchase amount for
    1 point" rupees on the bill - 25 here means a 100 bill earns 4 points.
@@ -20,18 +12,35 @@ export const SECTIONS = [
   {
     title: "",
     fields: [
-      { k: "active", label: "Active :", type: "radio", def: "Yes", opts: [{ v: "Yes", l: "Yes" }, { v: "No", l: "No" }] },
-      { k: "loyaltyPointName", label: "Loyalty point name", type: "text", req: true },
+      { k: "loyaltyPointName", label: "Scheme Name", type: "text", req: true, span: "all" },
+      {
+        k: "active",
+        label: "Active",
+        type: "select",
+        req: true,
+        def: "Yes",
+        opts: [{ v: "Yes", l: "Active (Yes)" }, { v: "No", l: "Inactive (No)" }],
+      },
+      {
+        k: "loyaltyPointsApplicable",
+        label: "Loyalty Points Applicable",
+        type: "select",
+        req: true,
+        def: "Yes",
+        opts: [{ v: "Yes", l: "YES" }, { v: "No", l: "NO" }],
+      },
       { k: "pointsToInr", label: "Points to INR (1 Point = ? INR)", type: "number", req: true, def: 0 },
-      { k: "purchaseAmountForOnePoint", label: "Purchase amount for 1 point [0 = No Points]", type: "number", req: true, def: 0 },
-      { k: "pointsExpireAfter", label: "Points expire after", type: "select", req: true, def: "12", opts: MONTH_OPTS },
-      { k: "otpRequired", label: "OTP required for redemption", type: "select", req: true, def: "No", opts: [{ v: "Yes", l: "Yes" }, { v: "No", l: "No" }] },
+      { k: "purchaseAmountForOnePoint", label: "Purchase Amount for 1 Point [0 = No Points]", type: "number", req: true, def: 0 },
+      { k: "pointsExpireAfter", label: "Points Expire After", type: "select", req: true, def: "12", opts: MONTH_OPTS },
+      { k: "otpRequired", label: "OTP Required for Redemption", type: "select", req: true, def: "No", opts: [{ v: "Yes", l: "Yes" }, { v: "No", l: "No" }] },
+      { k: "fromDate", label: "From Date", type: "date" },
+      { k: "toDate", label: "To Date", type: "date" },
     ],
   },
 ];
 
 /* What /api/loyalty-point validates and stores - every field across the
    sections, flattened. Derived rather than declared so the two can never
-   drift: this page renders SECTIONS, and anything rendered has to be
+   drift: this screen renders FIELDS, and anything rendered has to be
    saveable. */
 export const FIELDS = SECTIONS.flatMap((s) => s.fields || []);

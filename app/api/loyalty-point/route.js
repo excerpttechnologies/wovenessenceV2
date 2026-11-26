@@ -4,29 +4,26 @@ import LoyaltyPoint from '@/models/LoyaltyPoint';
 import { requireSession } from '@/lib/session';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
-import { validate } from '@/lib/validate';
+import { resolveRefLabels } from '@/lib/refLabels';
+import { sortedPage } from '@/lib/listSort';
+import { validate, escapeRegex } from '@/lib/validate';
 import { FIELDS } from '@/app/admin/setting/loyaltypoint/fields';
-import { normalizeSchemeRow } from '@/lib/loyalty';
+import { normalizeSchemeRow, validateSchemeRules } from '@/lib/loyalty';
 
 const LOYALTY_POINT = { screen: SCREENS.LOYALTY_POINT, label: 'loyalty point settings' };
 const CONTACT_TYPE = { screen: SCREENS.CONTACT_TYPE, label: 'contact types' };
 
 /* /api/loyalty-point -
-     - Default GET / POST (used by /admin/setting/loyaltypoint): read + upsert
-       the business's loyalty scheme configuration.
-     - ?mode=list (used by Contact Type Add/Edit dropdown): list loyalty
-       schemes configured under /admin/setting/loyaltypoint for the business. */
+     - Default GET / POST (used by /admin/setting/loyaltypoint ListView + Add modal):
+       paginated list of loyalty schemes for the business, plus creating new schemes.
+     - ?mode=list (used by Contact Type Add/Edit dropdown): unpaginated list of
+       loyalty schemes configured under /admin/setting/loyaltypoint. */
 
 const json = (d, s = 200) => Response.json(d, {
   status: s,
   headers: { 'Cache-Control': 'no-store' },
 });
-
-function scopeOf(sp) {
-  const filter = {};
-  const b = sp.get('business'); if (b && isValidObjectId(b)) filter.businessId = b;
-  return filter;
-}
+const PER_PAGE = 10;
 
 async function listDenial(session, businessId) {
   const lpDenied = await screenDenial({
@@ -66,15 +63,59 @@ export async function GET(req) {
     return json({ rows, total: rows.length });
   }
 
-  /* Only refuses when this role has a saved permission matrix that
-     withholds it - see lib/screenPermission.js. */
   const denied = await screenDenial({
     session, ...LOYALTY_POINT, action: PERM.READ, businessId: sp.get('business'),
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
-  const doc = await LoyaltyPoint.findOne(scopeOf(sp)).sort({ createdAt: 1 }).lean();
-  return json({ doc: doc ? normalizeSchemeRow(doc) : null });
+  const b = (sp.get('business') || '').trim();
+  if (b && isValidObjectId(b)) {
+    const scope = await resolveAuthorizedScope(session, { businessId: b });
+    if (!scope.ok) return scopeErrorResponse(scope);
+  }
+
+  const page = Math.max(1, Number(sp.get('page') || 1));
+  const perPage = Math.min(500, Number(sp.get('perPage') || PER_PAGE));
+  const search = (sp.get('search') || '').trim();
+
+  const filter = {};
+  if (b && isValidObjectId(b)) filter.businessId = b;
+  if (search) {
+    const rx = { $regex: escapeRegex(search), $options: 'i' };
+    filter.$or = [{ loyaltyPointName: rx }, { active: rx }, { loyaltyPointsApplicable: rx }];
+  }
+
+  const total = await LoyaltyPoint.countDocuments(filter);
+  const rawRows = (await sortedPage(LoyaltyPoint, filter, sp, {
+    page,
+    perPage,
+    keys: [
+      'loyaltyPointName',
+      'active',
+      'loyaltyPointsApplicable',
+      'pointsToInr',
+      'purchaseAmountForOnePoint',
+      'fromDate',
+      'toDate',
+      'pointsExpireAfter',
+      'otpRequired',
+    ],
+  })) ?? await LoyaltyPoint.find(filter)
+    .sort({ createdAt: -1 })
+    .skip((page - 1) * perPage)
+    .limit(perPage)
+    .lean();
+
+  const rows = rawRows.map(normalizeSchemeRow);
+
+  return json({
+    rows,
+    labels: await resolveRefLabels(rawRows),
+    total,
+    page,
+    pages: Math.max(1, Math.ceil(total / perPage)),
+    perPage,
+  });
 }
 
 export async function POST(req) {
@@ -84,31 +125,28 @@ export async function POST(req) {
   const body = await req.json();
   await dbConnect();
 
-  /* Update OR create, ahead of validate() - see the note at the top. */
-  let gate = await screenDenial({
-    session, ...LOYALTY_POINT, action: PERM.UPDATE, businessId: body.business,
+  const denied = await screenDenial({
+    session, ...LOYALTY_POINT, action: PERM.CREATE, businessId: body.business,
   });
-  if (gate) {
-    gate = await screenDenial({
-      session, ...LOYALTY_POINT, action: PERM.CREATE, businessId: body.business,
-    });
-  }
-  if (gate) return json({ error: gate.message, code: gate.code }, 403);
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
-  const { errors, doc, ok } = validate(FIELDS, body.data || {});
-  if (!ok) return json({ errors }, 422);
-  if (body.business && isValidObjectId(body.business)) doc.businessId = body.business;
-
-  const sp = new URLSearchParams({
-    business: body.business || '', location: body.location || '', finYear: body.finYear || '',
-  });
-  const filter = scopeOf(sp);
-  const existing = await LoyaltyPoint.findOne(filter).sort({ createdAt: 1 }).select('_id').lean();
-  if (existing) {
-    await LoyaltyPoint.findByIdAndUpdate(existing._id, { $set: doc }, { new: true });
-  } else {
-    await LoyaltyPoint.create(doc);
+  if (!body.business || !isValidObjectId(body.business)) {
+    return json({ error: 'Please select a business before creating a loyalty scheme.' }, 422);
   }
 
-  return json({ ok: true });
+  const scope = await resolveAuthorizedScope(session, { businessId: body.business });
+  if (!scope.ok) return scopeErrorResponse(scope);
+
+  const { errors, doc } = validate(FIELDS, body.data || {});
+  validateSchemeRules(doc, errors);
+  if (Object.keys(errors).length > 0) return json({ errors }, 422);
+
+  doc.businessId = body.business;
+  const created = await LoyaltyPoint.create(doc);
+
+  return json({
+    ok: true,
+    id: String(created._id),
+    doc: normalizeSchemeRow(created.toObject()),
+  }, 201);
 }
