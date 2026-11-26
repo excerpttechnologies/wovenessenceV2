@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { useMemo } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
+import { useEffect, useMemo } from 'react';
 import { LuShieldAlert } from 'react-icons/lu';
 import { NAV } from '@/config/nav';
 import { filterNavItems, screenEntryForPath } from '@/lib/navRegistry';
@@ -29,12 +29,20 @@ function firstAccessibleLink(items) {
    mounting or firing data requests. */
 export default function AdminAccessGuard({ children }) {
   const pathname = usePathname();
+  const router = useRouter();
   const { user, userReady, perms, permsReady, can } = useScope();
 
   const isSuperAdmin = user?.role === 'Super Admin';
   const isAdminUser = isSuperAdmin || user?.role === 'Admin';
   const ready = userReady && (isSuperAdmin || permsReady);
   const needsAssignment = !isSuperAdmin && Boolean(user?.needsAssignment);
+  const isCashierRoot = user?.role === 'Cashier' && (pathname === '/admin' || pathname === '/admin/');
+
+  useEffect(() => {
+    if (ready && isCashierRoot && !needsAssignment) {
+      router.replace('/admin/transaction/sell/pos');
+    }
+  }, [ready, isCashierRoot, needsAssignment, router]);
 
   const entry = useMemo(() => screenEntryForPath(pathname), [pathname]);
 
@@ -59,10 +67,10 @@ export default function AdminAccessGuard({ children }) {
     return firstAccessibleLink(visible);
   }, [ready, allowed, needsAssignment, can, user, isAdminUser, perms]);
 
-  if (!ready) {
+  if (!ready || (isCashierRoot && !needsAssignment)) {
     return (
       <div className="flex min-h-[240px] items-center justify-center p-8 text-sm text-inkmuted">
-        Checking permissions…
+        {isCashierRoot ? 'Redirecting to POS…' : 'Checking permissions…'}
       </div>
     );
   }
