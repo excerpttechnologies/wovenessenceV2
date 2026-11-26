@@ -66,7 +66,7 @@ function RefField({ f, value, onChange, waiting, params, hint = [] }) {
 /* A free-text city with suggestions from the canonical city master. Picking a
    suggestion only completes the spelling - the typed text is the value, which
    is what the API matches against the supplier's billing or shipping city. */
-function CityField({ f, value, onChange, business }) {
+function CityField({ f, value, onChange, business, location = '' }) {
   const term = String(value || '');
   const [open, setOpen] = useState(false);
   const [cities, setCities] = useState([]);
@@ -74,19 +74,19 @@ function CityField({ f, value, onChange, business }) {
   useEffect(() => {
     let off = false;
     const timer = setTimeout(() => {
-      const qs = new URLSearchParams({ q: term, business: business || '' });
+      const qs = new URLSearchParams({ q: term, business: business || '', location: location || '' });
       fetch((f.suggest || '/api/cities') + '?' + qs, { cache: 'no-store' })
         .then((r) => r.json())
         .then((d) => { if (!off) setCities(Array.isArray(d.options) ? d.options : []); })
         .catch(() => { if (!off) setCities([]); });
     }, 200);
     return () => { off = true; clearTimeout(timer); };
-  }, [f.suggest, term, business]);
+  }, [f.suggest, term, business, location]);
 
   const picks = cities.filter((c) => String(c.value).toLowerCase() !== term.trim().toLowerCase());
 
   return (
-    <div className="relative">
+    <div className={`relative ${open ? 'z-50' : 'z-auto'}`}>
       <input
         className="f-input"
         placeholder={f.placeholder || 'Type city'}
@@ -96,12 +96,12 @@ function CityField({ f, value, onChange, business }) {
         onBlur={() => setOpen(false)}
       />
       {open && picks.length > 0 && (
-        <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-56 overflow-auto rounded border border-line bg-white shadow-lg">
+        <div className="ms-menu z-[70]">
           {picks.map((c) => (
             <button
               key={c.value}
               type="button"
-              className="block w-full border-b border-line px-2 py-1.5 text-left text-[12.5px] last:border-b-0 hover:bg-[#f4f7fb]"
+              className="block w-full border-b border-line px-2.5 py-1.5 text-left text-[12.5px] last:border-b-0 hover:bg-[#eef4fd]"
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => { onChange(c.value); setOpen(false); }}
             >
@@ -117,7 +117,7 @@ function CityField({ f, value, onChange, business }) {
 /* Several typed values, each kept as a chip - used for barcode numbers, of
    which there is one per piece of stock. Enter or a comma commits what has
    been typed; Backspace on an empty box takes the last one back off. */
-function TagsField({ f, value, onChange, business }) {
+function TagsField({ f, value, onChange, business, location = '' }) {
   const [term, setTerm] = useState('');
   const [hits, setHits] = useState([]);
   const [open, setOpen] = useState(false);
@@ -130,7 +130,7 @@ function TagsField({ f, value, onChange, business }) {
 
     let off = false;
     const timer = setTimeout(() => {
-      const qs = new URLSearchParams({ q, business: business || '' });
+      const qs = new URLSearchParams({ q, business: business || '', location: location || '' });
       fetch(f.suggest + '?' + qs, { cache: 'no-store' })
         .then((r) => r.json())
         .then((d) => { if (!off) { setHits(d.options || []); setOpen(true); } })
@@ -138,7 +138,7 @@ function TagsField({ f, value, onChange, business }) {
     }, 250);
 
     return () => { off = true; clearTimeout(timer); };
-  }, [f.suggest, term, business]);
+  }, [f.suggest, term, business, location]);
 
   const commit = (raw) => {
     const parts = String(raw).split(',').map((v) => v.trim()).filter(Boolean);
@@ -152,8 +152,8 @@ function TagsField({ f, value, onChange, business }) {
   const choices = hits.filter((h) => !chips.some((c) => c.toLowerCase() === String(h.value).toLowerCase()));
 
   return (
-    <div className="relative">
-      <div className="f-input stock-filter-tags flex flex-wrap items-center gap-1 !h-auto py-1">
+    <div className={`relative ${open ? 'z-50' : 'z-auto'}`}>
+      <div className="f-input stock-filter-tags flex flex-wrap items-center gap-1 !h-auto">
         {chips.map((c) => (
           <span key={c} className="inline-flex items-center gap-1 rounded bg-pillgrey px-1.5 py-0.5 text-[12px]">
             {c}
@@ -168,7 +168,7 @@ function TagsField({ f, value, onChange, business }) {
           </span>
         ))}
         <input
-          className="min-w-[90px] flex-1 border-0 bg-transparent p-0 text-[13px] outline-none"
+          className="min-w-[80px] flex-1 border-0 bg-transparent p-0 text-[12px] outline-none"
           placeholder={chips.length ? '' : (f.placeholder || '')}
           value={term}
           onChange={(e) => {
@@ -178,6 +178,7 @@ function TagsField({ f, value, onChange, business }) {
           }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') { e.preventDefault(); commit(term); }
+            if (e.key === 'Escape' && open) { setOpen(false); }
             if (e.key === 'Backspace' && !term && chips.length) onChange(chips.slice(0, -1));
           }}
           onBlur={() => { commit(term); setOpen(false); }}
@@ -186,12 +187,12 @@ function TagsField({ f, value, onChange, business }) {
       </div>
 
       {open && choices.length > 0 && (
-        <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-56 overflow-auto rounded border border-line bg-white shadow-lg">
+        <div className="ms-menu z-[70]">
           {choices.map((h) => (
             <button
               key={h.value}
               type="button"
-              className="block w-full border-b border-line px-2 py-1.5 text-left text-[12.5px] last:border-b-0 hover:bg-[#f4f7fb]"
+              className="block w-full border-b border-line px-2.5 py-1.5 text-left text-[12.5px] last:border-b-0 hover:bg-[#eef4fd]"
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => { commit(h.value); setOpen(false); }}
             >
@@ -204,12 +205,14 @@ function TagsField({ f, value, onChange, business }) {
   );
 }
 
-function Field({ f, value, onChange, draft, hint, business, onEnter }) {
-  if (f.type === 'tags') return <TagsField f={f} value={value} onChange={onChange} business={business} />;
-  if (f.type === 'city') return <CityField f={f} value={value} onChange={onChange} business={business} />;
+function Field({ f, value, onChange, draft, hint, business, location = '', hasLocationScope = false, onEnter }) {
+  if (f.type === 'tags') return <TagsField f={f} value={value} onChange={onChange} business={business} location={location} />;
+  if (f.type === 'city') return <CityField f={f} value={value} onChange={onChange} business={business} location={location} />;
   if (f.type === 'ref') {
     const waiting = Boolean(f.dependsOn) && !String(draft[f.dependsOn] || '').trim();
     const params = {};
+    if (business !== undefined && business !== null) params.business = String(business || '');
+    if (hasLocationScope) params.location = String(location || '');
     if (f.dependsOn && !waiting) params[f.dependsParam || f.dependsOn] = String(draft[f.dependsOn]).trim();
     Object.entries(f.optionsFrom || {}).forEach(([param, key]) => {
       const optionValue = draft[key];
@@ -293,6 +296,7 @@ export default function StockFilterCard({
   companyValue = undefined,
   locationOptionsOverride = null,
   locationsLoading = false,
+  syncTopbar = true,
   /* A screen can add its own action bar at the bottom of the card - the
      E-commerce Product screen puts a second, dedicated Search button directly
      below the Barcode Pattern section. Kept optional so the Master Stock
@@ -320,9 +324,8 @@ export default function StockFilterCard({
   const [fromK, toK] = headerDates || [];
   const hasScopeRow = Boolean(locationField || fromK);
 
-  /* The Location choices are the top bar's own list - useScope already holds
-     /api/options?ref=companylocations for this business. An empty value is the
-     "All Locations" choice and leaves the query unrestricted. */
+  /* The Location choices come either from an explicit override (page-scoped
+     Master Stock Report / E-commerce Product) or the top bar's list. */
   const locationOptions = useMemo(() => {
     if (!locationField) return [];
     const seen = new Set();
@@ -337,16 +340,14 @@ export default function StockFilterCard({
       });
     };
     if (!isLocationLocked) add({ value: '', label: locationField.all || 'All Locations' });
-    (locations || []).forEach(add);
+    (locationOptionsOverride || locations || []).forEach(add);
     return out;
-  }, [locations, locationField, isLocationLocked]);
+  }, [locationOptionsOverride, locations, locationField, isLocationLocked]);
 
-  /* Company is shown from the top bar's branch selection (read-only here)
-     so users can see both Company and Location in the filter scope without
-     a second control interfering with top-nav behavior. */
   const companyOptions = useMemo(() => {
     const seen = new Set();
     const out = isCompanyLocked ? [] : [{ value: '', label: 'All Companies' }];
+    if (!isCompanyLocked) seen.add('');
     (businesses || []).forEach((option) => {
       const value = String(option?.value ?? '');
       if (!value || seen.has(value)) return;
@@ -359,19 +360,49 @@ export default function StockFilterCard({
     return out;
   }, [businesses, isCompanyLocked]);
 
-  /* Company is the top bar's own branch, edited here through the same global
-     setter: picking another company reloads the Location list and every
-     option list for it, exactly as the top bar does - there is no second
-     company source. A location picked under the old company does not exist in
-     the new one, so it is blanked as part of the switch unless the screen
-     handles the change itself. */
-  const currentCompany = companyValue !== undefined ? companyValue : (scopeBusiness || '');
+  const activeCompany = companyValue !== undefined ? companyValue : (scopeBusiness || business || '');
+  const effectiveLocationLoading = locationOptionsOverride
+    ? Boolean(locationsLoading)
+    : Boolean(locationsLoading || !locationReady);
+  const effectiveLocationDisabled = isLocationLocked
+    || (locationOptionsOverride ? false : (companyValue !== undefined ? false : !business));
+  const rawLocationValue = locationField ? (draft[locationField.k] || '') : '';
+  const effectiveLocationValue = locationField
+    ? (isLocationLocked
+        ? (locationOptions.find((o) => o.value === scopeLocation)?.value || locationOptions[0]?.value || scopeLocation || '')
+        : (rawLocationValue && !effectiveLocationLoading && locationOptions.length > 0 && !locationOptions.some((o) => o.value === String(rawLocationValue))
+            ? ''
+            : String(rawLocationValue)))
+    : (scopeLocation || '');
+
   const switchCompany = (value) => {
-    if (value === currentCompany) return;
+    if (value === activeCompany) return;
     if (onCompanyChange) { onCompanyChange(value); return; }
     if (locationField) onChange?.(locationField.k, '');
-    setBusiness(value);
+    if (syncTopbar && typeof setBusiness === 'function') setBusiness(value);
   };
+
+  const handleLocationChange = (v) => {
+    if (!locationField || isLocationLocked) return;
+    const nextLoc = v || '';
+    onChange?.(locationField.k, nextLoc);
+    if (syncTopbar && typeof setLocation === 'function') {
+      setLocation(nextLoc);
+    }
+  };
+
+  const renderLocationControl = (field) => (
+    <MultiSelect
+      mode="single"
+      options={locationOptions}
+      loading={effectiveLocationLoading}
+      disabled={effectiveLocationDisabled}
+      value={effectiveLocationValue}
+      placeholder={field.all || 'All Locations'}
+      emptyText="No locations found"
+      onChange={handleLocationChange}
+    />
+  );
 
   return (
     <div className={'card stock-filter-card ' + className}>
@@ -407,7 +438,7 @@ export default function StockFilterCard({
                   options={companyOptions}
                   loading={!businessReady}
                   disabled={isCompanyLocked || !businessReady || !companyOptions.length}
-                  value={companyValue !== undefined ? companyValue : (scopeBusiness || '')}
+                  value={activeCompany}
                   placeholder="All Companies"
                   onChange={isCompanyLocked ? () => {} : switchCompany}
                 />
@@ -417,22 +448,7 @@ export default function StockFilterCard({
             {locationField && (
               <div className="stock-filter-scope-location">
                 <label className={GROUP_LABEL}>{locationField.label || 'Location'}</label>
-                <MultiSelect
-                  mode="single"
-                  options={locationOptionsOverride || locationOptions}
-                  loading={locationsLoading || !locationReady}
-                  disabled={isLocationLocked || (companyValue !== undefined ? false : !business)}
-                  value={isLocationLocked ? (scopeLocation || (locationOptionsOverride || locationOptions)[0]?.value || '') : (draft[locationField.k] || '')}
-                  placeholder={locationField.all || 'All Locations'}
-                  emptyText="No locations found"
-                  onChange={(v) => {
-                    if (isLocationLocked) return;
-                    onChange?.(locationField.k, v || '');
-                    if (typeof setLocation === 'function') {
-                      setLocation(v || '');
-                    }
-                  }}
-                />
+                {renderLocationControl(locationField)}
               </div>
             )}
 
@@ -446,6 +462,12 @@ export default function StockFilterCard({
                       className="f-input"
                       value={draft[k] || ''}
                       onChange={(e) => onChange?.(k, e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && onEnter) {
+                          e.preventDefault();
+                          onEnter();
+                        }
+                      }}
                     />
                   </div>
                 ))}
@@ -509,16 +531,7 @@ export default function StockFilterCard({
                         return (
                           <div key={f.k} className="stock-filter-field">
                             <label className={GROUP_LABEL}>{f.label}</label>
-                            <MultiSelect
-                              mode="single"
-                              options={locationOptions}
-                              loading={!locationReady}
-                              disabled={companyValue !== undefined ? false : !business}
-                              value={draft[f.k] || ''}
-                              placeholder={f.all || 'All Locations'}
-                              emptyText="No locations found"
-                              onChange={(v) => onChange?.(f.k, v)}
-                            />
+                            {renderLocationControl(f)}
                           </div>
                         );
                       }
@@ -536,7 +549,9 @@ export default function StockFilterCard({
                             value={draft[f.k]}
                             onChange={(v) => onChange?.(f.k, v)}
                             draft={draft}
-                            business={business}
+                            business={activeCompany}
+                            location={effectiveLocationValue}
+                            hasLocationScope={Boolean(locationField)}
                             onEnter={onEnter}
                           />
                         </div>

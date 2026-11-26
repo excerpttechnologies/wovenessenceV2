@@ -472,6 +472,8 @@ export const REPORT = {
      Inventory, Price Filters - each with its own colour, icon and fold
      button. ReportView renders this from filterGroups below. */
   filterLayout: 'groups',
+  localScope: true,
+  locationAll: true,
   headerDates: ['startDate', 'endDate'],
   title: 'Master Stock Report',
   subtitle: 'Every barcode currently in stock, with its item, supplier, age, quantity, valuation and printed prices.',

@@ -475,15 +475,15 @@ export const NAV = [
          records already raised on them. */
       { label: 'Stock Transfer', icon: LuShuffle,
         href: '/admin/transaction/stocktransfers/transfer' },
-      { label: 'Incoming Transfers', icon: LuPackageCheck,
-        href: '/admin/transaction/stocktransfers/incoming' },
+      // { label: 'Incoming Transfers', icon: LuPackageCheck,
+      //   href: '/admin/transaction/stocktransfers/incoming' },
 
-      { label: 'Transfer Stock Packet', icon: LuPackage,
-        href: '/admin/transaction/stocktransfers/transferstockpacket' },
-      { label: 'Transfer Stock Location', icon: LuMapPinned,
-        href: '/admin/transaction/stocktransfers/transferstocklocation' },
-      { label: 'Transfer Stock Received', icon: LuPackageCheck,
-        href: '/admin/transaction/stocktransfers/transferstockreceiveds' },
+      // { label: 'Transfer Stock Packet', icon: LuPackage,
+      //   href: '/admin/transaction/stocktransfers/transferstockpacket' },
+      // { label: 'Transfer Stock Location', icon: LuMapPinned,
+      //   href: '/admin/transaction/stocktransfers/transferstocklocation' },
+      // { label: 'Transfer Stock Received', icon: LuPackageCheck,
+      //   href: '/admin/transaction/stocktransfers/transferstockreceiveds' },
     ],
   },
   // {

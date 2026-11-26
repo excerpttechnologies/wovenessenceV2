@@ -4160,7 +4160,15 @@ function reportQuery({ page, perPage, business, location, finYear, tab, applied,
    runs the report with some filters set - {} runs it again as it stands -
    so an action that changed the data can show the result. */
 export default function ReportView({ spec, toolbar = null }) {
-  const { business, location, finYear, isLocationLocked } = useScope();
+  const {
+    business,
+    location,
+    finYear,
+    businesses,
+    businessReady,
+    userReady,
+    isLocationLocked,
+  } = useScope();
 
   const [draft, setDraft] = useState(() => blankFilters(spec));
   const [applied, setApplied] = useState(() => blankFilters(spec));
@@ -4181,6 +4189,94 @@ export default function ReportView({ spec, toolbar = null }) {
   const [exporting, setExporting] = useState('');
   const [selectedSupplierRow, setSelectedSupplierRow] = useState(null);
   const [selectedItemRow, setSelectedItemRow] = useState(null);
+
+  /* Page-scoped Company & Location state (when spec.localScope is enabled, e.g.
+     Master Stock Report) so changing Company/Location inside the report card
+     never mutates or breaks the global top bar. */
+  const useLocalScope = Boolean(spec.localScope);
+  const locFieldKey = useMemo(
+    () => (spec.filters || []).find((f) => f.type === 'location')?.k || '',
+    [spec.filters],
+  );
+  const [localCompany, setLocalCompany] = useState('');
+  const [companySeeded, setCompanySeeded] = useState(!useLocalScope);
+  const [companyLocations, setCompanyLocations] = useState([]);
+  const [locationsLoading, setLocationsLoading] = useState(false);
+  const locFetchSeq = useRef(0);
+
+  const defaultLocalCompany = useMemo(() => {
+    if (!useLocalScope) return '';
+    if (business && (businesses || []).some((b) => String(b.value) === String(business))) {
+      return String(business);
+    }
+    return businesses?.[0]?.value ? String(businesses[0].value) : '';
+  }, [useLocalScope, business, businesses]);
+
+  useEffect(() => {
+    if (!useLocalScope || companySeeded || !userReady || !businessReady) return;
+    let initialCompany = defaultLocalCompany;
+    if (typeof window !== 'undefined') {
+      const urlBiz = new URLSearchParams(window.location.search).get('business');
+      if (urlBiz && (businesses || []).some((b) => String(b.value) === String(urlBiz))) {
+        initialCompany = String(urlBiz);
+      }
+    }
+    setLocalCompany(initialCompany);
+    setCompanySeeded(true);
+  }, [useLocalScope, companySeeded, userReady, businessReady, defaultLocalCompany, businesses]);
+
+  useEffect(() => {
+    if (!useLocalScope || !companySeeded) return undefined;
+    const seq = ++locFetchSeq.current;
+    setLocationsLoading(true);
+    const url = localCompany
+      ? '/api/options?ref=companylocations&business=' + encodeURIComponent(localCompany)
+      : '/api/options?ref=companylocations';
+    fetch(url, { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : { options: [] }))
+      .then((d) => {
+        if (seq !== locFetchSeq.current) return;
+        const seen = new Set();
+        const deduped = [];
+        for (const opt of (Array.isArray(d.options) ? d.options : [])) {
+          const val = String(opt?.value ?? '');
+          if (!val || seen.has(val)) continue;
+          seen.add(val);
+          deduped.push({ value: val, label: String(opt?.label || '').trim() || val });
+        }
+        setCompanyLocations(deduped);
+      })
+      .catch(() => {
+        if (seq === locFetchSeq.current) setCompanyLocations([]);
+      })
+      .finally(() => {
+        if (seq === locFetchSeq.current) setLocationsLoading(false);
+      });
+    return () => { locFetchSeq.current += 1; };
+  }, [useLocalScope, companySeeded, localCompany]);
+
+  /* Keep locked location enforced and drop stale location selections after company change. */
+  useEffect(() => {
+    if (!useLocalScope || !companySeeded || !locFieldKey || locationsLoading) return;
+    const validIds = new Set(companyLocations.map((l) => l.value));
+    if (isLocationLocked) {
+      const lockedVal = (location && validIds.has(String(location)))
+        ? String(location)
+        : (companyLocations[0]?.value || String(location || ''));
+      if (!lockedVal) return;
+      setDraft((d) => (d[locFieldKey] === lockedVal ? d : { ...d, [locFieldKey]: lockedVal }));
+      setApplied((a) => (a[locFieldKey] === lockedVal ? a : { ...a, [locFieldKey]: lockedVal }));
+      return;
+    }
+    setDraft((d) => {
+      const cur = String(d[locFieldKey] || '');
+      return cur && !validIds.has(cur) ? { ...d, [locFieldKey]: '' } : d;
+    });
+    setApplied((a) => {
+      const cur = String(a[locFieldKey] || '');
+      return cur && !validIds.has(cur) ? { ...a, [locFieldKey]: '' } : a;
+    });
+  }, [useLocalScope, companySeeded, locFieldKey, locationsLoading, companyLocations, isLocationLocked, location]);
 
   /* FILTERS CARRIED IN THE URL.
 
@@ -4267,6 +4363,51 @@ export default function ReportView({ spec, toolbar = null }) {
   const sections = activeTab?.sections || spec.sections || [];
   const tiles = activeTab?.tiles || spec.tiles || [];
 
+  const activeBusiness = useLocalScope ? localCompany : business;
+  const activeLocation = useLocalScope
+    ? (isLocationLocked
+        ? String((locFieldKey && applied[locFieldKey]) || companyLocations[0]?.value || location || '')
+        : String((locFieldKey && applied[locFieldKey]) || ''))
+    : location;
+  const scopeReadyForReport = useLocalScope
+    ? (companySeeded && (!isLocationLocked || Boolean(activeLocation)))
+    : Boolean(business);
+  const allLocationsFlag = isLocationLocked
+    ? ''
+    : (useLocalScope
+        ? (!activeLocation ? '1' : '')
+        : (spec.locationAll && !applied.location && !applied.locationFilter ? '1' : ''));
+
+  const handleFieldChange = (k, v) => {
+    set(k, v);
+    if (useLocalScope && locFieldKey && k === locFieldKey) {
+      const nextLoc = isLocationLocked ? (activeLocation || v || '') : (v || '');
+      setApplied((a) => ({ ...a, [locFieldKey]: nextLoc }));
+      setPage(1);
+      setError('');
+      setSearched(true);
+    }
+  };
+
+  const handleLocalCompanyChange = (nextCompany) => {
+    const clearScopeBound = (prev) => {
+      const next = { ...prev };
+      if (locFieldKey) next[locFieldKey] = '';
+      (spec.filters || []).forEach((f) => {
+        if (f.type === 'ref' || f.type === 'city') {
+          next[f.k] = f.multi ? [] : '';
+        }
+      });
+      return next;
+    };
+    setDraft(clearScopeBound);
+    setApplied(clearScopeBound);
+    setLocalCompany(nextCompany || '');
+    setPage(1);
+    setError('');
+    setSearched(true);
+  };
+
   /* Only the LATEST load may land. A top-bar change, or a new search from a
      later page, asks again while an answer is still on its way - and a slower
      earlier answer must never paint over the later one (the wrong page, the
@@ -4275,7 +4416,7 @@ export default function ReportView({ spec, toolbar = null }) {
   const load = useCallback(async () => {
     const seq = ++loadSeq.current;
     const latest = () => seq === loadSeq.current;
-    if (!business) { setData(null); setLoading(false); return; }
+    if (!scopeReadyForReport) { setData(null); setLoading(false); return; }
     if (!searched) { setLoading(false); return; }
 
     setLoading(true);
@@ -4284,8 +4425,12 @@ export default function ReportView({ spec, toolbar = null }) {
     const qs = reportQuery({
       page,
       perPage: perPageSel || spec.perPage || 15,
-      business, location, finYear, tab, applied,
-      allLocations: isLocationLocked ? '' : (spec.locationAll && !applied.location ? '1' : ''),
+      business: activeBusiness,
+      location: activeLocation,
+      finYear,
+      tab,
+      applied,
+      allLocations: allLocationsFlag,
     });
 
     try {
@@ -4301,10 +4446,10 @@ export default function ReportView({ spec, toolbar = null }) {
     } finally {
       if (latest()) setLoading(false);
     }
-  }, [spec.slug, spec.perPage, perPageSel, page, applied, tab, business, location, finYear, searched, isLocationLocked]);
+  }, [spec.slug, spec.perPage, perPageSel, page, applied, tab, activeBusiness, activeLocation, finYear, searched, scopeReadyForReport, allLocationsFlag]);
 
   useEffect(() => { load(); }, [load]);
-  useEffect(() => { setPage(1); }, [applied, tab, business, location, finYear]);
+  useEffect(() => { setPage(1); }, [applied, tab, activeBusiness, activeLocation, finYear]);
 
   function search() {
     const blankValue = (v) => (Array.isArray(v) ? !v.length : !String(v || '').trim());
@@ -4337,10 +4482,17 @@ export default function ReportView({ spec, toolbar = null }) {
 
   function reset() {
     const blank = blankFilters(spec);
+    if (useLocalScope) {
+      setLocalCompany(defaultLocalCompany);
+      if (isLocationLocked && locFieldKey) {
+        blank[locFieldKey] = activeLocation || String(location || '');
+      }
+    }
     setDraft(blank);
     setApplied(blank);
     setVisible(initialVisible(spec));
     setError('');
+    setPage(1);
     setSearched(!spec.searchOnly);
     if (spec.searchOnly) setData(null);
   }
@@ -4358,12 +4510,16 @@ export default function ReportView({ spec, toolbar = null }) {
   async function exportRows() {
     let rows = (data?.sections?.[0]?.rows) || [];
     let short = '';
-    if (spec.exportAll && searched && business) {
+    if (spec.exportAll && searched && scopeReadyForReport) {
       const qs = reportQuery({
         page: 1,
         perPage: spec.perPage || 15,
-        business, location, finYear, tab, applied,
-        allLocations: isLocationLocked ? '' : (spec.locationAll && !applied.location ? '1' : ''),
+        business: activeBusiness,
+        location: activeLocation,
+        finYear,
+        tab,
+        applied,
+        allLocations: allLocationsFlag,
       }, { export: '1' });
       const r = await fetch('/api/reports/' + spec.slug + '?' + qs, { cache: 'no-store' });
       const d = await r.json().catch(() => ({}));
@@ -4383,7 +4539,7 @@ export default function ReportView({ spec, toolbar = null }) {
        file is never an empty stand-in for rows nobody fetched. Never without
        a business: an unscoped request is every business's rows, the reason
        load() waits for one too. */
-    const fetches = Boolean(spec.exportAll && searched && business);
+    const fetches = Boolean(spec.exportAll && searched && scopeReadyForReport);
     /* the print window opens now, on the click: one opened after waiting for
        the server is a pop-up the browser blocks */
     const win = kind === 'print' && fetches ? window.open('', '_blank') : null;
@@ -4498,16 +4654,25 @@ export default function ReportView({ spec, toolbar = null }) {
           groups={spec.filterGroups || []}
           headerDates={spec.headerDates || []}
           draft={draft}
-          onChange={set}
+          onChange={useLocalScope ? handleFieldChange : set}
           onClear={clearGroup}
           onReset={reset}
           onSearch={search}
+          onEnter={search}
           loading={loading}
-          business={business}
+          business={activeBusiness}
+          companyValue={useLocalScope ? localCompany : undefined}
+          locationOptionsOverride={useLocalScope ? companyLocations : null}
+          locationsLoading={useLocalScope ? locationsLoading : false}
+          onCompanyChange={useLocalScope ? handleLocalCompanyChange : null}
+          syncTopbar={!useLocalScope}
           messages={(
             <>
               {error && <div className="flash flash-err">{error}</div>}
-              {!business && <div className="flash flash-err">Select a business in the top bar.</div>}
+              {!useLocalScope && !business && <div className="flash flash-err">Select a business in the top bar.</div>}
+              {useLocalScope && companySeeded && !(businesses || []).length && (
+                <div className="flash flash-err">No company access is assigned to this account.</div>
+              )}
             </>
           )}
           hint={spec.hint || ''}

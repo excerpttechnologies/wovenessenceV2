@@ -831,13 +831,21 @@ select {
            hover:border-linestrong focus-within:border-brand
            focus-within:ring-2 focus-within:ring-brand/20;
   }
+  .ms-control-single { flex-wrap: nowrap; }
   .ms-chip {
     @apply inline-flex items-center gap-1.5 rounded-full bg-pillgrey px-[9px] py-[3px]
            text-[12.5px] font-semibold text-[#3d4a61];
   }
   .ms-input { @apply h-[26px] min-w-[60px] flex-1 border-0 text-[13px] outline-none; }
+  .ms-input-collapsed {
+    width: 0 !important;
+    min-width: 0 !important;
+    flex: 0 0 0 !important;
+    padding: 0 !important;
+    opacity: 0;
+  }
   .ms-menu {
-    @apply absolute left-0 top-[calc(100%+3px)] z-[60] max-h-60 min-w-full overflow-y-auto
+    @apply absolute left-0 top-[calc(100%+3px)] z-[70] max-h-60 min-w-full overflow-y-auto
            rounded-md border border-linestrong bg-white shadow-pop;
   }
   .ms-opt { @apply cursor-pointer px-[11px] py-2 text-[13px] hover:bg-[#eef4fd]; }
@@ -2794,13 +2802,12 @@ html {
    ========================================================================== */
 /* No overflow clipping here: the option menus of MultiSelect are absolutely
    positioned and must be allowed to cross the section and card edges. */
-.stock-filter-card { overflow: visible; }
+.stock-filter-card { overflow: visible; position: relative; }
 
 .stock-filter-head {
   flex-wrap: wrap;
-  gap: 8px 10px;
-  padding-top: 10px;
-  padding-bottom: 10px;
+  gap: 8px 12px;
+  padding: 10px 14px;
 }
 
 .stock-filter-head .card-title {
@@ -2830,29 +2837,36 @@ html {
 }
 
 .stock-filter-card .stock-filter-search {
-  min-width: 100px;
+  min-width: 104px;
   justify-content: center;
   padding-inline: 17px;
 }
 
-.stock-filter-body { padding: 10px 12px 12px; }
+.stock-filter-body {
+  padding: 12px 14px 14px;
+  overflow: visible;
+}
 
 /* ----------------------------------------------------------- scope row --- */
 .stock-filter-scope {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 8px 12px;
-  padding-bottom: 10px;
-  margin-bottom: 2px;
+  display: grid;
+  grid-template-columns: minmax(200px, 1.2fr) minmax(240px, 1.5fr) auto;
+  align-items: end;
+  gap: 10px 12px;
+  padding-bottom: 12px;
+  margin-bottom: 4px;
   border-bottom: 1px solid #e8edf4;
   position: relative;
   z-index: 20;
 }
 
-.stock-filter-scope-company {
-  flex: 0 1 230px;
-  min-width: 170px;
+.stock-filter-scope:focus-within {
+  z-index: 50;
+}
+
+.stock-filter-scope-company,
+.stock-filter-scope-location {
+  min-width: 0;
   position: relative;
 }
 
@@ -2866,31 +2880,24 @@ html {
   color: #223047;
 }
 
-.stock-filter-scope-location {
-  flex: 0 1 290px;
-  min-width: 210px;
-  position: relative;
-}
-
-/* The date pair never wraps inside itself - it used to shrink to one
-   column and leave From above To on a wide screen. It moves as one unit
-   to the right, and only the scope row wraps it to the next line. */
+/* The date pair sits flush on the right edge on desktop and splits cleanly
+   across two equal columns on tablet viewports. */
 .stock-filter-scope-dates {
-  display: flex;
-  flex: 0 0 auto;
-  flex-wrap: nowrap;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(140px, 162px));
   gap: 10px;
-  margin-left: auto;
 }
 
 .stock-filter-date {
-  flex: 0 0 165px;
   min-width: 0;
 }
 
 .stock-filter-label {
-  display: block;
-  margin-bottom: 3px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 15px;
+  margin-bottom: 4px;
   color: #63718a;
   font-size: 10.5px;
   font-weight: 700;
@@ -2898,9 +2905,7 @@ html {
   letter-spacing: 0.06em;
 }
 
-/* 30px controls: compact enough for a report that carries twenty filters.
-   MultiSelect is allowed to grow when chips wrap, so min-height - not height
-   - is what it gets. */
+/* 32px controls: consistent alignment across text, select, date, and multi-select controls. */
 .stock-filter-card .f-input,
 .stock-filter-card .ms-control {
   border-radius: 6px;
@@ -2910,23 +2915,38 @@ html {
 }
 
 .stock-filter-card .f-input {
-  height: 30px;
-  padding-inline: 8px;
+  height: 32px;
+  padding: 0 9px;
+}
+
+.stock-filter-card .stock-filter-tags {
+  min-height: 32px !important;
+  padding: 3px 7px !important;
+  line-height: 1.2;
 }
 
 .stock-filter-card .ms-control {
-  min-height: 30px;
-  padding: 2px 6px;
+  min-height: 32px;
+  padding: 2px 7px;
+}
+
+.stock-filter-card .ms-control-single {
+  height: 32px;
+  min-height: 32px;
+  padding: 0 7px;
+  flex-wrap: nowrap;
+  align-items: center;
 }
 
 .stock-filter-card .ms-input {
-  height: 22px;
+  height: 24px;
   font-size: 12px;
   font-weight: 600;
 }
 
 .stock-filter-card .ms-value {
   font-size: 12px;
+  line-height: 1.2;
 }
 
 .stock-filter-card .f-input:focus,
@@ -2956,7 +2976,9 @@ html {
 
 /* -------------------------------------------------------------- groups --- */
 .stock-filter-group {
-  margin-top: 6px;
+  position: relative;
+  z-index: 1;
+  margin-top: 8px;
   /* visible, not hidden: the pickers' menus open over the section edge */
   overflow: visible;
   border: 1px solid #e4eaf2;
@@ -2965,12 +2987,16 @@ html {
   background: #fff;
 }
 
+.stock-filter-group:focus-within {
+  z-index: 40;
+}
+
 .stock-filter-group-head {
   display: flex;
   align-items: center;
-  gap: 6px;
-  min-height: 26px;
-  padding: 3px 8px;
+  gap: 8px;
+  min-height: 30px;
+  padding: 5px 10px;
   border-bottom: 1px solid rgba(226, 232, 240, 0.9);
   border-radius: 5px 5px 0 0;
 }
@@ -3042,12 +3068,24 @@ html {
 
 .stock-filter-fields {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-  gap: 5px 8px;
-  padding: 6px 8px 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  padding: 10px 12px 12px;
+  overflow: visible;
 }
 
-@media (min-width: 900px) {
+@media (min-width: 641px) and (max-width: 1023px) {
+  .stock-filter-cols-5 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .stock-filter-cols-4,
+  .stock-filter-cols-3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .stock-filter-field-range { grid-column: span 1; }
+}
+
+@media (min-width: 1024px) {
   .stock-filter-cols-5 {
     grid-template-columns: repeat(5, minmax(0, 1fr));
   }
@@ -3059,7 +3097,8 @@ html {
   }
 }
 
-.stock-filter-field { min-width: 0; }
+.stock-filter-field { min-width: 0; position: relative; }
+.stock-filter-field:focus-within { z-index: 45; }
 .stock-filter-field-wide { grid-column: span 1; }
 .stock-filter-cols-3 .stock-filter-field-range { grid-column: span 1; }
 .stock-filter-field-range { grid-column: span 2; }
@@ -3142,21 +3181,28 @@ html {
   line-height: 1.45;
 }
 
-@media (max-width: 900px) {
-  .stock-filter-scope-dates { margin-left: 0; }
+@media (max-width: 1023px) {
+  .stock-filter-scope {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .stock-filter-scope-dates {
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 640px) {
+  .stock-filter-head {
+    padding: 10px 12px;
+  }
   .stock-filter-head-actions {
     width: 100%;
     justify-content: flex-end;
   }
 
   .stock-filter-body { padding: 12px; }
-  .stock-filter-scope-company,
-  .stock-filter-scope-location { flex-basis: 100%; }
-  .stock-filter-scope-dates { width: 100%; flex-wrap: wrap; }
-  .stock-filter-date { flex: 1 1 140px; }
+  .stock-filter-scope { grid-template-columns: minmax(0, 1fr); }
+  .stock-filter-scope-dates { grid-template-columns: minmax(0, 1fr); }
   .stock-filter-fields { grid-template-columns: minmax(0, 1fr); padding: 10px; }
   .stock-filter-field-wide,
   .stock-filter-field-range { grid-column: span 1; }

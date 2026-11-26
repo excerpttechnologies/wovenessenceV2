@@ -12,6 +12,8 @@ export default function MultiSelect({
   const [open, setOpen] = useState(false);
   const [term, setTerm] = useState('');
   const box = useRef(null);
+  const inputRef = useRef(null);
+  const ignoreNextFocusRef = useRef(false);
 
   useEffect(() => {
     function away(e) {
@@ -25,17 +27,17 @@ export default function MultiSelect({
   }, []);
 
   const selected = mode === 'multi'
-    ? (Array.isArray(value) ? value : []).map((v) => options.find((o) => o.value === v) || { value: v, label: v })
+    ? (Array.isArray(value) ? value : []).map((v) => options.find((o) => String(o.value) === String(v)) || { value: v, label: v })
     /* fall back to the raw value the way the multi branch above already
        does - otherwise a value that is not in the currently fetched option
        page renders blank. The PIN code lookup fills City with a name the
        /api/cities page may not contain yet. */
-    : options.find((o) => o.value === value) || (value ? { value, label: String(value) } : null);
+    : options.find((o) => String(o.value) === String(value ?? '')) || (value ? { value, label: String(value) } : null);
 
   const shown = options.filter((o) => {
     if (o.addCustomer) return true;
     if (term && !String(o.label).toLowerCase().includes(term.toLowerCase())) return false;
-    if (mode === 'multi') return !(value || []).includes(o.value);
+    if (mode === 'multi') return !(value || []).map(String).includes(String(o.value));
     return true;
   });
 
@@ -45,35 +47,56 @@ export default function MultiSelect({
   }
   function drop(v) { onChange((value || []).filter((x) => x !== v)); }
 
+  const handleControlMouseDown = (e) => {
+    if (disabled) return;
+    if (e.target.closest('button[data-ms-btn]')) return;
+    const isToggle = Boolean(e.target.closest('[data-ms-toggle]'));
+    if (isToggle && open) {
+      e.preventDefault();
+      ignoreNextFocusRef.current = true;
+      setOpen(false);
+      setTerm('');
+      setTimeout(() => { ignoreNextFocusRef.current = false; }, 0);
+      return;
+    }
+    if (!open) {
+      setOpen(true);
+    }
+    if (e.target !== inputRef.current) {
+      e.preventDefault();
+      inputRef.current?.focus();
+    }
+  };
+
   return (
     <div className={`relative ${open ? 'z-50' : 'z-auto'}`} ref={box}>
       <div
-        className={'ms-control ' + (disabled ? 'bg-[#f2f4f8]' : '')}
-        onClick={() => {
-          if (!disabled) {
-            setOpen((prev) => {
-              const next = !prev;
-              if (!next) setTerm('');
-              return next;
-            });
-          }
-        }}
+        className={
+          'ms-control '
+          + (mode === 'single' ? 'ms-control-single ' : '')
+          + (disabled ? 'bg-[#f2f4f8] cursor-not-allowed' : '')
+        }
+        onMouseDown={handleControlMouseDown}
       >
         {mode === 'multi' && selected.map((s) => (
           <span key={s.value} className="ms-chip">
             {s.label}
-            <button type="button" onClick={(e) => { e.stopPropagation(); drop(s.value); }}>
+            <button data-ms-btn="1" type="button" onClick={(e) => { e.stopPropagation(); drop(s.value); }}>
               <Icon name="x" size={11} />
             </button>
           </span>
         ))}
 
         {mode === 'single' && selected && !open && (
-          <span className="ms-value px-1 text-[13.5px] text-ink truncate">{selected.label}</span>
+          <span className="ms-value flex-1 min-w-0 px-1 text-[13.5px] text-ink truncate">{selected.label}</span>
         )}
 
         <input
-          className="ms-input"
+          ref={inputRef}
+          className={
+            'ms-input'
+            + (mode === 'single' && selected && !open ? ' ms-input-collapsed' : '')
+          }
           value={term}
           disabled={disabled}
           placeholder={
@@ -82,13 +105,27 @@ export default function MultiSelect({
               : (open ? (selected?.label || placeholder) : (selected ? '' : placeholder))
           }
           onChange={(e) => { setTerm(e.target.value); onSearch?.(e.target.value); setOpen(true); }}
-          onFocus={() => setOpen(true)}
+          onFocus={() => {
+            if (!disabled && !ignoreNextFocusRef.current) setOpen(true);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape' && open) {
+              e.stopPropagation();
+              setOpen(false);
+              setTerm('');
+            } else if (e.key === 'Enter' && open && shown.length > 0 && term.trim()) {
+              e.preventDefault();
+              pick(shown[0]);
+            }
+          }}
         />
 
         {clearable && (mode === 'single' ? (value !== '' && value != null) : selected.length > 0) && !disabled && (
           <button
+            data-ms-btn="1"
             type="button"
-            className="text-[#9aa6ba] hover:text-ink cursor-pointer"
+            aria-label="Clear selection"
+            className="shrink-0 text-[#9aa6ba] hover:text-ink cursor-pointer"
             onClick={(e) => {
               e.stopPropagation();
               onChange(mode === 'multi' ? [] : '');
@@ -99,7 +136,9 @@ export default function MultiSelect({
             <Icon name="x" size={13} />
           </button>
         )}
-        <span className="border-l border-line px-1 text-[#9aa6ba]"><Icon name="chevD" size={14} /></span>
+        <span data-ms-toggle="1" className="shrink-0 border-l border-line px-1 text-[#9aa6ba] cursor-pointer">
+          <Icon name="chevD" size={14} />
+        </span>
       </div>
 
       {open && !disabled && (

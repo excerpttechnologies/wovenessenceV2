@@ -1239,23 +1239,56 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
-  const scope = await requireReportScope(session, sp);
+  const rawLocationFilter = s(sp.get('locationFilter'));
+  if (rawLocationFilter && rawLocationFilter !== 'all' && !isValidObjectId(rawLocationFilter)) {
+    return json({ error: 'Invalid location selection.', code: 'WRONG_LOCATION' }, 400);
+  }
+
+  /* When the Master Stock Report card picks a specific location (`locationFilter`),
+     validate permissions against THAT location rather than intersecting an unrelated
+     topbar branch. When `locationFilter` is blank and `allLocations=1`, allow the
+     report to aggregate across all permitted locations of the chosen company. */
+  const scopeSp = new URLSearchParams(sp);
+  if (rawLocationFilter && rawLocationFilter !== 'all') {
+    scopeSp.set('location', rawLocationFilter);
+    scopeSp.delete('locationId');
+    scopeSp.delete('allLocations');
+  }
+
+  const scope = await requireReportScope(session, scopeSp, { allowAllLocations: true });
   if (!scope.ok) return scope.response;
-  const { businessId, locationId, locationIds, finYear, access } = scope;
+  const { businessId, businessFilter, locationId, locationIds, finYear, access } = scope;
   const { page, perPage } = pageOf(sp);
 
   /* Roles & Permissions (17-10-2026): Master Stock Report -> Read */
   const denied = await screenDenial({ session, screen: SCREENS.MASTER_STOCK_REPORT, label: 'the master stock report', action: PERM.READ, businessId });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
+  const selectedLocId = rawLocationFilter && rawLocationFilter !== 'all' ? rawLocationFilter : '';
+  if (selectedLocId || locationId) {
+    const checkLocId = selectedLocId || String(locationId);
+    if (access.isRestricted && !access.allowedLocationIdSet.has(checkLocId)) {
+      return json({ error: 'You do not have access to that location.', code: 'WRONG_LOCATION' }, 403);
+    }
+    const locDoc = await CompanyLocation.findById(checkLocId).select('businessId').lean();
+    if (!locDoc) {
+      return json({ error: 'Selected location was not found.', code: 'WRONG_LOCATION' }, 404);
+    }
+    if (businessId && locDoc.businessId && String(locDoc.businessId) !== String(businessId)) {
+      return json({ error: 'Selected location does not belong to the selected company.', code: 'LOCATION_COMPANY_MISMATCH' }, 403);
+    }
+  }
+
   /* ---- scope -----------------------------------------------------------
      barcodeLabel keeps its scope as plain STRINGS (lib/barcodeLabel.js:93-94)
      and carries the same ids again as ObjectIds on the current* twins. The
      string pair is what every barcode screen filters on, so it is what this
      report filters on too. A blank locationId is included ONLY for unrestricted
-     admins; restricted users are locked strictly to their assigned location(s). */
+     admins when querying All Locations (or legacy single-branch topbar mode);
+     restricted users are locked strictly to their assigned location(s). */
   const filter = { status: BARCODE_STATUS.IN_STOCK };
-  if (businessId) filter.businessId = String(businessId);
+  if (businessFilter) filter.businessId = businessFilter;
+  else if (businessId) filter.businessId = String(businessId);
   if (finYear) filter.finYear = { $in: [finYear, '', null] };
 
   const ands = [];
@@ -1264,23 +1297,13 @@ export async function GET(req) {
   if (access.isRestricted) {
     const locClause = barcodeLocationFilter(locationId ? [locationId] : locationIds);
     if (locClause) ands.push(locClause);
+  } else if (selectedLocId) {
+    /* Specific location selected in the filter card -> show ONLY that location's stock */
+    const panelLocClause = barcodeLocationFilter([selectedLocId]);
+    if (panelLocClause) ands.push(panelLocClause);
   } else if (locationId) {
     const locClause = barcodeLocationFilter([locationId], { allowUnassigned: true });
     if (locClause) ands.push(locClause);
-  }
-
-  /* LOCATION FILTER (inside the filter card) is separate from the top bar's
-     `location` scope above. It matches the location the row PRINTS: the
-     current location when the unit has moved, otherwise its originating
-     location. Empty = no extra constraint, so the screen keeps the top bar's
-     existing scope behaviour. */
-  const locationFilter = s(sp.get('locationFilter'));
-  if (locationFilter) {
-    if (access.isRestricted && !access.allowedLocationIdSet.has(locationFilter)) {
-      return json({ error: 'You do not have access to that location.', code: 'WRONG_LOCATION' }, 403);
-    }
-    const panelLocClause = barcodeLocationFilter([locationFilter]);
-    if (panelLocClause) ands.push(panelLocClause);
   }
 
   /* ---- filters, all server-side ---------------------------------------- */
@@ -1437,7 +1460,8 @@ export async function GET(req) {
     const vendorFilter = {
       contactId: { $regex: '^\\s*' + escapeRegex(patternSupplierNo) + '\\s*$', $options: 'i' },
     };
-    if (businessId) vendorFilter.businessId = String(businessId);
+    if (businessFilter) vendorFilter.businessId = businessFilter;
+    else if (businessId) vendorFilter.businessId = String(businessId);
     const patternSuppliers = await Supplier.find(vendorFilter).select('_id contactId').lean();
     const supplierKeys = [...new Set(
       patternSuppliers.flatMap((vendor) => [String(vendor._id), s(vendor.contactId)]).filter(Boolean)
