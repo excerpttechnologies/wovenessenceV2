@@ -1,7 +1,7 @@
 import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
 import {
-  loyaltyRules, customerLoyaltyEligibility, pointsBalance, allowedRedemption,
+  resolveLoyaltyScheme, customerLoyaltyEligibility, pointsBalance, allowedRedemption,
 } from '@/lib/loyalty';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 
@@ -42,22 +42,55 @@ export async function GET(req) {
   }
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
-  const rules = await loyaltyRules(sp.get('business'));
-  /* Not configured, or switched off. `active: false` rather than an error -
-     the till hides the strip and sells exactly as it did before. */
-  if (!rules) return json({ active: false, eligible: false });
+  const txDate = sp.get('date') || new Date();
+  const requestedSchemeId = (sp.get('schemeId') || '').trim();
+  const resolved = await resolveLoyaltyScheme(sp.get('business'), {
+    date: txDate,
+    schemeId: requestedSchemeId,
+  });
+  /* Fall back to the highest-priority eligible scheme if the requested schemeId
+     is no longer valid for the updated transaction date. */
+  const fallback = resolved.requestedInvalid && resolved.eligibleSchemes.length
+    ? { rules: resolved.eligibleSchemes[0], eligibleSchemes: resolved.eligibleSchemes, reason: '' }
+    : resolved;
+
+  const rules = fallback.rules;
+  const schemeChoices = (fallback.eligibleSchemes || []).map((s) => ({
+    schemeId: s.schemeId,
+    name: s.name,
+    pointsToInr: s.pointsToInr,
+    perAmountModel: s.hasPerAmount,
+    purchaseAmountForOnePoint: s.purchaseAmountForOnePoint,
+    fromDate: s.fromDate,
+    toDate: s.toDate,
+    otpRequired: s.otpRequired,
+  }));
+
+  /* No active, applicable, in-date scheme exists for this business. */
+  if (!rules) {
+    return json({
+      active: false,
+      eligible: false,
+      eligibleSchemes: [],
+      reason: fallback.reason || 'No active loyalty scheme applies.',
+    });
+  }
 
   const customer = (sp.get('customer') || '').trim();
   const amount = Number(sp.get('amount') || 0);
 
-  /* A walk-in has nobody to credit. Global loyalty is active, so the till
+  /* A walk-in has nobody to credit. An active scheme exists, so the till
      tells the cashier to select a customer. */
   if (!customer) {
     return json({
       active: true,
       eligible: false,
       contactTypeEligible: false,
+      schemeId: rules.schemeId,
       name: rules.name,
+      fromDate: rules.fromDate,
+      toDate: rules.toDate,
+      eligibleSchemes: schemeChoices,
       pointsToInr: rules.pointsToInr,
       perAmountModel: rules.hasPerAmount,
       purchaseAmountForOnePoint: rules.purchaseAmountForOnePoint,
@@ -90,7 +123,9 @@ export async function GET(req) {
       eligible: false,
       contactTypeEligible: false,
       contactTypeName: eligibility.contactType?.name || '',
+      schemeId: rules.schemeId,
       name: rules.name,
+      eligibleSchemes: [],
       balance: 0,
       balanceValue: 0,
       todayLockedPoints: 0,
@@ -115,7 +150,11 @@ export async function GET(req) {
     eligible: true,
     contactTypeEligible: true,
     contactTypeName: eligibility.contactType?.name || '',
+    schemeId: rules.schemeId,
     name: rules.name,
+    fromDate: rules.fromDate,
+    toDate: rules.toDate,
+    eligibleSchemes: schemeChoices,
     pointsToInr: rules.pointsToInr,
     /* the six-field master's earning model, for the till's preview */
     perAmountModel: rules.hasPerAmount,

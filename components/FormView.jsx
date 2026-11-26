@@ -624,6 +624,11 @@ export default function FormView({ cfg, id, slug }) {
             const add = cfg.quickAdds?.[f.k];
             return (
               <div key={f.k} className={add ? 'flex items-end gap-1.5' : ''}>
+                {f.sectionTitle && (
+                  <div className="form-section-title mt-3 border-t border-line pt-3 text-[13px] font-bold uppercase tracking-wide text-ink">
+                    {f.sectionTitle}
+                  </div>
+                )}
                 <div className={add ? 'min-w-0 flex-1' : ''}>
                   <Field f={f} value={data[f.k]} error={errors[f.k]} onChange={set} />
                 </div>

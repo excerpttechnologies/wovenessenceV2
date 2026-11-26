@@ -1866,12 +1866,28 @@ export default function Field({ f, value, error, onChange, onOptionChange, selec
       break;
 
     case 'select':
-      control = (
-        <select className="f-input" value={value ?? ''} disabled={f.readOnly || f.disabled} onChange={(e) => set(e.target.value)}>
-          <option value="">{f.placeholder || 'Select...'}</option>
-          {(f.opts || []).map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
-        </select>
-      );
+      if (f.valueType === 'boolean') {
+        const selectedBool = value === true || value === 'true' ? 'true' : 'false';
+        control = (
+          <select
+            className="f-input"
+            value={selectedBool}
+            disabled={f.readOnly || f.disabled}
+            onChange={(e) => set(e.target.value === 'true')}
+          >
+            {(f.opts || []).map((o) => (
+              <option key={String(o.v)} value={String(o.v)}>{o.l}</option>
+            ))}
+          </select>
+        );
+      } else {
+        control = (
+          <select className="f-input" value={value ?? ''} disabled={f.readOnly || f.disabled} onChange={(e) => set(e.target.value)}>
+            <option value="">{f.placeholder || 'Select...'}</option>
+            {(f.opts || []).map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
+          </select>
+        );
+      }
       break;
 
     case 'radio':

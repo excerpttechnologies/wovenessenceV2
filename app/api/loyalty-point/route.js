@@ -3,26 +3,23 @@ import dbConnect from '@/lib/db';
 import LoyaltyPoint from '@/models/LoyaltyPoint';
 import { requireSession } from '@/lib/session';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
-
-/* Permission gate for this screen.
-
-   ONE DOCUMENT PER SCOPE, ONE SAVE BUTTON: the same POST creates the row
-   the first time and rewrites it every time after, so saving answers to
-   UPDATE OR CREATE. Requiring update alone would refuse the very first
-   save on a business never configured; requiring create alone would
-   refuse every save after it. The operator sees one button and cannot
-   tell which of the two the server is about to do.
-
-   Nothing else reads this route, and nothing else reads the model
-   either - the scheme is stored but not yet applied at the till, so gating
-   it closes the screen and changes no selling behaviour. */
-const LOYALTY_POINT = { screen: SCREENS.LOYALTY_POINT, label: 'loyalty point settings' };
 import { validate } from '@/lib/validate';
-import { FIELDS } from '@/app/admin/setting/loyaltypoint/fields';
+import { FIELDS, SCHEME_FIELDS } from '@/app/admin/setting/loyaltypoint/fields';
+import { normalizeSchemeRow, validateSchemeRules } from '@/lib/loyalty';
+import { loyaltySchemeDenial } from '@/lib/loyaltySchemeAccess';
 
-/* /api/loyalty-point - single document per scope: read + upsert. */
+const LOYALTY_POINT = { screen: SCREENS.LOYALTY_POINT, label: 'loyalty point settings' };
 
-const json = (d, s = 200) => Response.json(d, { status: s });
+/* /api/loyalty-point -
+     - Default mode (used by /admin/setting/loyaltypoint): read + upsert the
+       business's primary scheme without touching other schemes.
+     - ?mode=list / body.mode === 'create' (used by /admin/contact/contact-type):
+       list all schemes for the business and create additional schemes. */
+
+const json = (d, s = 200) => Response.json(d, {
+  status: s,
+  headers: { 'Cache-Control': 'no-store' },
+});
 
 function scopeOf(sp) {
   const filter = {};
@@ -37,6 +34,23 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
+  const isList = sp.get('mode') === 'list';
+
+  if (isList) {
+    const denied = await loyaltySchemeDenial({
+      session, action: PERM.READ, businessId: sp.get('business'),
+    });
+    if (denied) return json({ error: denied.message, code: denied.code }, 403);
+
+    const filter = scopeOf(sp);
+    if (!filter.businessId) {
+      return json({ rows: [], total: 0 });
+    }
+    const docs = await LoyaltyPoint.find(filter).sort({ createdAt: -1 }).lean();
+    const rows = docs.map(normalizeSchemeRow);
+    return json({ rows, total: rows.length });
+  }
+
   /* Only refuses when this role has a saved permission matrix that
      withholds it - see lib/screenPermission.js. */
   const denied = await screenDenial({
@@ -44,8 +58,8 @@ export async function GET(req) {
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
-  const doc = await LoyaltyPoint.findOne(scopeOf(sp)).lean();
-  return json({ doc: doc ? { ...doc, _id: String(doc._id) } : null });
+  const doc = await LoyaltyPoint.findOne(scopeOf(sp)).sort({ createdAt: 1 }).lean();
+  return json({ doc: doc ? normalizeSchemeRow(doc) : null });
 }
 
 export async function POST(req) {
@@ -54,6 +68,25 @@ export async function POST(req) {
 
   const body = await req.json();
   await dbConnect();
+
+  if (body.mode === 'create') {
+    const denied = await loyaltySchemeDenial({
+      session, action: PERM.CREATE, businessId: body.business,
+    });
+    if (denied) return json({ error: denied.message, code: denied.code }, 403);
+
+    if (!body.business || !isValidObjectId(body.business)) {
+      return json({ error: 'Please select a business before creating a loyalty scheme.' }, 422);
+    }
+
+    const { errors, doc } = validate(SCHEME_FIELDS, body.data || {});
+    validateSchemeRules(doc, errors);
+    if (Object.keys(errors).length > 0) return json({ errors }, 422);
+
+    doc.businessId = body.business;
+    const created = await LoyaltyPoint.create(doc);
+    return json({ ok: true, id: String(created._id), doc: normalizeSchemeRow(created.toObject()) }, 201);
+  }
 
   /* Update OR create, ahead of validate() - see the note at the top. */
   let gate = await screenDenial({
@@ -73,7 +106,13 @@ export async function POST(req) {
   const sp = new URLSearchParams({
     business: body.business || '', location: body.location || '', finYear: body.finYear || '',
   });
-  await LoyaltyPoint.findOneAndUpdate(scopeOf(sp), doc, { upsert: true, new: true });
+  const filter = scopeOf(sp);
+  const existing = await LoyaltyPoint.findOne(filter).sort({ createdAt: 1 }).select('_id').lean();
+  if (existing) {
+    await LoyaltyPoint.findByIdAndUpdate(existing._id, { $set: doc }, { new: true });
+  } else {
+    await LoyaltyPoint.create(doc);
+  }
 
   return json({ ok: true });
 }

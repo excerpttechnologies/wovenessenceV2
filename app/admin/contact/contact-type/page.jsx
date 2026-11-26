@@ -1,6 +1,7 @@
 'use client';
 import ListView from '@/components/ListView';
 import Icon from '@/components/Icon';
+import LoyaltySchemesSection from '@/components/LoyaltySchemesSection';
 import { FIELDS } from './fields';
 
 /* Contact Types - list. Columns declared here, not fetched from a registry. */
@@ -32,7 +33,7 @@ const CONFIG = {
         return (
           <span className={'pill inline-flex items-center gap-1 ' + (enabled ? 'pill-green' : 'pill-red')}>
             <Icon name={enabled ? 'checkCircle' : 'x'} size={12} stroke={2.2} />
-            {enabled ? 'Enabled' : 'Disabled'}
+            {enabled ? 'ENABLED' : 'DISABLED'}
           </span>
         );
       },
@@ -43,5 +44,10 @@ const CONFIG = {
 };
 
 export default function ContacttypeListPage() {
-  return <ListView cfg={CONFIG} />;
+  return (
+    <>
+      <ListView cfg={CONFIG} />
+      <LoyaltySchemesSection />
+    </>
+  );
 }

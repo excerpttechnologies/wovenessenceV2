@@ -10,12 +10,14 @@ export const FIELDS = [
     {
       k: "loyaltyPointsApplicable",
       label: "Loyalty Points Applicable",
-      type: "booleanButtons",
+      sectionTitle: "LOYALTY POINTS APPLICABLE",
+      type: "select",
+      valueType: "boolean",
       span: "all",
       def: false,
       opts: [
-        { v: true, l: "YES – Enable Loyalty Points" },
-        { v: false, l: "NO – Disable Loyalty Points" },
+        { v: "true", l: "YES – Loyalty Points Applicable" },
+        { v: "false", l: "NO – Loyalty Points Not Applicable" },
       ],
     },
   ];

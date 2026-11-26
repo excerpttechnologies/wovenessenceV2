@@ -24,7 +24,7 @@ import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import LoyaltyLedger from '@/models/LoyaltyLedger';
 import { sortedPage } from '@/lib/listSort';
 import {
-  loyaltyRules, customerLoyaltyEligibility, pointsBalance, allowedRedemption, redemptionValue, saleLedgerRows,
+  resolveLoyaltyScheme, customerLoyaltyEligibility, pointsBalance, allowedRedemption, redemptionValue, saleLedgerRows,
 } from '@/lib/loyalty';
 import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
@@ -503,27 +503,35 @@ export const POST = handler(async (req) => {
      every line below at zero, which is the sale exactly as it behaved before
      any of this existed.
      ------------------------------------------------------------------ */
-  const rules = await loyaltyRules(doc.businessId);
+  const requestedSchemeId = String(body.data?.loyaltySchemeId || '').trim();
+  const schemeResolution = await resolveLoyaltyScheme(doc.businessId, {
+    date: doc.date,
+    schemeId: requestedSchemeId,
+  });
+  const rules = schemeResolution.rules;
   const wantsPoints = Math.max(0, Math.floor(Number(body.data?.loyaltyRedeemPoints || 0)));
   const wantsManualEarn = Math.max(0, Math.floor(Number(body.data?.loyaltyPointsEarned || 0))) > 0;
   const wantsManualLoyaltyAmount = Number(body.data?.loyaltyAmount || 0) > 0;
   const hasManualLoyaltyRequest = wantsPoints > 0
     || wantsManualEarn
     || wantsManualLoyaltyAmount
-    || hasManualLoyaltyPayment;
+    || hasManualLoyaltyPayment
+    || Boolean(requestedSchemeId);
 
   const eligibility = doc.customerId
     ? await customerLoyaltyEligibility({ businessId: doc.businessId, customerId: doc.customerId })
     : { eligible: false, reason: 'Loyalty points are not applicable for walk-in customers.' };
-  const loyaltyEligible = Boolean(rules && doc.customerId && eligibility.eligible);
+  const loyaltyEligible = Boolean(rules && !schemeResolution.requestedInvalid && doc.customerId && eligibility.eligible);
 
-  /* Reject any attempt to redeem, earn, or inject loyalty values when either
-     the global scheme is inactive or the customer's Contact Type is ineligible. */
+  /* Reject any attempt to redeem, earn, select a scheme, or inject loyalty
+     values when no valid scheme applies or the customer's Contact Type is ineligible. */
   if (hasManualLoyaltyRequest && !loyaltyEligible) {
     return json({
-      error: !rules
-        ? 'Loyalty points are disabled for this business.'
-        : (eligibility.reason || 'Loyalty Points Not Applicable for This Customer Type'),
+      error: schemeResolution.requestedInvalid
+        ? schemeResolution.reason
+        : !rules
+          ? (schemeResolution.reason || 'Loyalty points are disabled for this business.')
+          : (eligibility.reason || 'Loyalty Points Not Applicable for This Customer Type'),
       code: 'LOYALTY_NOT_ELIGIBLE',
     }, 403);
   }
@@ -562,6 +570,8 @@ export const POST = handler(async (req) => {
      cash would. So a 1000 bill met with 300 points leaves 700 to collect. */
   doc.loyaltyPointsRedeemed = redeemPoints;
   doc.loyaltyAmount = redeemAmount;
+  doc.loyaltySchemeId = loyaltyEligible && rules?.schemeId ? rules.schemeId : null;
+  doc.loyaltySchemeName = loyaltyEligible ? String(rules?.name || '') : '';
 
   if (redeemAmount > 0) {
     doc.paid = Number(doc.paid || 0) + redeemAmount;
@@ -651,6 +661,25 @@ export const POST = handler(async (req) => {
        re-reads: everything was decided above, under the same rules, and the
        rows are the record of that decision. */
     if (loyaltyEligible) {
+      /* Re-verify redeemable balance inside the transaction to prevent
+         concurrent duplicate redemptions across tills. */
+      if (redeemPoints > 0) {
+        const liveBalance = await pointsBalance({
+          businessId: doc.businessId,
+          customerId: doc.customerId,
+          excludeEarnedToday: true,
+          session: dbSession,
+        });
+        const liveAllowed = allowedRedemption({ rules, balance: liveBalance, billAmount: doc.totalAmount });
+        if (redeemPoints > liveAllowed.points) {
+          throw new InventoryError(
+            'LOYALTY_NOT_AVAILABLE',
+            liveAllowed.reason || 'Loyalty point balance changed before billing completed.',
+            { status: 409 }
+          );
+        }
+      }
+
       const ledgerRows = saleLedgerRows({
         rules,
         businessId: doc.businessId,
@@ -660,6 +689,8 @@ export const POST = handler(async (req) => {
         invoiceNo: invoice.invoiceNo,
         billAmount: doc.totalAmount,
         redeemPoints,
+        schemeId: rules.schemeId,
+        schemeName: rules.name,
         createdBy: session?.name || session?.email || '',
       });
 

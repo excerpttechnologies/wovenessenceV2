@@ -54,6 +54,8 @@ const PosInvoiceSchema = new mongoose.Schema(
     loyaltyPointsRedeemed: { type: Number, default: 0 },
     loyaltyPointsEarned: { type: Number, default: 0 },
     loyaltyAmount: { type: Number, default: 0 },
+    loyaltySchemeId: { type: mongoose.Schema.Types.ObjectId, ref: 'loyaltyPoint', default: null },
+    loyaltySchemeName: { type: String, default: '' },
     sellNote: { type: String, default: '' },
     staffNote: { type: String, default: '' },
 

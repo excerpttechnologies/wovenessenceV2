@@ -47,6 +47,8 @@ const LoyaltyLedgerSchema = new mongoose.Schema(
 
     invoiceId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
     invoiceNo: { type: String, default: '' },
+    schemeId: { type: mongoose.Schema.Types.ObjectId, ref: 'loyaltyPoint', default: null, index: true },
+    schemeName: { type: String, default: '' },
     note: { type: String, default: '' },
     createdBy: { type: String, default: '' },
   },

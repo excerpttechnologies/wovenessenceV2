@@ -120,6 +120,11 @@ export default function ModalForm({ cfg, slug, onClose, onSaved, recordId = null
               const add = cfg.quickAdds?.[f.k];
               return (
                 <div key={f.k} className={(f.span === 'all' && !cfg.modalWide ? 'col-span-2 ' : '') + (add ? 'flex items-end gap-1.5' : '')}>
+                  {f.sectionTitle && (
+                    <div className="mb-2 mt-1 border-t border-line pt-3 text-[12px] font-bold uppercase tracking-wide text-ink">
+                      {f.sectionTitle}
+                    </div>
+                  )}
                   <div className={add ? 'min-w-0 flex-1' : ''}>
                     <Field f={f} value={data[f.k]} error={errors[f.k]} onChange={set} />
                   </div>

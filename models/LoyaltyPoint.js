@@ -29,6 +29,9 @@ const LoyaltyPointSchema = new mongoose.Schema(
     minAmountForRedemption: { type: Number, default: 0 },
     redemptionType: { type: String, default: "Gateway" },
     otpRequired: { type: String, default: "No" },
+    fromDate: { type: Date, default: null },
+    toDate: { type: Date, default: null },
+    loyaltyPointsApplicable: { type: String, default: "Yes" },
   },
   { timestamps: true }
 );

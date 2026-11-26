@@ -599,6 +599,7 @@ export default function PosTill() {
     setCustomerOptions([{ value: 'walkin', label: 'Walk-in Customer' }]);
     setRedeemPoints(0);
     setLoyalty(null);
+    setSelectedSchemeId('');
   }
 
   useEffect(() => {
@@ -1100,6 +1101,7 @@ export default function PosTill() {
     /* the next bill is a different bill, and may be a different customer */
     setRedeemPoints(0);
     setLoyalty(null);
+    setSelectedSchemeId('');
     setSelectedProduct(null);
     setCustomer('walkin');
     setSelectedCustomer(null);
@@ -1177,6 +1179,7 @@ export default function PosTill() {
       setActiveRow(null);
       setRedeemPoints(0);
       setLoyalty(null);
+      setSelectedSchemeId('');
       if (h.customerId) {
         const resumedId = String(h.customerId);
         const resumedSnap = h.customerSnapshot || null;
@@ -1262,6 +1265,7 @@ export default function PosTill() {
       const option = { value: data.id, label: customerLabel(savedCustomer), customer: savedCustomer };
       setRedeemPoints(0);
       setLoyalty(null);
+      setSelectedSchemeId('');
       setCustomerOptions((rows) => [option, ...rows.filter((row) => row.value !== 'walkin' && row.value !== data.id)]); setCustomer(data.id); setSelectedCustomer(savedCustomer); setCustomerSearch(''); setShowCustomerForm(false); setCustomerForm({ ...CUSTOMER_DEFAULTS, typeId: customerForm.typeId }); setMsg('');
     } catch (error) { setMsg(error.message); } finally { setSavingCustomer(false); }
   }
@@ -1275,6 +1279,7 @@ export default function PosTill() {
     setSelectedCustomer(null);
     setRedeemPoints(0);
     setLoyalty(null);
+    setSelectedSchemeId('');
     setCustomerForm((current) => ({
       ...CUSTOMER_DEFAULTS,
       typeId: retailFirst(customerTypes) || current.typeId || '',
@@ -1288,6 +1293,7 @@ export default function PosTill() {
     if (option?.addCustomer) { openCustomerForm(); return; }
     setRedeemPoints(0);
     setLoyalty(null);
+    setSelectedSchemeId('');
     if (!value) {
       setCustomer('walkin');
       setSelectedCustomer(null);
@@ -1387,12 +1393,14 @@ export default function PosTill() {
      ------------------------------------------------------------------ */
   const [loyalty, setLoyalty] = useState(null);
   const [redeemPoints, setRedeemPoints] = useState(0);
+  const [selectedSchemeId, setSelectedSchemeId] = useState('');
 
   /* Clear any applied redemption immediately on business/customer switch so
      stale values from the previous customer can never leak while re-checking. */
   useEffect(() => {
     setRedeemPoints(0);
     setLoyalty(null);
+    setSelectedSchemeId('');
   }, [business, customer]);
 
   useEffect(() => {
@@ -1404,14 +1412,22 @@ export default function PosTill() {
       customer: customer === 'walkin' ? '' : customer,
       amount: String(netAmount || 0),
     });
+    if (saleDate) qs.set('date', saleDate);
+    if (selectedSchemeId) qs.set('schemeId', selectedSchemeId);
 
     fetch('/api/loyalty?' + qs, { cache: 'no-store' })
       .then((r) => r.json())
-      .then((d) => { if (!off) setLoyalty(d && d.active ? d : null); })
+      .then((d) => {
+        if (off) return;
+        setLoyalty(d && d.active ? d : null);
+        if (selectedSchemeId && d?.schemeId && d.schemeId !== selectedSchemeId) {
+          setSelectedSchemeId('');
+        }
+      })
       .catch(() => { if (!off) setLoyalty(null); });
 
     return () => { off = true; };
-  }, [business, customer, netAmount]);
+  }, [business, customer, netAmount, saleDate, selectedSchemeId]);
 
   /* Eligible only when BOTH global loyalty is active AND the customer's
      Contact Type has loyaltyPointsApplicable enabled. */
@@ -1468,7 +1484,14 @@ export default function PosTill() {
     ? Math.max(0, Number(loyalty.balance || 0) - redeemPoints + earnPreview)
     : 0;
 
-  const timeStr = now ? now.toTimeString().slice(0, 5) : '';
+  const timeStr = (() => {
+    if (!now) return '';
+    const hours24 = now.getHours();
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const suffix = hours24 < 12 ? 'AM' : 'PM';
+    const hours12 = hours24 % 12 || 12;
+    return `${hours12}:${minutes} ${suffix}`;
+  })();
 
   async function submitPayment(paymentData) {
     /* ONE SAVE PER BILL (user, 22-10-2026): a second Submit click while the
@@ -1485,7 +1508,7 @@ export default function PosTill() {
     try {
       const paid = paymentData.payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
       const customerRecord = selectedCustomer || customerOptions.find((option) => option.value === customer)?.customer;
-      const response = await fetch('/api/sell-pos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ business, location, finYear, data: { date: saleDate, finYear, customerId: customer === 'walkin' ? null : customer, customerContact: customerRecord?.billingMobile || '', customerSnapshot: customer === 'walkin' ? null : customerRecord || null, counterId: counter || null, billingType: payMode, exempted: 'NO', items, payments: paymentData.payments, sellNote: paymentData.sellNote, staffNote: paymentData.staffNote, salesChannel: paymentData.salesChannel || '', shipping: Number(shipping || 0), totalAmount: netAmount, paid, /* the server re-reads the balance and the master and decides for itself; this is the request, not the ruling */ loyaltyRedeemPoints: loyaltyEligible ? redeemPoints : 0 } }) });
+      const response = await fetch('/api/sell-pos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ business, location, finYear, data: { date: saleDate, finYear, customerId: customer === 'walkin' ? null : customer, customerContact: customerRecord?.billingMobile || '', customerSnapshot: customer === 'walkin' ? null : customerRecord || null, counterId: counter || null, billingType: payMode, exempted: 'NO', items, payments: paymentData.payments, sellNote: paymentData.sellNote, staffNote: paymentData.staffNote, salesChannel: paymentData.salesChannel || '', shipping: Number(shipping || 0), totalAmount: netAmount, paid, /* the server re-reads the balance and the master and decides for itself; this is the request, not the ruling */ loyaltyRedeemPoints: loyaltyEligible ? redeemPoints : 0, loyaltySchemeId: loyaltyEligible ? (loyalty?.schemeId || selectedSchemeId || '') : '' } }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Unable to save POS invoice');
       /* billed - the refresh copy of this bill must not come back */
@@ -1512,7 +1535,7 @@ export default function PosTill() {
       <div className="flex flex-wrap items-center gap-3 px-4 py-2.5 text-[13.5px]">{/* The till fills the screen and has no sidebar, so without this the only
           way out is the browser's own Back. It goes to the POS list - the
           screen whose ADD button opens this one - and carries the scope so the
-          list lands on the same business, location and year. */}<button type="button" aria-label="Back to POS list" title="Back to POS list" className="flex h-8 w-9 items-center justify-center rounded border border-line bg-white text-ink hover:bg-pillgrey" onClick={() => router.push(`/admin/transaction/sell/pos?business=${business || ''}&location=${location || ''}&finYear=${finYear || ''}`)}><Icon name="back" size={16} /></button><span className="text-inkmuted">Business:</span><select className="f-input w-64" value={business} onChange={(e) => changeBusiness(e.target.value)}><option value="">Select business</option>{businesses.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><span className="text-inkmuted">Location:</span><select className="f-input w-64" value={location} onChange={(e) => setLocation(e.target.value)} disabled={!business}><option value="">Select location</option>{locations.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><span className="flex items-center gap-1.5 text-cell"> {timeStr}</span>{/* calculator sits beside the clock */}<div className="relative"><button type="button" aria-label="Calculator" title="Calculator" className={'flex h-8 w-9 items-center justify-center rounded ' + (showCalc ? 'bg-[#dbe6f7] text-brand' : 'bg-brand text-white')} onClick={() => setShowCalc((v) => !v)}><Icon name="calculator" size={15} /></button>{showCalc && <Calculator onClose={() => setShowCalc(false)} />}</div>{/* Main Reports, in a tab of its own so the bill in progress stays put */}<button type="button" title="Main Reports - Master Stock Report" className="flex h-8 items-center gap-1.5 rounded bg-brand px-2.5 text-[12.5px] font-semibold text-white hover:opacity-90" onClick={() => window.open('/admin/report/master-stock-report', '_blank')}><Icon name="chart" size={14} /> Main Reports</button>{/* last bill number (user, 21-10-2026) */}<span className="flex h-8 items-center rounded border border-line bg-[#f3f4f6] px-2.5 text-[12.5px] font-semibold text-ink" title="Last bill number">Last Bill:&nbsp;<span className="text-brand">{lastBillNo || '-'}</span></span><span className="flex-1" />{/* The four buttons that sat after the Calculator - refresh, register,
+          list lands on the same business, location and year. */}<button type="button" aria-label="Back to POS list" title="Back to POS list" className="flex h-8 w-9 items-center justify-center rounded border border-line bg-white text-ink hover:bg-pillgrey" onClick={() => router.push(`/admin/transaction/sell/pos?business=${business || ''}&location=${location || ''}&finYear=${finYear || ''}`)}><Icon name="back" size={16} /></button><span className="text-inkmuted">Business:</span><select className="f-input w-64" value={business} onChange={(e) => changeBusiness(e.target.value)}><option value="">Select business</option>{businesses.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><span className="text-inkmuted">Location:</span><select className="f-input w-64" value={location} onChange={(e) => setLocation(e.target.value)} disabled={!business}><option value="">Select location</option>{locations.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><span className="flex items-center gap-1.5 whitespace-nowrap text-cell">{timeStr}</span>{/* calculator sits beside the clock */}<div className="relative"><button type="button" aria-label="Calculator" title="Calculator" className={'flex h-8 w-9 items-center justify-center rounded ' + (showCalc ? 'bg-[#dbe6f7] text-brand' : 'bg-brand text-white')} onClick={() => setShowCalc((v) => !v)}><Icon name="calculator" size={15} /></button>{showCalc && <Calculator onClose={() => setShowCalc(false)} />}</div>{/* Main Reports, in a tab of its own so the bill in progress stays put */}<button type="button" title="Main Reports - Master Stock Report" className="flex h-8 items-center gap-1.5 rounded bg-brand px-2.5 text-[12.5px] font-semibold text-white hover:opacity-90" onClick={() => window.open('/admin/report/master-stock-report', '_blank')}><Icon name="chart" size={14} /> Main Reports</button>{/* last bill number (user, 21-10-2026) */}<span className="flex h-8 items-center rounded border border-line bg-[#f3f4f6] px-2.5 text-[12.5px] font-semibold text-ink" title="Last bill number">Last Bill:&nbsp;<span className="text-brand">{lastBillNo || '-'}</span></span><span className="flex-1" />{/* The four buttons that sat after the Calculator - refresh, register,
           ledger and a chevron - are gone. They carried no onClick at all, so
           every one of them was a dead control: it looked pressable and did
           nothing. The Calculator above is the only one of the five that was
@@ -1561,6 +1584,25 @@ export default function PosTill() {
                 </div>
               ) : (
                 <>
+                  {Array.isArray(loyalty.eligibleSchemes) && loyalty.eligibleSchemes.length > 1 && (
+                    <div className="mb-1 flex flex-wrap items-center justify-end gap-2">
+                      <span className="text-cell">Loyalty Scheme</span>
+                      <select
+                        className="f-input h-7 w-auto min-w-[180px] py-0 text-[12px]"
+                        value={loyalty.schemeId || selectedSchemeId || ''}
+                        onChange={(e) => {
+                          setRedeemPoints(0);
+                          setSelectedSchemeId(e.target.value);
+                        }}
+                      >
+                        {loyalty.eligibleSchemes.map((s) => (
+                          <option key={s.schemeId} value={s.schemeId}>
+                            {s.name} (1 pt = ₹{s.pointsToInr})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                   <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-0.5">
                     <span className="text-inkmuted">
                       {loyalty.name} - Balance: <b className="text-ink">{loyalty.balance} pts</b>
