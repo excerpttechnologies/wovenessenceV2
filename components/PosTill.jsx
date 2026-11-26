@@ -43,7 +43,10 @@ const GENDER_FOR_PREFIX = { 'Mr.': 'Male', 'Mrs.': 'Female', 'Ms.': 'Female' };
    are per business; falls back to the old behaviour when no type is named
    Retail. */
 const retailFirst = (types) => (
-  (types.find((t) => /^\s*retail\s*$/i.test(String(t.label || ''))) || types[0] || {}).value || ''
+  /* the stored "RETAIL" customer type displays as "E-COMM" (see
+     lib/contactTypeLabels.js) - match either spelling so the Type box still
+     opens on it */
+  (types.find((t) => /^\s*(retail|e-comm)\s*$/i.test(String(t.label || ''))) || types[0] || {}).value || ''
 );
 
 /* Whole rupees everywhere on the till - the paise are dropped, not rounded,

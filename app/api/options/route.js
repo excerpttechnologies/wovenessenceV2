@@ -5715,6 +5715,7 @@ import { isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
 import { getSessionLocationAccess, resolveAuthorizedScope } from '@/lib/locationAccess';
+import { contactTypeDisplayName } from '@/lib/contactTypeLabels';
  
 /* /api/options?ref=<name>&business=<id>
    Feeds every `ref` dropdown in the app. Replaces the `options` branch of the
@@ -6293,11 +6294,19 @@ export async function GET(req) {
     return code ? name + ' (' + code + ')' : name;
   };
 
+  /* Contact Type rows carry a `contactType` kind (Customer/Supplier/Agent);
+     the customer-kind display aliases live in lib/contactTypeLabels.js so the
+     stored name - and the contact-code prefix derived from it - stays intact. */
+  const isContactTypeRef = ref.startsWith('contact-type');
+  const displayName = (r, text) =>
+    isContactTypeRef ? contactTypeDisplayName(text, r.contactType) : text;
+
   return json({
     options: rows.map((r) => ({
       value: String(entry.valueField ? r[entry.valueField] : r._id),
-      label: labelOf(r),
-      /* the parts, unformatted, for a caller that needs them on their own */
+      label: displayName(r, labelOf(r)),
+      /* the parts, unformatted, for a caller that needs them on their own -
+         kept as the stored name so programmatic matching still works */
       name: textOf(r),
       ...(entry.codeField ? { code: String(r[entry.codeField] ?? '') } : {}),
       ...(entry.codeField === 'contactId' ? { gstNo: String(r.gstNo ?? '') } : {}),
