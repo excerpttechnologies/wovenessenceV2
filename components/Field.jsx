@@ -1521,6 +1521,7 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
 import MultiSelect from './MultiSelect';
+import Icon from './Icon';
 import { useOptions, useCities } from './useOptions';
 import { compressImage, prettyBytes } from '@/lib/imageFile';
 import BarcodeScanner from './BarcodeScanner';
@@ -1890,6 +1891,46 @@ export default function Field({ f, value, error, onChange, onOptionChange, selec
         </div>
       );
       break;
+
+    case 'booleanButtons': {
+      const current = value === true || value === 'true';
+      const opts = f.opts || [
+        { v: true, l: 'YES – Enable' },
+        { v: false, l: 'NO – Disable' },
+      ];
+      control = (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" role="group" aria-label={f.label}>
+          {opts.map((o) => {
+            const optVal = Boolean(o.v);
+            const active = current === optVal;
+            const tone = optVal
+              ? (active
+                ? 'border-[#157a43] bg-[#e9f7ef] text-[#157a43] shadow-sm ring-1 ring-[#157a43]/30'
+                : 'border-line bg-white text-inkmuted hover:border-[#a5dcbe] hover:bg-[#f6fbf8]')
+              : (active
+                ? 'border-[#c5302a] bg-[#fdeeed] text-[#c5302a] shadow-sm ring-1 ring-[#c5302a]/30'
+                : 'border-line bg-white text-inkmuted hover:border-[#f3b4b0] hover:bg-[#fef7f7]');
+            return (
+              <button
+                key={String(optVal)}
+                type="button"
+                aria-pressed={active}
+                disabled={f.readOnly || f.disabled}
+                onClick={() => set(optVal)}
+                className={
+                  'flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-[12px] font-semibold transition-all '
+                  + tone
+                }
+              >
+                <Icon name={optVal ? 'checkCircle' : 'x'} size={15} stroke={2.2} className="shrink-0" />
+                <span className="leading-tight">{o.l}</span>
+              </button>
+            );
+          })}
+        </div>
+      );
+      break;
+    }
 
     case 'ref':
       control = <RefField f={f} value={value} onChange={set} onOptionChange={onOptionChange} selectedOption={selectedOption} />;

@@ -29,7 +29,13 @@ export async function GET(req, { params }) {
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
-  return json({ doc: { ...doc, _id: String(doc._id) } });
+  return json({
+    doc: {
+      ...doc,
+      loyaltyPointsApplicable: doc.loyaltyPointsApplicable === true,
+      _id: String(doc._id),
+    },
+  });
 }
 
 export async function PUT(req, { params }) {

@@ -597,6 +597,8 @@ export default function PosTill() {
     setSelectedCustomer(null);
     setCustomerSearch('');
     setCustomerOptions([{ value: 'walkin', label: 'Walk-in Customer' }]);
+    setRedeemPoints(0);
+    setLoyalty(null);
   }
 
   useEffect(() => {
@@ -1097,6 +1099,7 @@ export default function PosTill() {
     setActiveRow(null);
     /* the next bill is a different bill, and may be a different customer */
     setRedeemPoints(0);
+    setLoyalty(null);
     setSelectedProduct(null);
     setCustomer('walkin');
     setSelectedCustomer(null);
@@ -1172,8 +1175,24 @@ export default function PosTill() {
       const h = d.doc;
       setItems(Array.isArray(h.items) ? h.items : []);
       setActiveRow(null);
-      setCustomer(h.customerId ? String(h.customerId) : 'walkin');
-      setSelectedCustomer(h.customerSnapshot || null);
+      setRedeemPoints(0);
+      setLoyalty(null);
+      if (h.customerId) {
+        const resumedId = String(h.customerId);
+        const resumedSnap = h.customerSnapshot || null;
+        const resumedLabel = h.customerName
+          || (resumedSnap ? customerLabel(resumedSnap) : '')
+          || resumedId;
+        setCustomerOptions((rows) => [
+          { value: resumedId, label: resumedLabel, customer: resumedSnap },
+          ...rows.filter((row) => row.value !== resumedId && row.value !== 'walkin'),
+        ]);
+        setCustomer(resumedId);
+        setSelectedCustomer(resumedSnap);
+      } else {
+        setCustomer('walkin');
+        setSelectedCustomer(null);
+      }
       setCounter(h.counterId ? String(h.counterId) : '');
       setPayMode(h.billingType || 'Cash');
       setSalesPerson(h.salesPerson || '');
@@ -1241,6 +1260,8 @@ export default function PosTill() {
       if (!response.ok) throw new Error(data.errors ? Object.values(data.errors).join(', ') : data.error || 'Unable to save customer');
       const savedCustomer = { ...customerForm, contactId: data.customer?.contactId || '', _id: data.id };
       const option = { value: data.id, label: customerLabel(savedCustomer), customer: savedCustomer };
+      setRedeemPoints(0);
+      setLoyalty(null);
       setCustomerOptions((rows) => [option, ...rows.filter((row) => row.value !== 'walkin' && row.value !== data.id)]); setCustomer(data.id); setSelectedCustomer(savedCustomer); setCustomerSearch(''); setShowCustomerForm(false); setCustomerForm({ ...CUSTOMER_DEFAULTS, typeId: customerForm.typeId }); setMsg('');
     } catch (error) { setMsg(error.message); } finally { setSavingCustomer(false); }
   }
@@ -1251,6 +1272,9 @@ export default function PosTill() {
      typed into the search box are carried into Mobile so they are not retyped. */
   function openCustomerForm() {
     setCustomer('walkin');
+    setSelectedCustomer(null);
+    setRedeemPoints(0);
+    setLoyalty(null);
     setCustomerForm((current) => ({
       ...CUSTOMER_DEFAULTS,
       typeId: retailFirst(customerTypes) || current.typeId || '',
@@ -1262,6 +1286,8 @@ export default function PosTill() {
   function selectCustomer(value) {
     const option = customerOptions.find((row) => row.value === value);
     if (option?.addCustomer) { openCustomerForm(); return; }
+    setRedeemPoints(0);
+    setLoyalty(null);
     if (!value) {
       setCustomer('walkin');
       setSelectedCustomer(null);
@@ -1362,6 +1388,13 @@ export default function PosTill() {
   const [loyalty, setLoyalty] = useState(null);
   const [redeemPoints, setRedeemPoints] = useState(0);
 
+  /* Clear any applied redemption immediately on business/customer switch so
+     stale values from the previous customer can never leak while re-checking. */
+  useEffect(() => {
+    setRedeemPoints(0);
+    setLoyalty(null);
+  }, [business, customer]);
+
   useEffect(() => {
     if (!business) { setLoyalty(null); return undefined; }
 
@@ -1380,18 +1413,28 @@ export default function PosTill() {
     return () => { off = true; };
   }, [business, customer, netAmount]);
 
+  /* Eligible only when BOTH global loyalty is active AND the customer's
+     Contact Type has loyaltyPointsApplicable enabled. */
+  const loyaltyEligible = Boolean(
+    loyalty && loyalty.active && loyalty.eligible === true && customer !== 'walkin'
+  );
+
   /* A choice cannot outlive what allows it. Switching customer, emptying the
      bill or discounting it below the redemption minimum all change what may
      be spent, and a figure left over from the previous state would be refused
      on save with a message the cashier has no way to connect to what they
      did. Trimmed rather than cleared, so a smaller allowance keeps as much of
      the intent as it can. */
-  const maxRedeem = loyalty ? Number(loyalty.allowedPoints || 0) : 0;
+  const maxRedeem = loyaltyEligible ? Number(loyalty.allowedPoints || 0) : 0;
   useEffect(() => {
+    if (!loyaltyEligible) {
+      setRedeemPoints(0);
+      return;
+    }
     setRedeemPoints((current) => (current > maxRedeem ? maxRedeem : current));
-  }, [maxRedeem]);
+  }, [loyaltyEligible, maxRedeem]);
 
-  const redeemAmount = loyalty ? redeemPoints * Number(loyalty.pointsToInr || 0) : 0;
+  const redeemAmount = loyaltyEligible ? redeemPoints * Number(loyalty.pointsToInr || 0) : 0;
   /* what the customer actually hands over */
   const payableAfterPoints = Math.max(0, Math.trunc(netAmount - redeemAmount));
 
@@ -1404,7 +1447,7 @@ export default function PosTill() {
      ledger. Worked on the payable rather than the bill, because spending
      points does not earn more of them. */
   const earnPreview = (() => {
-    if (!loyalty || customer === 'walkin' || payableAfterPoints <= 0) return 0;
+    if (!loyaltyEligible || payableAfterPoints <= 0) return 0;
     /* the six-field master: one point per every purchaseAmountForOnePoint
        rupees. The percentage arithmetic below only serves a config saved
        before that master and never re-saved. */
@@ -1421,7 +1464,7 @@ export default function PosTill() {
     return Math.max(0, cap > 0 ? Math.min(points, cap) : points);
   })();
 
-  const balanceAfterBill = loyalty
+  const balanceAfterBill = loyaltyEligible
     ? Math.max(0, Number(loyalty.balance || 0) - redeemPoints + earnPreview)
     : 0;
 
@@ -1442,7 +1485,7 @@ export default function PosTill() {
     try {
       const paid = paymentData.payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
       const customerRecord = selectedCustomer || customerOptions.find((option) => option.value === customer)?.customer;
-      const response = await fetch('/api/sell-pos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ business, location, finYear, data: { date: saleDate, finYear, customerId: customer === 'walkin' ? null : customer, customerContact: customerRecord?.billingMobile || '', customerSnapshot: customer === 'walkin' ? null : customerRecord || null, counterId: counter || null, billingType: payMode, exempted: 'NO', items, payments: paymentData.payments, sellNote: paymentData.sellNote, staffNote: paymentData.staffNote, salesChannel: paymentData.salesChannel || '', shipping: Number(shipping || 0), totalAmount: netAmount, paid, /* the server re-reads the balance and the master and decides for itself; this is the request, not the ruling */ loyaltyRedeemPoints: redeemPoints } }) });
+      const response = await fetch('/api/sell-pos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ business, location, finYear, data: { date: saleDate, finYear, customerId: customer === 'walkin' ? null : customer, customerContact: customerRecord?.billingMobile || '', customerSnapshot: customer === 'walkin' ? null : customerRecord || null, counterId: counter || null, billingType: payMode, exempted: 'NO', items, payments: paymentData.payments, sellNote: paymentData.sellNote, staffNote: paymentData.staffNote, salesChannel: paymentData.salesChannel || '', shipping: Number(shipping || 0), totalAmount: netAmount, paid, /* the server re-reads the balance and the master and decides for itself; this is the request, not the ruling */ loyaltyRedeemPoints: loyaltyEligible ? redeemPoints : 0 } }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Unable to save POS invoice');
       /* billed - the refresh copy of this bill must not come back */
@@ -1511,6 +1554,11 @@ export default function PosTill() {
                    cashier knows the points are there to be had if they name
                    the customer before taking the money. */
                 <span className="text-inkmuted">Select a customer to earn or redeem points.</span>
+              ) : !loyaltyEligible ? (
+                <div className="inline-flex items-center gap-1.5 rounded-md border border-[#f8cfcc] bg-[#fdeeed] px-2.5 py-1 text-[12px] font-semibold text-[#c5302a]">
+                  <Icon name="x" size={13} stroke={2.2} />
+                  <span>{loyalty.reason || 'Loyalty Points Not Applicable for This Customer Type'}</span>
+                </div>
               ) : (
                 <>
                   <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-0.5">

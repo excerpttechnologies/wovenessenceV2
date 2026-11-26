@@ -49,6 +49,9 @@ export async function GET(req) {
     page,
     perPage,
     keys: ['name', 'contactType', 'prefix', 'status'],
+    computed: {
+      loyaltyPointsApplicable: (d) => (d.loyaltyPointsApplicable === true ? 1 : 0),
+    },
     refs: ['businessId'],
   })) ?? await ContactType.find(filter)
     .sort({ createdAt: -1 })
@@ -57,7 +60,12 @@ export async function GET(req) {
     .lean();
 
   return json({
-    rows: rows.map((r) => ({ ...r, name: String(r.name || '').toUpperCase(), _id: String(r._id) })),
+    rows: rows.map((r) => ({
+      ...r,
+      name: String(r.name || '').toUpperCase(),
+      loyaltyPointsApplicable: r.loyaltyPointsApplicable === true,
+      _id: String(r._id),
+    })),
     labels: await resolveRefLabels(rows),
     total,
     page,

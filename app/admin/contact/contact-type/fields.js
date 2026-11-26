@@ -7,4 +7,15 @@ export const FIELDS = [
     { k: "status", label: "Status", type: "select", req: true, def: "Active", opts: [{"v":"Active","l":"Active"},{"v":"Inactive","l":"Inactive"}] },
     { k: "colorLebel", label: "Color Lebel", type: "text" },
     { k: "description", label: "Description", type: "text", span: "all" },
+    {
+      k: "loyaltyPointsApplicable",
+      label: "Loyalty Points Applicable",
+      type: "booleanButtons",
+      span: "all",
+      def: false,
+      opts: [
+        { v: true, l: "YES – Enable Loyalty Points" },
+        { v: false, l: "NO – Disable Loyalty Points" },
+      ],
+    },
   ];

@@ -273,6 +273,7 @@ export async function POST(req) {
     customer: {
       _id: String(created._id),
       businessId: created.businessId ? String(created.businessId) : '',
+      typeId: created.typeId ? String(created.typeId) : '',
       contactKind: created.contactKind,
       contactId: created.contactId,
       businessName: created.businessName || '',

@@ -24,7 +24,7 @@ import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import LoyaltyLedger from '@/models/LoyaltyLedger';
 import { sortedPage } from '@/lib/listSort';
 import {
-  loyaltyRules, pointsBalance, allowedRedemption, redemptionValue, saleLedgerRows,
+  loyaltyRules, customerLoyaltyEligibility, pointsBalance, allowedRedemption, redemptionValue, saleLedgerRows,
 } from '@/lib/loyalty';
 import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
@@ -471,13 +471,22 @@ export const POST = handler(async (req) => {
      received. normaliseLines() writes both keys, so old screens that read
      `code` keep working and the reports start matching. */
   if (Array.isArray(body.data?.items)) doc.items = normaliseLines(body.data.items);
-  if (Array.isArray(body.data?.payments)) doc.payments = body.data.payments;
+  const rawPayments = Array.isArray(body.data?.payments) ? body.data.payments : [];
+  const hasManualLoyaltyPayment = rawPayments.some((p) => p && p.loyalty === true);
+  /* Client requests must never forge loyalty payment rows; the server adds
+     the loyalty payment row below only after validating eligibility and balance. */
+  if (Array.isArray(body.data?.payments)) {
+    doc.payments = rawPayments.filter((p) => !p || p.loyalty !== true);
+  }
   if (body.data?.customerSnapshot) doc.customerSnapshot = body.data.customerSnapshot;
   if (body.data?.sellNote !== undefined) doc.sellNote = body.data.sellNote;
   if (body.data?.staffNote !== undefined) doc.staffNote = body.data.staffNote;
   doc.shipping = Number(body.data?.shipping || 0);
   doc.totalAmount = Number(body.data?.totalAmount || 0);
-  doc.paid = Number(body.data?.paid || 0);
+  const forgedLoyaltyPaid = rawPayments
+    .filter((p) => p && p.loyalty === true)
+    .reduce((sum, p) => sum + Number(p?.amount || 0), 0);
+  doc.paid = Math.max(0, Number(body.data?.paid || 0) - forgedLoyaltyPaid);
 
   /* ------------------------------------------------------------------
      LOYALTY POINTS.
@@ -496,11 +505,33 @@ export const POST = handler(async (req) => {
      ------------------------------------------------------------------ */
   const rules = await loyaltyRules(doc.businessId);
   const wantsPoints = Math.max(0, Math.floor(Number(body.data?.loyaltyRedeemPoints || 0)));
+  const wantsManualEarn = Math.max(0, Math.floor(Number(body.data?.loyaltyPointsEarned || 0))) > 0;
+  const wantsManualLoyaltyAmount = Number(body.data?.loyaltyAmount || 0) > 0;
+  const hasManualLoyaltyRequest = wantsPoints > 0
+    || wantsManualEarn
+    || wantsManualLoyaltyAmount
+    || hasManualLoyaltyPayment;
+
+  const eligibility = doc.customerId
+    ? await customerLoyaltyEligibility({ businessId: doc.businessId, customerId: doc.customerId })
+    : { eligible: false, reason: 'Loyalty points are not applicable for walk-in customers.' };
+  const loyaltyEligible = Boolean(rules && doc.customerId && eligibility.eligible);
+
+  /* Reject any attempt to redeem, earn, or inject loyalty values when either
+     the global scheme is inactive or the customer's Contact Type is ineligible. */
+  if (hasManualLoyaltyRequest && !loyaltyEligible) {
+    return json({
+      error: !rules
+        ? 'Loyalty points are disabled for this business.'
+        : (eligibility.reason || 'Loyalty Points Not Applicable for This Customer Type'),
+      code: 'LOYALTY_NOT_ELIGIBLE',
+    }, 403);
+  }
 
   let redeemPoints = 0;
   let redeemAmount = 0;
 
-  if (rules && doc.customerId && wantsPoints > 0) {
+  if (loyaltyEligible && wantsPoints > 0) {
     /* points earned TODAY spend from TOMORROW - the ceiling leaves them out */
     const balance = await pointsBalance({
       businessId: doc.businessId, customerId: doc.customerId, excludeEarnedToday: true,
@@ -619,7 +650,7 @@ export const POST = handler(async (req) => {
        Written straight to the collection rather than through a helper that
        re-reads: everything was decided above, under the same rules, and the
        rows are the record of that decision. */
-    if (rules && doc.customerId) {
+    if (loyaltyEligible) {
       const ledgerRows = saleLedgerRows({
         rules,
         businessId: doc.businessId,

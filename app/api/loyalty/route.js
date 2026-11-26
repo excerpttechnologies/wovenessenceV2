@@ -1,6 +1,8 @@
 import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
-import { loyaltyRules, pointsBalance, allowedRedemption } from '@/lib/loyalty';
+import {
+  loyaltyRules, customerLoyaltyEligibility, pointsBalance, allowedRedemption,
+} from '@/lib/loyalty';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 
 /* /api/loyalty?business=<id>&customer=<id>&amount=<bill>
@@ -43,25 +45,76 @@ export async function GET(req) {
   const rules = await loyaltyRules(sp.get('business'));
   /* Not configured, or switched off. `active: false` rather than an error -
      the till hides the strip and sells exactly as it did before. */
-  if (!rules) return json({ active: false });
+  if (!rules) return json({ active: false, eligible: false });
 
-  const customer = sp.get('customer');
+  const customer = (sp.get('customer') || '').trim();
   const amount = Number(sp.get('amount') || 0);
 
-  /* A walk-in has nobody to credit. The rules still come back so the till can
-     say what a named customer WOULD earn, but the balance is zero. */
-  const balance = customer ? await pointsBalance({ businessId: sp.get('business'), customerId: customer }) : 0;
+  /* A walk-in has nobody to credit. Global loyalty is active, so the till
+     tells the cashier to select a customer. */
+  if (!customer) {
+    return json({
+      active: true,
+      eligible: false,
+      contactTypeEligible: false,
+      name: rules.name,
+      pointsToInr: rules.pointsToInr,
+      perAmountModel: rules.hasPerAmount,
+      purchaseAmountForOnePoint: rules.purchaseAmountForOnePoint,
+      otpRequired: rules.otpRequired,
+      earningPercentage: rules.earningPercentage,
+      minPurchaseAmount: rules.minPurchaseAmount,
+      maxRewardPoint: rules.maxRewardPoint,
+      minRedemptionPoints: rules.minRedemptionPoints,
+      maxRedemptionPoints: rules.maxRedemptionPoints,
+      minAmountForRedemption: rules.minAmountForRedemption,
+      balance: 0,
+      balanceValue: 0,
+      todayLockedPoints: 0,
+      allowedPoints: 0,
+      allowedAmount: 0,
+      reason: 'Select a customer to earn or redeem points.',
+    });
+  }
+
+  /* Enforce Contact Type loyalty eligibility before returning balances or
+     redemption caps. */
+  const eligibility = await customerLoyaltyEligibility({
+    businessId: sp.get('business'),
+    customerId: customer,
+  });
+
+  if (!eligibility.eligible) {
+    return json({
+      active: true,
+      eligible: false,
+      contactTypeEligible: false,
+      contactTypeName: eligibility.contactType?.name || '',
+      name: rules.name,
+      balance: 0,
+      balanceValue: 0,
+      todayLockedPoints: 0,
+      allowedPoints: 0,
+      allowedAmount: 0,
+      reason: eligibility.reason || 'Loyalty Points Not Applicable for This Customer Type',
+    });
+  }
+
+  const balance = await pointsBalance({ businessId: sp.get('business'), customerId: customer });
   /* points earned TODAY spend from TOMORROW - the redemption ceiling is
      worked on the balance without them, while `balance` above stays the
      full figure for display */
-  const redeemable = customer
-    ? await pointsBalance({ businessId: sp.get('business'), customerId: customer, excludeEarnedToday: true })
-    : 0;
+  const redeemable = await pointsBalance({
+    businessId: sp.get('business'), customerId: customer, excludeEarnedToday: true,
+  });
   const allowed = allowedRedemption({ rules, balance: redeemable, billAmount: amount });
   const todayLockedPoints = Math.max(0, balance - redeemable);
 
   return json({
     active: true,
+    eligible: true,
+    contactTypeEligible: true,
+    contactTypeName: eligibility.contactType?.name || '',
     name: rules.name,
     pointsToInr: rules.pointsToInr,
     /* the six-field master's earning model, for the till's preview */
