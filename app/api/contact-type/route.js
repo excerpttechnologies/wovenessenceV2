@@ -1,12 +1,14 @@
 import { isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
 import ContactType from '@/models/ContactType';
+import LoyaltyPoint from '@/models/LoyaltyPoint';
 import { requireSession } from '@/lib/session';
 import { resolveRefLabels } from '@/lib/refLabels';
 import { validate, escapeRegex } from '@/lib/validate';
 import { FIELDS } from '@/app/admin/contact/contact-type/fields';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { sortedPage } from '@/lib/listSort';
+import { validateContactTypeLoyaltyScheme } from '@/lib/loyalty';
 
 const CONTACT_TYPE = { screen: SCREENS.CONTACT_TYPE, label: 'contact types' };
 
@@ -59,13 +61,35 @@ export async function GET(req) {
     .limit(perPage)
     .lean();
 
+  const schemeIds = [...new Set(
+    rows
+      .map((r) => (r.loyaltySchemeId && isValidObjectId(String(r.loyaltySchemeId)) ? String(r.loyaltySchemeId) : null))
+      .filter(Boolean)
+  )];
+  const schemes = schemeIds.length
+    ? await LoyaltyPoint.find({ _id: { $in: schemeIds } })
+        .select('_id businessId loyaltyPointName active')
+        .lean()
+    : [];
+  const schemeMap = new Map(schemes.map((s) => [String(s._id), s]));
+
   return json({
-    rows: rows.map((r) => ({
-      ...r,
-      name: String(r.name || '').toUpperCase(),
-      loyaltyPointsApplicable: r.loyaltyPointsApplicable === true,
-      _id: String(r._id),
-    })),
+    rows: rows.map((r) => {
+      const sid = r.loyaltySchemeId ? String(r.loyaltySchemeId) : '';
+      const rawScheme = sid ? schemeMap.get(sid) : null;
+      const scheme = rawScheme && (!r.businessId || !rawScheme.businessId || String(rawScheme.businessId) === String(r.businessId))
+        ? rawScheme
+        : null;
+      return {
+        ...r,
+        name: String(r.name || '').toUpperCase(),
+        loyaltySchemeId: scheme ? String(scheme._id) : '',
+        loyaltySchemeName: scheme ? String(scheme.loyaltyPointName || 'Loyalty Points') : '',
+        loyaltySchemeActive: scheme ? String(scheme.active || '').trim().toLowerCase() === 'yes' : false,
+        loyaltyPointsApplicable: Boolean(scheme),
+        _id: String(r._id),
+      };
+    }),
     labels: await resolveRefLabels(rows),
     total,
     page,
@@ -90,6 +114,16 @@ export async function POST(req) {
   if (!ok) return json({ errors }, 422);
   doc.name = String(doc.name || '').trim().toUpperCase();
   if (body.business && isValidObjectId(body.business)) doc.businessId = body.business;
+
+  const schemeCheck = await validateContactTypeLoyaltyScheme({
+    businessId: doc.businessId || body.business,
+    loyaltySchemeId: doc.loyaltySchemeId,
+  });
+  if (!schemeCheck.ok) {
+    return json({ errors: { loyaltySchemeId: schemeCheck.error } }, 422);
+  }
+  doc.loyaltySchemeId = schemeCheck.loyaltySchemeId;
+  doc.loyaltyPointsApplicable = schemeCheck.loyaltyPointsApplicable;
 
   const created = await ContactType.create(doc);
   return json({ ok: true, id: String(created._id) });

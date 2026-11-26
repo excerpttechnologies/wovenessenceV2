@@ -3,18 +3,19 @@ import dbConnect from '@/lib/db';
 import LoyaltyPoint from '@/models/LoyaltyPoint';
 import { requireSession } from '@/lib/session';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 import { validate } from '@/lib/validate';
-import { FIELDS, SCHEME_FIELDS } from '@/app/admin/setting/loyaltypoint/fields';
-import { normalizeSchemeRow, validateSchemeRules } from '@/lib/loyalty';
-import { loyaltySchemeDenial } from '@/lib/loyaltySchemeAccess';
+import { FIELDS } from '@/app/admin/setting/loyaltypoint/fields';
+import { normalizeSchemeRow } from '@/lib/loyalty';
 
 const LOYALTY_POINT = { screen: SCREENS.LOYALTY_POINT, label: 'loyalty point settings' };
+const CONTACT_TYPE = { screen: SCREENS.CONTACT_TYPE, label: 'contact types' };
 
 /* /api/loyalty-point -
-     - Default mode (used by /admin/setting/loyaltypoint): read + upsert the
-       business's primary scheme without touching other schemes.
-     - ?mode=list / body.mode === 'create' (used by /admin/contact/contact-type):
-       list all schemes for the business and create additional schemes. */
+     - Default GET / POST (used by /admin/setting/loyaltypoint): read + upsert
+       the business's loyalty scheme configuration.
+     - ?mode=list (used by Contact Type Add/Edit dropdown): list loyalty
+       schemes configured under /admin/setting/loyaltypoint for the business. */
 
 const json = (d, s = 200) => Response.json(d, {
   status: s,
@@ -27,6 +28,21 @@ function scopeOf(sp) {
   return filter;
 }
 
+async function listDenial(session, businessId) {
+  const lpDenied = await screenDenial({
+    session, ...LOYALTY_POINT, action: PERM.READ, businessId,
+  });
+  if (!lpDenied) return null;
+
+  for (const action of [PERM.READ, PERM.CREATE, PERM.UPDATE]) {
+    const ctDenied = await screenDenial({
+      session, ...CONTACT_TYPE, action, businessId,
+    });
+    if (!ctDenied) return null;
+  }
+  return lpDenied;
+}
+
 export async function GET(req) {
   const session = await requireSession();
   if (!session) return json({ error: 'Unauthorized' }, 401);
@@ -34,19 +50,18 @@ export async function GET(req) {
   const sp = new URL(req.url).searchParams;
   await dbConnect();
 
-  const isList = sp.get('mode') === 'list';
+  if (sp.get('mode') === 'list') {
+    const business = (sp.get('business') || '').trim();
+    if (!business) return json({ rows: [], total: 0 });
+    if (!isValidObjectId(business)) return json({ error: 'Invalid business ID.' }, 400);
 
-  if (isList) {
-    const denied = await loyaltySchemeDenial({
-      session, action: PERM.READ, businessId: sp.get('business'),
-    });
+    const denied = await listDenial(session, business);
     if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
-    const filter = scopeOf(sp);
-    if (!filter.businessId) {
-      return json({ rows: [], total: 0 });
-    }
-    const docs = await LoyaltyPoint.find(filter).sort({ createdAt: -1 }).lean();
+    const scope = await resolveAuthorizedScope(session, { businessId: business });
+    if (!scope.ok) return scopeErrorResponse(scope);
+
+    const docs = await LoyaltyPoint.find({ businessId: business }).sort({ createdAt: -1 }).lean();
     const rows = docs.map(normalizeSchemeRow);
     return json({ rows, total: rows.length });
   }
@@ -68,25 +83,6 @@ export async function POST(req) {
 
   const body = await req.json();
   await dbConnect();
-
-  if (body.mode === 'create') {
-    const denied = await loyaltySchemeDenial({
-      session, action: PERM.CREATE, businessId: body.business,
-    });
-    if (denied) return json({ error: denied.message, code: denied.code }, 403);
-
-    if (!body.business || !isValidObjectId(body.business)) {
-      return json({ error: 'Please select a business before creating a loyalty scheme.' }, 422);
-    }
-
-    const { errors, doc } = validate(SCHEME_FIELDS, body.data || {});
-    validateSchemeRules(doc, errors);
-    if (Object.keys(errors).length > 0) return json({ errors }, 422);
-
-    doc.businessId = body.business;
-    const created = await LoyaltyPoint.create(doc);
-    return json({ ok: true, id: String(created._id), doc: normalizeSchemeRow(created.toObject()) }, 201);
-  }
 
   /* Update OR create, ahead of validate() - see the note at the top. */
   let gate = await screenDenial({

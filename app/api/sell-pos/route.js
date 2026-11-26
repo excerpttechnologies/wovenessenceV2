@@ -24,7 +24,7 @@ import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import LoyaltyLedger from '@/models/LoyaltyLedger';
 import { sortedPage } from '@/lib/listSort';
 import {
-  resolveLoyaltyScheme, customerLoyaltyEligibility, pointsBalance, allowedRedemption, redemptionValue, saleLedgerRows,
+  resolveCustomerLoyalty, pointsBalance, allowedRedemption, redemptionValue, saleLedgerRows,
 } from '@/lib/loyalty';
 import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
@@ -504,11 +504,14 @@ export const POST = handler(async (req) => {
      any of this existed.
      ------------------------------------------------------------------ */
   const requestedSchemeId = String(body.data?.loyaltySchemeId || '').trim();
-  const schemeResolution = await resolveLoyaltyScheme(doc.businessId, {
-    date: doc.date,
-    schemeId: requestedSchemeId,
-  });
-  const rules = schemeResolution.rules;
+  const resolution = doc.customerId
+    ? await resolveCustomerLoyalty({
+        businessId: doc.businessId,
+        customerId: doc.customerId,
+        date: doc.date,
+      })
+    : { eligible: false, rules: null, reason: 'Loyalty points are not applicable for walk-in customers.' };
+  const rules = resolution.rules;
   const wantsPoints = Math.max(0, Math.floor(Number(body.data?.loyaltyRedeemPoints || 0)));
   const wantsManualEarn = Math.max(0, Math.floor(Number(body.data?.loyaltyPointsEarned || 0))) > 0;
   const wantsManualLoyaltyAmount = Number(body.data?.loyaltyAmount || 0) > 0;
@@ -518,20 +521,17 @@ export const POST = handler(async (req) => {
     || hasManualLoyaltyPayment
     || Boolean(requestedSchemeId);
 
-  const eligibility = doc.customerId
-    ? await customerLoyaltyEligibility({ businessId: doc.businessId, customerId: doc.customerId })
-    : { eligible: false, reason: 'Loyalty points are not applicable for walk-in customers.' };
-  const loyaltyEligible = Boolean(rules && !schemeResolution.requestedInvalid && doc.customerId && eligibility.eligible);
+  const schemeMismatch = Boolean(requestedSchemeId && (!rules || requestedSchemeId !== rules.schemeId));
+  const loyaltyEligible = Boolean(resolution.eligible && rules && doc.customerId && !schemeMismatch);
 
-  /* Reject any attempt to redeem, earn, select a scheme, or inject loyalty
-     values when no valid scheme applies or the customer's Contact Type is ineligible. */
+  /* Reject any attempt to redeem, earn, override scheme, or inject loyalty
+     values when the customer's Contact Type scheme is Not Applicable, inactive,
+     outside its validity dates, or mismatched. */
   if (hasManualLoyaltyRequest && !loyaltyEligible) {
     return json({
-      error: schemeResolution.requestedInvalid
-        ? schemeResolution.reason
-        : !rules
-          ? (schemeResolution.reason || 'Loyalty points are disabled for this business.')
-          : (eligibility.reason || 'Loyalty Points Not Applicable for This Customer Type'),
+      error: schemeMismatch
+        ? 'Requested loyalty scheme does not match the customer Contact Type scheme.'
+        : (resolution.reason || 'Loyalty Points Not Applicable for This Customer Type'),
       code: 'LOYALTY_NOT_ELIGIBLE',
     }, 403);
   }

@@ -599,7 +599,6 @@ export default function PosTill() {
     setCustomerOptions([{ value: 'walkin', label: 'Walk-in Customer' }]);
     setRedeemPoints(0);
     setLoyalty(null);
-    setSelectedSchemeId('');
   }
 
   useEffect(() => {
@@ -1179,7 +1178,6 @@ export default function PosTill() {
       setActiveRow(null);
       setRedeemPoints(0);
       setLoyalty(null);
-      setSelectedSchemeId('');
       if (h.customerId) {
         const resumedId = String(h.customerId);
         const resumedSnap = h.customerSnapshot || null;
@@ -1265,7 +1263,6 @@ export default function PosTill() {
       const option = { value: data.id, label: customerLabel(savedCustomer), customer: savedCustomer };
       setRedeemPoints(0);
       setLoyalty(null);
-      setSelectedSchemeId('');
       setCustomerOptions((rows) => [option, ...rows.filter((row) => row.value !== 'walkin' && row.value !== data.id)]); setCustomer(data.id); setSelectedCustomer(savedCustomer); setCustomerSearch(''); setShowCustomerForm(false); setCustomerForm({ ...CUSTOMER_DEFAULTS, typeId: customerForm.typeId }); setMsg('');
     } catch (error) { setMsg(error.message); } finally { setSavingCustomer(false); }
   }
@@ -1279,7 +1276,6 @@ export default function PosTill() {
     setSelectedCustomer(null);
     setRedeemPoints(0);
     setLoyalty(null);
-    setSelectedSchemeId('');
     setCustomerForm((current) => ({
       ...CUSTOMER_DEFAULTS,
       typeId: retailFirst(customerTypes) || current.typeId || '',
@@ -1393,14 +1389,12 @@ export default function PosTill() {
      ------------------------------------------------------------------ */
   const [loyalty, setLoyalty] = useState(null);
   const [redeemPoints, setRedeemPoints] = useState(0);
-  const [selectedSchemeId, setSelectedSchemeId] = useState('');
 
   /* Clear any applied redemption immediately on business/customer switch so
      stale values from the previous customer can never leak while re-checking. */
   useEffect(() => {
     setRedeemPoints(0);
     setLoyalty(null);
-    setSelectedSchemeId('');
   }, [business, customer]);
 
   useEffect(() => {
@@ -1413,21 +1407,17 @@ export default function PosTill() {
       amount: String(netAmount || 0),
     });
     if (saleDate) qs.set('date', saleDate);
-    if (selectedSchemeId) qs.set('schemeId', selectedSchemeId);
 
     fetch('/api/loyalty?' + qs, { cache: 'no-store' })
       .then((r) => r.json())
       .then((d) => {
         if (off) return;
         setLoyalty(d && d.active ? d : null);
-        if (selectedSchemeId && d?.schemeId && d.schemeId !== selectedSchemeId) {
-          setSelectedSchemeId('');
-        }
       })
       .catch(() => { if (!off) setLoyalty(null); });
 
     return () => { off = true; };
-  }, [business, customer, netAmount, saleDate, selectedSchemeId]);
+  }, [business, customer, netAmount, saleDate]);
 
   /* Eligible only when BOTH global loyalty is active AND the customer's
      Contact Type has loyaltyPointsApplicable enabled. */
@@ -1508,7 +1498,7 @@ export default function PosTill() {
     try {
       const paid = paymentData.payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
       const customerRecord = selectedCustomer || customerOptions.find((option) => option.value === customer)?.customer;
-      const response = await fetch('/api/sell-pos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ business, location, finYear, data: { date: saleDate, finYear, customerId: customer === 'walkin' ? null : customer, customerContact: customerRecord?.billingMobile || '', customerSnapshot: customer === 'walkin' ? null : customerRecord || null, counterId: counter || null, billingType: payMode, exempted: 'NO', items, payments: paymentData.payments, sellNote: paymentData.sellNote, staffNote: paymentData.staffNote, salesChannel: paymentData.salesChannel || '', shipping: Number(shipping || 0), totalAmount: netAmount, paid, /* the server re-reads the balance and the master and decides for itself; this is the request, not the ruling */ loyaltyRedeemPoints: loyaltyEligible ? redeemPoints : 0, loyaltySchemeId: loyaltyEligible ? (loyalty?.schemeId || selectedSchemeId || '') : '' } }) });
+      const response = await fetch('/api/sell-pos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ business, location, finYear, data: { date: saleDate, finYear, customerId: customer === 'walkin' ? null : customer, customerContact: customerRecord?.billingMobile || '', customerSnapshot: customer === 'walkin' ? null : customerRecord || null, counterId: counter || null, billingType: payMode, exempted: 'NO', items, payments: paymentData.payments, sellNote: paymentData.sellNote, staffNote: paymentData.staffNote, salesChannel: paymentData.salesChannel || '', shipping: Number(shipping || 0), totalAmount: netAmount, paid, /* the server re-reads the balance and the master and decides for itself; this is the request, not the ruling */ loyaltyRedeemPoints: loyaltyEligible ? redeemPoints : 0, loyaltySchemeId: loyaltyEligible ? (loyalty?.schemeId || '') : '' } }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Unable to save POS invoice');
       /* billed - the refresh copy of this bill must not come back */
@@ -1584,25 +1574,6 @@ export default function PosTill() {
                 </div>
               ) : (
                 <>
-                  {Array.isArray(loyalty.eligibleSchemes) && loyalty.eligibleSchemes.length > 1 && (
-                    <div className="mb-1 flex flex-wrap items-center justify-end gap-2">
-                      <span className="text-cell">Loyalty Scheme</span>
-                      <select
-                        className="f-input h-7 w-auto min-w-[180px] py-0 text-[12px]"
-                        value={loyalty.schemeId || selectedSchemeId || ''}
-                        onChange={(e) => {
-                          setRedeemPoints(0);
-                          setSelectedSchemeId(e.target.value);
-                        }}
-                      >
-                        {loyalty.eligibleSchemes.map((s) => (
-                          <option key={s.schemeId} value={s.schemeId}>
-                            {s.name} (1 pt = ₹{s.pointsToInr})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
                   <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-0.5">
                     <span className="text-inkmuted">
                       {loyalty.name} - Balance: <b className="text-ink">{loyalty.balance} pts</b>

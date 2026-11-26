@@ -4,7 +4,7 @@ import mongoose from 'mongoose';
    Collection name is pinned lowercase: Mongoose would pluralise it
    otherwise, and MongoDB collection names are case-sensitive. */
 
-export const LABEL_FIELD = 'name';
+export const LABEL_FIELD = 'loyaltyPointName';
 
 const LoyaltyPointSchema = new mongoose.Schema(
   {

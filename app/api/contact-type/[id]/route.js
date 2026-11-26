@@ -1,9 +1,12 @@
+import { isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
 import ContactType from '@/models/ContactType';
+import LoyaltyPoint from '@/models/LoyaltyPoint';
 import { requireSession } from '@/lib/session';
 import { validate } from '@/lib/validate';
 import { FIELDS } from '@/app/admin/contact/contact-type/fields';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { validateContactTypeLoyaltyScheme } from '@/lib/loyalty';
 
 const CONTACT_TYPE = { screen: SCREENS.CONTACT_TYPE, label: 'contact types' };
 
@@ -29,10 +32,22 @@ export async function GET(req, { params }) {
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
+  const rawScheme = doc.loyaltySchemeId && isValidObjectId(String(doc.loyaltySchemeId))
+    ? await LoyaltyPoint.findById(doc.loyaltySchemeId)
+        .select('_id businessId loyaltyPointName active')
+        .lean()
+    : null;
+  const scheme = rawScheme && (!doc.businessId || !rawScheme.businessId || String(rawScheme.businessId) === String(doc.businessId))
+    ? rawScheme
+    : null;
+
   return json({
     doc: {
       ...doc,
-      loyaltyPointsApplicable: doc.loyaltyPointsApplicable === true,
+      loyaltySchemeId: scheme ? String(scheme._id) : '',
+      loyaltySchemeName: scheme ? String(scheme.loyaltyPointName || 'Loyalty Points') : '',
+      loyaltySchemeActive: scheme ? String(scheme.active || '').trim().toLowerCase() === 'yes' : false,
+      loyaltyPointsApplicable: Boolean(scheme),
       _id: String(doc._id),
     },
   });
@@ -60,6 +75,16 @@ export async function PUT(req, { params }) {
   const { errors, doc, ok } = validate(FIELDS, body.data || {});
   if (!ok) return json({ errors }, 422);
   doc.name = String(doc.name || '').trim().toUpperCase();
+
+  const schemeCheck = await validateContactTypeLoyaltyScheme({
+    businessId: body.business || existing.businessId,
+    loyaltySchemeId: doc.loyaltySchemeId,
+  });
+  if (!schemeCheck.ok) {
+    return json({ errors: { loyaltySchemeId: schemeCheck.error } }, 422);
+  }
+  doc.loyaltySchemeId = schemeCheck.loyaltySchemeId;
+  doc.loyaltyPointsApplicable = schemeCheck.loyaltyPointsApplicable;
 
   const updated = await ContactType.findByIdAndUpdate(id, doc, { new: true, runValidators: true });
   if (!updated) return json({ error: 'Not found' }, 404);

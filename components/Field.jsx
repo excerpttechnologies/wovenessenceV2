@@ -1527,6 +1527,7 @@ import { compressImage, prettyBytes } from '@/lib/imageFile';
 import BarcodeScanner from './BarcodeScanner';
 import DocumentPreviewModal from './DocumentPreviewModal';
 import MultiFileUpload, { normalizeFiles } from './MultiFileUpload';
+import { useScope } from './ScopeContext';
 
 function Label({ f }) {
   /* ph = placeholder-only field: the original shows no label above these,
@@ -1645,6 +1646,89 @@ function CheckRefField({ f, value, onChange }) {
    Values that are already data URIs still preview, so anything saved before
    server-side storage existed keeps rendering.
    ========================================================================== */
+function LoyaltySchemeSelectField({ f, value, onChange }) {
+  const { business } = useScope();
+  const [schemes, setSchemes] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [fetchError, setFetchError] = useState('');
+
+  useEffect(() => {
+    if (!business) {
+      setSchemes([]);
+      setLoading(false);
+      setFetchError('');
+      return undefined;
+    }
+
+    let cancelled = false;
+    setLoading(true);
+    setFetchError('');
+
+    fetch('/api/loyalty-point?mode=list&business=' + encodeURIComponent(business), { cache: 'no-store' })
+      .then(async (res) => {
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.error || 'Failed to load loyalty schemes');
+        return body;
+      })
+      .then((body) => {
+        if (!cancelled) {
+          setSchemes(Array.isArray(body.rows) ? body.rows : []);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setSchemes([]);
+          setFetchError(err.message || 'Unable to load loyalty schemes');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [business]);
+
+  const selectedValue = value ? String(value) : '';
+  const hasSavedOption = selectedValue && schemes.some((s) => String(s._id) === selectedValue);
+  const selectedScheme = schemes.find((s) => String(s._id) === selectedValue) || null;
+
+  return (
+    <div>
+      <select
+        className="f-input"
+        value={selectedValue}
+        disabled={f.readOnly || f.disabled || !business}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        <option value="">{loading ? 'Loading loyalty schemes...' : 'Not Applicable'}</option>
+        {selectedValue && !loading && !hasSavedOption && (
+          <option value={selectedValue}>Saved scheme unavailable</option>
+        )}
+        {schemes.map((s) => (
+          <option key={s._id} value={String(s._id)}>
+            {s.loyaltyPointName || 'Loyalty Points'}{s.active === 'No' ? ' (Inactive)' : ''}
+          </option>
+        ))}
+      </select>
+      {!business ? (
+        <div className="mt-1 text-[12px] text-inkmuted">Select a business to load loyalty schemes.</div>
+      ) : loading ? (
+        <div className="mt-1 text-[12px] text-inkmuted">Loading loyalty schemes...</div>
+      ) : fetchError ? (
+        <div className="mt-1 text-[12px] text-danger">{fetchError}</div>
+      ) : schemes.length === 0 ? (
+        <div className="mt-1 text-[12px] text-inkmuted">
+          No loyalty schemes configured under Settings &rarr; Loyalty Point.
+        </div>
+      ) : selectedScheme && selectedScheme.active === 'No' ? (
+        <div className="mt-1 text-[12px] text-warnyellow">
+          Selected scheme is currently marked Inactive in Loyalty Point settings.
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function FileField({ f, value, onChange }) {
   return (
     <MultiFileUpload
@@ -1888,6 +1972,10 @@ export default function Field({ f, value, error, onChange, onOptionChange, selec
           </select>
         );
       }
+      break;
+
+    case 'loyaltySchemeSelect':
+      control = <LoyaltySchemeSelectField f={f} value={value} onChange={set} />;
       break;
 
     case 'radio':

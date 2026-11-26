@@ -15,9 +15,9 @@ const ContactTypeSchema = new mongoose.Schema(
     status: { type: String, default: "Active" },
     colorLebel: { type: String, default: '' },
     description: { type: String, default: '' },
-    /* Whether customers under this Contact Type may earn or redeem POS
-       loyalty points. Defaults to false so existing and new Contact Types
-       stay opted out until explicitly enabled. */
+    /* Selected Loyalty Point scheme assigned to this Contact Type (null = Not Applicable). */
+    loyaltySchemeId: { type: mongoose.Schema.Types.ObjectId, ref: 'loyaltyPoint', default: null },
+    /* Derived flag kept in sync with loyaltySchemeId for compatibility. */
     loyaltyPointsApplicable: { type: Boolean, default: false },
   },
   { timestamps: true }
