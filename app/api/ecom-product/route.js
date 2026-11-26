@@ -11,6 +11,7 @@ import Hsn from '@/models/Hsn';
 import ProductImage from '@/models/ProductImage';
 import { imageUrl } from '@/lib/inventory';
 import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
+import { barcodeLocationFilter } from '@/lib/reports';
 
 /* /api/ecom-product - list only, read-only.
 
@@ -146,11 +147,14 @@ export async function GET(req) {
   if (business) stockFilter.businessId = String(business);
   const finYear = sp.get('finYear');
   if (finYear) stockFilter.finYear = finYear;
-  /* locationId on a barcode row is frequently blank, so a chosen location
-     matches that location OR an unassigned one - filtering strictly would
-     report zero stock for goods that are really there */
-  const location = sp.get('location');
-  if (location) stockFilter.locationId = { $in: [String(location), '', null] };
+  /* locationId on a barcode row is frequently blank, so an unrestricted admin
+     with a chosen location matches currentLocationId/locationId OR unassigned;
+     restricted users stay scoped to their authorized location(s). */
+  const location = scope.locationId || sp.get('location');
+  const locClause = scope.access.isRestricted
+    ? barcodeLocationFilter(location ? [location] : scope.locationIds)
+    : (location ? barcodeLocationFilter([location], { allowUnassigned: true }) : null);
+  if (locClause) stockFilter.$and = [locClause];
 
   const barcodes = keys.length
     ? await BarcodeLabel.find(stockFilter)

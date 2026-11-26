@@ -289,7 +289,7 @@ import Grc from '@/models/Grc';
 import Item from '@/models/Item';
 import ProductGroup from '@/models/ProductGroup';
 import { Supplier } from '@/lib/contacts';
-import { json, num, r2, requireReportScope, pageOf } from '@/lib/reports';
+import { json, num, r2, requireReportScope, pageOf, barcodeLocationFilter } from '@/lib/reports';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { erpImageForBarcode, imageUrl } from '@/lib/inventory';
 
@@ -419,18 +419,11 @@ export async function GET(req) {
 
   const reportFilters = [];
   if (access.isRestricted) {
-    const locList = locationId ? [String(locationId)] : locationIds.map(String);
-    if (locList.length) {
-      reportFilters.push({
-        $or: [
-          { currentLocationId: { $in: locList } },
-          { currentLocationId: null, locationId: { $in: locList } },
-          { currentLocationId: { $exists: false }, locationId: { $in: locList } },
-        ],
-      });
-    }
+    const locClause = barcodeLocationFilter(locationId ? [locationId] : locationIds);
+    if (locClause) reportFilters.push(locClause);
   } else if (locationId) {
-    filter.locationId = { $in: [String(locationId), '', null] };
+    const locClause = barcodeLocationFilter([locationId], { allowUnassigned: true });
+    if (locClause) reportFilters.push(locClause);
   }
 
   if (itemBarcodeReport && itemId) {

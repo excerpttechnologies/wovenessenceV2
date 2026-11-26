@@ -3431,6 +3431,7 @@ import { BARCODE_STATUS } from '@/lib/barcodeLabel';
 import { classificationOptionsById, listClassificationOptions } from '@/lib/classificationCollections';
 import { Agent, Supplier } from '@/lib/contacts';
 import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
+import { barcodeLocationFilter } from '@/lib/reports';
 
 /* /api/product-eccom - list only, read-only (19-10-2026).
 
@@ -3692,7 +3693,7 @@ const FILTER_KEYS = [
   'startDate', 'endDate',
 ];
 
-async function resolveProductFilters(sp, businessId) {
+async function resolveProductFilters(sp, businessId, scope = null) {
   const ands = [];
   const exprs = [];
   const active = FILTER_KEYS.some((key) => trimmed(sp.get(key)) !== '');
@@ -3887,20 +3888,32 @@ async function resolveProductFilters(sp, businessId) {
       : { $literal: false });
   }
 
-  /* LOCATION FILTER - the same expression the Master Stock Report uses, so a
-     row is matched by the location it actually sits at now (currentLocationId)
-     with its originating locationId as the fallback. Empty = unrestricted. */
+  /* LOCATION FILTER - uses shared barcodeLocationFilter on effective location
+     (currentLocationId with fallback to locationId). Restricted users stay
+     locked to their assigned locations; unrestricted admins respect explicit
+     filter-card selection or top-bar location scope. */
   const rawLocFilter = sp.get('locationFilter');
-  const locationFilter = rawLocFilter !== null
-    ? trimmed(rawLocFilter)
-    : trimmed(sp.get('location'));
-  if (locationFilter) {
-    exprs.push({
-      $eq: [
-        { $toString: { $ifNull: ['$currentLocationId', '$locationId'] } },
-        locationFilter,
-      ],
-    });
+  const explicitLocFilter = trimmed(rawLocFilter);
+  if (scope?.access?.isRestricted) {
+    if (explicitLocFilter && !scope.access.allowedLocationIdSet.has(explicitLocFilter)) {
+      return {
+        ands,
+        exprs,
+        active,
+        errorResponse: json({ error: 'You do not have access to that location.', code: 'WRONG_LOCATION' }, 403),
+      };
+    }
+    const locIds = explicitLocFilter
+      ? [explicitLocFilter]
+      : (scope.locationId ? [scope.locationId] : (scope.locationIds || []));
+    const locClause = barcodeLocationFilter(locIds, { rawDriver: true });
+    if (locClause) ands.push(locClause);
+  } else if (explicitLocFilter) {
+    const locClause = barcodeLocationFilter([explicitLocFilter], { rawDriver: true });
+    if (locClause) ands.push(locClause);
+  } else if (rawLocFilter === null && trimmed(sp.get('location'))) {
+    const locClause = barcodeLocationFilter([trimmed(sp.get('location'))], { allowUnassigned: true, rawDriver: true });
+    if (locClause) ands.push(locClause);
   }
 
   const startDate = trimmed(sp.get('startDate'));
@@ -4179,7 +4192,8 @@ async function listAllErpBarcodes({
       createdAt: product?.createdAt || barcodeRow.createdAt,
       updatedAt: product?.updatedAt || barcodeRow.updatedAt,
       _searchText: [
-        barcode, itemCode, itemName, barcodeRow.printDescription,
+        barcode, barcodeRow.barcodeNo, barcodeRow.oldBarcode, barcodeRow.barcodeGenerated,
+        itemCode, itemName, barcodeRow.printDescription,
         barcodeRow.supplierDescription, product?.ecommItemCode,
         product?.displayName, resolvedProductType, product?.status,
       ].filter(Boolean).join(' ').toLowerCase(),
@@ -5131,7 +5145,8 @@ export async function GET(req) {
   const search = (sp.get('search') || '').trim();
   if (sp.get('allErpBarcodes') === '1') {
     const validBusiness = b && isValidObjectId(b) ? b : '';
-    const productFilter = await resolveProductFilters(sp, validBusiness);
+    const productFilter = await resolveProductFilters(sp, validBusiness, scope);
+    if (productFilter?.errorResponse) return productFilter.errorResponse;
     const rows = await listAllErpBarcodes({
       businessId: validBusiness,
       search,

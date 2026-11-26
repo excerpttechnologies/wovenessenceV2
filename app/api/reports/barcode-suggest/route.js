@@ -5,6 +5,7 @@ import { requireSession } from '@/lib/session';
 import { escapeRegex } from '@/lib/validate';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { resolveAuthorizedScope } from '@/lib/locationAccess';
+import { barcodeLocationFilter } from '@/lib/reports';
 
 /* /api/reports/barcode-suggest?q=<part>&business=<id>
 
@@ -55,23 +56,21 @@ export async function GET(req) {
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
   const rx = { $regex: escapeRegex(q), $options: 'i' };
+  const ands = [
+    /* all spellings a label can be read by: its own number, old barcode, or composed value */
+    { $or: [{ barcodeNo: rx }, { oldBarcode: rx }, { barcodeGenerated: rx }] },
+  ];
+  if (scope.access.isRestricted && scope.locationIds.length) {
+    const locClause = barcodeLocationFilter(scope.locationId ? [scope.locationId] : scope.locationIds);
+    if (locClause) ands.push(locClause);
+  } else if (scope.locationId) {
+    const locClause = barcodeLocationFilter([scope.locationId], { allowUnassigned: true });
+    if (locClause) ands.push(locClause);
+  }
 
   const rows = await BarcodeLabel.find({
     ...(scope.businessFilter ? { businessId: scope.businessFilter } : (business && isValidObjectId(business) ? { businessId: business } : {})),
-    ...(scope.access.isRestricted && scope.locationIds.length
-      ? {
-          $and: [{
-            $or: [
-              { currentLocationId: { $in: scope.locationIds } },
-              { currentLocationId: null, locationId: { $in: scope.locationIds } },
-              { currentLocationId: { $exists: false }, locationId: { $in: scope.locationIds } },
-            ],
-          }],
-        }
-      : {}),
-    /* both spellings a label can be read by: its own number and the composed
-       value the bars carry */
-    $or: [{ barcodeNo: rx }, { barcodeGenerated: rx }],
+    $and: ands,
   })
     .select('barcodeNo itemCode itemName')
     .limit(LIMIT)

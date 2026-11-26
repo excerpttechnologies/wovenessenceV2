@@ -634,7 +634,7 @@ import ProductGroup from '@/models/ProductGroup';
 import CompanyLocation from '@/models/CompanyLocation';
 import Uom from '@/models/Uom';
 import { Supplier } from '@/lib/contacts';
-import { json, num, r2, requireReportScope, pageOf } from '@/lib/reports';
+import { json, num, r2, requireReportScope, pageOf, barcodeLocationFilter } from '@/lib/reports';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { imageUrl } from '@/lib/inventory';
 
@@ -1262,23 +1262,11 @@ export async function GET(req) {
   const exprs = [];
 
   if (access.isRestricted) {
-    if (locationId) {
-      exprs.push({
-        $eq: [
-          { $toString: { $ifNull: ['$currentLocationId', '$locationId'] } },
-          String(locationId),
-        ],
-      });
-    } else if (locationIds.length) {
-      exprs.push({
-        $in: [
-          { $toString: { $ifNull: ['$currentLocationId', '$locationId'] } },
-          locationIds.map(String),
-        ],
-      });
-    }
+    const locClause = barcodeLocationFilter(locationId ? [locationId] : locationIds);
+    if (locClause) ands.push(locClause);
   } else if (locationId) {
-    filter.locationId = { $in: [String(locationId), '', null] };
+    const locClause = barcodeLocationFilter([locationId], { allowUnassigned: true });
+    if (locClause) ands.push(locClause);
   }
 
   /* LOCATION FILTER (inside the filter card) is separate from the top bar's
@@ -1291,12 +1279,8 @@ export async function GET(req) {
     if (access.isRestricted && !access.allowedLocationIdSet.has(locationFilter)) {
       return json({ error: 'You do not have access to that location.', code: 'WRONG_LOCATION' }, 403);
     }
-    exprs.push({
-      $eq: [
-        { $toString: { $ifNull: ['$currentLocationId', '$locationId'] } },
-        String(locationFilter),
-      ],
-    });
+    const panelLocClause = barcodeLocationFilter([locationFilter]);
+    if (panelLocClause) ands.push(panelLocClause);
   }
 
   /* ---- filters, all server-side ---------------------------------------- */
@@ -1319,7 +1303,8 @@ export async function GET(req) {
     )];
     ands.push({
       $or: [
-        { barcodeNo: rx }, { itemCode: rx }, { itemName: rx },
+        { barcodeNo: rx }, { oldBarcode: rx }, { barcodeGenerated: rx },
+        { itemCode: rx }, { itemName: rx },
         { printDescription: rx }, { supplierDescription: rx }, { hsn: rx },
         ...(supKeys.length ? [{ supplierId: { $in: supKeys } }] : []),
       ],
@@ -1341,7 +1326,16 @@ export async function GET(req) {
   });
 
   const barcodeNos = many('barcodeNo');
-  if (barcodeNos.length) filter.barcodeNo = anyOf(barcodeNos);
+  if (barcodeNos.length) {
+    const barcodeRx = anyOf(barcodeNos);
+    ands.push({
+      $or: [
+        { barcodeNo: barcodeRx },
+        { oldBarcode: barcodeRx },
+        { barcodeGenerated: barcodeRx },
+      ],
+    });
+  }
   const hsn = s(sp.get('hsn'));
   if (hsn) filter.hsn = { $regex: escapeRegex(hsn), $options: 'i' };
   /* UOM: the picker is a ref, so it sends the Uom's _id (/api/options returns
