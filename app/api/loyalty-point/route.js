@@ -8,16 +8,20 @@ import { resolveRefLabels } from '@/lib/refLabels';
 import { sortedPage } from '@/lib/listSort';
 import { validate, escapeRegex } from '@/lib/validate';
 import { FIELDS } from '@/app/admin/setting/loyaltypoint/fields';
-import { normalizeSchemeRow, validateSchemeRules } from '@/lib/loyalty';
+import { normalizeSchemeRow, validateSchemeRules, schemeToRules, isSchemeEligibleOnDate } from '@/lib/loyalty';
 
 const LOYALTY_POINT = { screen: SCREENS.LOYALTY_POINT, label: 'loyalty point settings' };
 const CONTACT_TYPE = { screen: SCREENS.CONTACT_TYPE, label: 'contact types' };
+const CUSTOMER = { screen: SCREENS.CUSTOMER, label: 'customers' };
 
 /* /api/loyalty-point -
      - Default GET / POST (used by /admin/setting/loyaltypoint ListView + Add modal):
        paginated list of loyalty schemes for the business, plus creating new schemes.
      - ?mode=list (used by Contact Type Add/Edit dropdown): unpaginated list of
-       loyalty schemes configured under /admin/setting/loyaltypoint. */
+       loyalty schemes configured under /admin/setting/loyaltypoint.
+     - ?mode=customer-list (used by Customer Add/Edit searchable Loyalty Scheme dropdown):
+       active, applicable, and date-valid schemes for that business, readable only by
+       users with Customer Create/Update (or Loyalty Point Read) permission. */
 
 const json = (d, s = 200) => Response.json(d, {
   status: s,
@@ -40,12 +44,46 @@ async function listDenial(session, businessId) {
   return lpDenied;
 }
 
+async function customerListDenial(session, businessId) {
+  const lpDenied = await screenDenial({
+    session, ...LOYALTY_POINT, action: PERM.READ, businessId,
+  });
+  if (!lpDenied) return null;
+
+  for (const action of [PERM.CREATE, PERM.UPDATE]) {
+    const custDenied = await screenDenial({
+      session, ...CUSTOMER, action, businessId,
+    });
+    if (!custDenied) return null;
+  }
+  return lpDenied;
+}
+
 export async function GET(req) {
   const session = await requireSession();
   if (!session) return json({ error: 'Unauthorized' }, 401);
 
   const sp = new URL(req.url).searchParams;
   await dbConnect();
+
+  if (sp.get('mode') === 'customer-list') {
+    const business = (sp.get('business') || '').trim();
+    if (!business) return json({ rows: [], total: 0 });
+    if (!isValidObjectId(business)) return json({ error: 'Invalid business ID.' }, 400);
+
+    const denied = await customerListDenial(session, business);
+    if (denied) return json({ error: denied.message, code: denied.code }, 403);
+
+    const scope = await resolveAuthorizedScope(session, { businessId: business });
+    if (!scope.ok) return scopeErrorResponse(scope);
+
+    const now = new Date();
+    const docs = await LoyaltyPoint.find({ businessId: business }).sort({ createdAt: -1 }).lean();
+    const rows = docs
+      .filter((d) => isSchemeEligibleOnDate(schemeToRules(d), now))
+      .map(normalizeSchemeRow);
+    return json({ rows, total: rows.length });
+  }
 
   if (sp.get('mode') === 'list') {
     const business = (sp.get('business') || '').trim();

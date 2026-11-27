@@ -1,6 +1,8 @@
 import { isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
 import { Customer } from '@/lib/contacts';
+import ContactType from '@/models/ContactType';
+import LoyaltyPoint from '@/models/LoyaltyPoint';
 import { requireSession } from '@/lib/session';
 import { validate } from '@/lib/validate';
 import { TABS } from '@/app/admin/contact/customer/tabs';
@@ -8,6 +10,11 @@ import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import {
   assertDocumentLocationAccess, resolveAuthorizedScope, scopeErrorResponse,
 } from '@/lib/locationAccess';
+import {
+  normalizeCustomerLoyaltyApplicable,
+  normalizeSchemeRow,
+  validateCustomerLoyaltySettings,
+} from '@/lib/loyalty';
 
 const CUSTOMER = { screen: SCREENS.CUSTOMER, label: 'customers' };
 
@@ -41,7 +48,29 @@ export async function GET(req, { params }) {
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
 
-  return json({ doc: { ...doc, _id: String(doc._id) } });
+  const savedSchemeId = doc.loyaltyPointSchemeId && isValidObjectId(String(doc.loyaltyPointSchemeId))
+    ? String(doc.loyaltyPointSchemeId)
+    : '';
+  const rawScheme = savedSchemeId ? await LoyaltyPoint.findById(savedSchemeId).lean() : null;
+  const scheme = rawScheme && (!doc.businessId || !rawScheme.businessId || String(rawScheme.businessId) === String(doc.businessId))
+    ? normalizeSchemeRow(rawScheme)
+    : null;
+
+  const ct = doc.typeId && isValidObjectId(String(doc.typeId))
+    ? await ContactType.findById(doc.typeId).select('loyaltySchemeId').lean()
+    : null;
+  const contactTypeLoyaltyApplicable = ct && ct.loyaltySchemeId ? 'YES' : 'NO';
+
+  return json({
+    doc: {
+      ...doc,
+      _id: String(doc._id),
+      loyaltyPointsApplicable: normalizeCustomerLoyaltyApplicable(doc.loyaltyPointsApplicable),
+      loyaltyPointSchemeId: scheme ? String(scheme._id) : '',
+      loyaltyPointSchemeSummary: scheme,
+      contactTypeLoyaltyApplicable,
+    },
+  });
 }
 
 export async function PUT(req, { params }) {
@@ -55,7 +84,7 @@ export async function PUT(req, { params }) {
   /* Read first only to learn which business owns it, then decide permission
      BEFORE validating. */
   const current = isValidObjectId(id)
-    ? await Customer.findById(id, { businessId: 1 }).lean()
+    ? await Customer.findById(id, { businessId: 1, loyaltyPointSchemeId: 1, loyaltyPointsApplicable: 1 }).lean()
     : null;
   if (!current) return json({ error: 'Not found' }, 404);
 
@@ -75,6 +104,18 @@ export async function PUT(req, { params }) {
 
   const { errors, doc, ok } = validate(FIELDS, body.data || {});
   if (!ok) return json({ errors }, 422);
+
+  const loyaltyCheck = await validateCustomerLoyaltySettings({
+    businessId: current.businessId || body.business,
+    loyaltyPointsApplicable: doc.loyaltyPointsApplicable,
+    loyaltyPointSchemeId: doc.loyaltyPointSchemeId,
+    previousSchemeId: current.loyaltyPointSchemeId,
+  });
+  if (!loyaltyCheck.ok) {
+    return json({ errors: { loyaltyPointSchemeId: loyaltyCheck.error } }, 422);
+  }
+  doc.loyaltyPointsApplicable = loyaltyCheck.loyaltyPointsApplicable;
+  doc.loyaltyPointSchemeId = loyaltyCheck.loyaltyPointSchemeId;
 
   const updated = await Customer.findByIdAndUpdate(id, doc, { new: true, runValidators: true });
   if (!updated) return json({ error: 'Not found' }, 404);

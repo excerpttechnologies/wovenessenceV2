@@ -166,6 +166,12 @@ export function buildContactSchema({ kind } = {}) {
       remarks: { type: String, default: '' },
       customerType: { type: String, default: '' },
       additionalDetails: { type: String, default: '' },
+      /* Customer-level Loyalty Point configuration (27-11-2026).
+         '' on loyaltyPointsApplicable = inherit from Contact Type (preserves
+         all existing customer records without migration). 'YES' / 'NO' acts as
+         a customer-level override. loyaltyPointSchemeId = null -> Default / Auto Apply. */
+      loyaltyPointsApplicable: { type: String, default: '' },
+      loyaltyPointSchemeId: { type: mongoose.Schema.Types.ObjectId, ref: 'loyaltyPoint', default: null },
       salesLedgerId: { type: mongoose.Schema.Types.ObjectId, ref: 'ledger', default: null },
       salesReturnLedgerId: { type: mongoose.Schema.Types.ObjectId, ref: 'ledger', default: null },
 

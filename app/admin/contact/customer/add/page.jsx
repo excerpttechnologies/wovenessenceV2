@@ -1,6 +1,7 @@
 'use client';
 import TabbedFormView from '@/components/TabbedFormView';
-import { TABS } from '../tabs';
+import { useScope } from '@/components/ScopeContext';
+import { TABS, isCustomerLoyaltyFieldReadOnly, onCustomerOptionChange } from '../tabs';
 
 /* Add Customers - the three tabs walked in order: Next, Next, Submit. The
    tab strip and every field under it are unchanged; `wizard` only swaps the
@@ -8,6 +9,8 @@ import { TABS } from '../tabs';
    by the Submit on the last tab. */
 
 export default function AddCustomerPage() {
+  const { can } = useScope();
+  const canEditLoyalty = can ? can('/admin/contact/customer', 'create') : true;
 
   return (
     <TabbedFormView
@@ -21,6 +24,8 @@ export default function AddCustomerPage() {
         contactKind: "Customer",
         tabs: TABS,
         wizard: true,
+        onOptionChange: onCustomerOptionChange,
+        isFieldReadOnly: (f) => isCustomerLoyaltyFieldReadOnly(f, canEditLoyalty),
       }}
     />
   );

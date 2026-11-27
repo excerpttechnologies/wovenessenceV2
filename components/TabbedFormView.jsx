@@ -687,8 +687,15 @@ export default function TabbedFormView({ cfg, id, slug, onSaved }) {
           Object.keys(next).forEach((k) => {
             const v = d.doc[k];
             if (v === null || v === undefined) return;
-            next[k] = allFields.find((f) => f.k === k)?.type === 'ref' ? String(v) : v;
+            const fieldType = allFields.find((f) => f.k === k)?.type;
+            next[k] = (fieldType === 'ref' || fieldType === 'customerLoyaltySchemeSelect') ? String(v) : v;
           });
+          if (!next.loyaltyPointsApplicable && d.doc.contactTypeLoyaltyApplicable) {
+            next.loyaltyPointsApplicable = d.doc.contactTypeLoyaltyApplicable;
+          }
+          if (d.doc.loyaltyPointSchemeSummary) {
+            next._savedLoyaltyScheme = d.doc.loyaltyPointSchemeSummary;
+          }
           return next;
         });
       });
@@ -879,8 +886,11 @@ export default function TabbedFormView({ cfg, id, slug, onSaved }) {
     try {
       /* contactKind is NOT sent - the API stamps it server-side so the
          supplier/agent/customer discriminator can't be spoofed */
+      const cleanData = Object.fromEntries(
+        Object.entries(data).filter(([k]) => !k.startsWith('_')),
+      );
       const payload = {
-        data,
+        data: cleanData,
         business: scope.business, location: scope.location, finYear: scope.finYear,
         allowBlankFirstName: cfg.allowBlankFirstName === true,
       };
@@ -1034,6 +1044,7 @@ export default function TabbedFormView({ cfg, id, slug, onSaved }) {
                     <div className={add ? 'min-w-0 flex-1' : ''}>
                       <Field
                         f={shown}
+                        data={data}
                         value={f.parts ? joinParts(f) : data[f.k]}
                         error={f.parts ? (errors[f.k] || f.parts.map((k) => errors[k]).find(Boolean)) : errors[f.k]}
                         onChange={f.parts ? ((_k, v) => setParts(f, v)) : set}

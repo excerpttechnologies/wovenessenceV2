@@ -135,6 +135,7 @@ import { nextContactId } from '@/lib/contactId';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 import { sortedPage } from '@/lib/listSort';
+import { validateCustomerLoyaltySettings } from '@/lib/loyalty';
 
 const CUSTOMER = { screen: SCREENS.CUSTOMER, label: 'customers' };
 
@@ -259,6 +260,22 @@ export async function POST(req) {
 
   /* stamped here, never taken from the client */
   doc.contactKind = 'Customer';
+
+  if (body.quick) {
+    doc.loyaltyPointsApplicable = '';
+    doc.loyaltyPointSchemeId = null;
+  } else {
+    const loyaltyCheck = await validateCustomerLoyaltySettings({
+      businessId: doc.businessId || body.business,
+      loyaltyPointsApplicable: doc.loyaltyPointsApplicable,
+      loyaltyPointSchemeId: doc.loyaltyPointSchemeId,
+    });
+    if (!loyaltyCheck.ok) {
+      return json({ errors: { loyaltyPointSchemeId: loyaltyCheck.error } }, 422);
+    }
+    doc.loyaltyPointsApplicable = loyaltyCheck.loyaltyPointsApplicable;
+    doc.loyaltyPointSchemeId = loyaltyCheck.loyaltyPointSchemeId;
+  }
 
   const mobile = String(doc.billingMobile || '').trim();
   if (mobile) {

@@ -1729,6 +1729,145 @@ function LoyaltySchemeSelectField({ f, value, onChange }) {
   );
 }
 
+function CustomerLoyaltySchemeSelectField({ f, value, onChange, data }) {
+  const { business } = useScope();
+  const [schemes, setSchemes] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [fetchError, setFetchError] = useState('');
+
+  const applicable = String(data?.loyaltyPointsApplicable ?? '').trim().toUpperCase();
+  const disabledForCustomer = applicable === 'NO';
+  const isReadOnly = Boolean(f.readOnly || f.disabled);
+
+  useEffect(() => {
+    if (!business || isReadOnly) {
+      setSchemes([]);
+      setLoading(false);
+      setFetchError('');
+      return undefined;
+    }
+
+    let cancelled = false;
+    setLoading(true);
+    setFetchError('');
+
+    fetch('/api/loyalty-point?mode=customer-list&business=' + encodeURIComponent(business), { cache: 'no-store' })
+      .then(async (res) => {
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.error || 'Failed to load loyalty schemes');
+        return body;
+      })
+      .then((body) => {
+        if (!cancelled) setSchemes(Array.isArray(body.rows) ? body.rows : []);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setSchemes([]);
+          setFetchError(err.message || 'Unable to load loyalty schemes');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [business, isReadOnly]);
+
+  const selectedValue = value ? String(value) : '';
+  const savedSummary = data?._savedLoyaltyScheme && String(data._savedLoyaltyScheme._id) === selectedValue
+    ? data._savedLoyaltyScheme
+    : null;
+  const activeScheme = schemes.find((s) => String(s._id) === selectedValue) || null;
+  const selectedScheme = activeScheme || savedSummary;
+  const isSavedInactive = Boolean(selectedValue && !loading && !activeScheme && !isReadOnly);
+
+  const options = [
+    { value: '', label: 'Default / Auto Apply' },
+    ...(selectedValue && !activeScheme
+      ? [{
+          value: selectedValue,
+          label: savedSummary
+            ? `${savedSummary.loyaltyPointName || 'Loyalty Scheme'} (Inactive / Expired)`
+            : 'Saved scheme unavailable',
+        }]
+      : []),
+    ...schemes.map((s) => ({
+      value: String(s._id),
+      label: s.loyaltyPointName || 'Loyalty Points',
+    })),
+  ];
+
+  const earningText = selectedScheme
+    ? (Number(selectedScheme.purchaseAmountForOnePoint || 0) > 0
+      ? `₹${Number(selectedScheme.purchaseAmountForOnePoint)} = 1 Pt`
+      : `${Number(selectedScheme.earningPercentage || 0)}% of bill`)
+    : '';
+  const expiryText = selectedScheme
+    ? (Number(selectedScheme.pointsExpireAfter || 0) > 0
+      ? `${selectedScheme.pointsExpireAfter} ${Number(selectedScheme.pointsExpireAfter) === 1 ? 'Month' : 'Months'}`
+      : 'No Expiry')
+    : '';
+
+  return (
+    <div>
+      <MultiSelect
+        mode="single"
+        options={options}
+        value={selectedValue}
+        loading={loading}
+        disabled={isReadOnly || disabledForCustomer || !business}
+        clearable={!disabledForCustomer && !isReadOnly && Boolean(selectedValue)}
+        placeholder="Default / Auto Apply"
+        emptyText="No active loyalty schemes found"
+        onChange={(next) => onChange(next || '')}
+      />
+
+      {disabledForCustomer ? (
+        <div className="mt-1.5 rounded border border-[#f3b4b0] bg-[#fdeeed] px-2.5 py-1.5 text-[12px] font-semibold text-[#c5302a]">
+          Loyalty Points Disabled for this Customer
+        </div>
+      ) : !business ? (
+        <div className="mt-1 text-[12px] text-inkmuted">Select a business to load active loyalty schemes.</div>
+      ) : fetchError ? (
+        <div className="mt-1 text-[12px] text-danger">{fetchError}</div>
+      ) : selectedScheme ? (
+        <div className="mt-2 rounded-md border border-line bg-[#f8fafc] p-2.5 text-[12px] text-ink">
+          <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+            <span className="font-bold text-ink">{selectedScheme.loyaltyPointName || 'Loyalty Points'}</span>
+            {selectedScheme.fromDate && selectedScheme.toDate && (
+              <span className="text-[11px] text-inkmuted">
+                Valid: {selectedScheme.fromDate} to {selectedScheme.toDate}
+              </span>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-3">
+            <div><span className="text-inkmuted">1 Point =</span> <b>₹{Number(selectedScheme.pointsToInr || 0)}</b></div>
+            <div><span className="text-inkmuted">Earn Rate:</span> <b>{earningText}</b></div>
+            <div><span className="text-inkmuted">Expiry:</span> <b>{expiryText}</b></div>
+            <div>
+              <span className="text-inkmuted">OTP Required:</span>{' '}
+              <b>{String(selectedScheme.otpRequired || '').toLowerCase() === 'yes' ? 'Yes' : 'No'}</b>
+            </div>
+            <div className="sm:col-span-2">
+              <span className="text-inkmuted">Redemption:</span>{' '}
+              <b>{selectedScheme.redeemTiming === 'instant' ? 'Instant (Same Day)' : 'From Next Day'}</b>
+            </div>
+          </div>
+          {isSavedInactive && (
+            <div className="mt-1.5 text-[11.5px] font-medium text-warnyellow">
+              This saved scheme is currently inactive or outside its validity dates. Pick an active scheme or Default / Auto Apply.
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="mt-1 text-[12px] text-inkmuted">
+          Uses the customer&apos;s Contact Type scheme or business default when eligible.
+        </div>
+      )}
+    </div>
+  );
+}
+
 function FileField({ f, value, onChange }) {
   return (
     <MultiFileUpload
@@ -1976,6 +2115,10 @@ export default function Field({ f, value, error, onChange, onOptionChange, selec
 
     case 'loyaltySchemeSelect':
       control = <LoyaltySchemeSelectField f={f} value={value} onChange={set} />;
+      break;
+
+    case 'customerLoyaltySchemeSelect':
+      control = <CustomerLoyaltySchemeSelectField f={f} value={value} onChange={set} data={data} />;
       break;
 
     case 'radio':

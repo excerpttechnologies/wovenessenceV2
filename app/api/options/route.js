@@ -6500,6 +6500,10 @@ export async function GET(req) {
       /* which location the row belongs to ('' = shared by the whole
          business), so a form can pick the row bound to the header LOCATION */
       ...(entry.locationScoped ? { locationId: r.locationId ? String(r.locationId) : '' } : {}),
+      ...(isContactTypeRef ? {
+        loyaltySchemeId: r.loyaltySchemeId ? String(r.loyaltySchemeId) : '',
+        loyaltyPointsApplicable: Boolean(r.loyaltySchemeId),
+      } : {}),
     })),
   });
 }

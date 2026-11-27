@@ -717,6 +717,29 @@ export const TABS = [
           ]
         },
         {
+          "title": "Loyalty Points",
+          "cols": 2,
+          "fields": [
+            {
+              "k": "loyaltyPointsApplicable",
+              "label": "Loyalty Points Applicable",
+              "type": "select",
+              "placeholder": "-- Select --",
+              "def": "",
+              "opts": [
+                { "v": "YES", "l": "YES" },
+                { "v": "NO", "l": "NO" }
+              ]
+            },
+            {
+              "k": "loyaltyPointSchemeId",
+              "label": "Loyalty Point Scheme",
+              "type": "customerLoyaltySchemeSelect",
+              "def": ""
+            }
+          ]
+        },
+        {
           "title": "",
           "cols": 6,
           "fields": [
@@ -1281,3 +1304,20 @@ export const TABS = [
       ]
     }
   ];
+
+/* Auto-populate Customer Loyalty Points Applicable whenever Contact Type
+   (`typeId`) changes interactively. Existing saved overrides on Edit are left
+   untouched until the user explicitly changes Contact Type. */
+export function onCustomerOptionChange(f, option) {
+  if (f.k !== 'typeId' || !option) return {};
+  const applicable = option.loyaltyPointsApplicable ? 'YES' : 'NO';
+  return {
+    loyaltyPointsApplicable: applicable,
+    ...(applicable === 'NO' ? { loyaltyPointSchemeId: '' } : {}),
+  };
+}
+
+export function isCustomerLoyaltyFieldReadOnly(f, canEditLoyalty) {
+  if (canEditLoyalty) return false;
+  return f.k === 'loyaltyPointsApplicable' || f.k === 'loyaltyPointSchemeId';
+}

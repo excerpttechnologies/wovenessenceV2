@@ -595,7 +595,7 @@ export const POST = handler(async (req) => {
   if (hasManualLoyaltyRequest && !loyaltyEligible) {
     return json({
       error: schemeMismatch
-        ? 'Requested loyalty scheme does not match the customer Contact Type scheme.'
+        ? 'Requested loyalty scheme does not match the eligible loyalty scheme for this customer.'
         : (resolution.reason || 'Loyalty Points Not Applicable for This Customer Type'),
       code: 'LOYALTY_NOT_ELIGIBLE',
     }, 403);
