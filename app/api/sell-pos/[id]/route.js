@@ -28,6 +28,7 @@ export async function GET(req, { params }) {
   if (!session) return json({ error: 'Unauthorized' }, 401);
 
   const { id } = await params;
+  if (!isValidObjectId(id)) return json({ error: 'Invalid POS invoice ID.', doc: null }, 400);
   await dbConnect();
 
   const doc = await PosInvoice.findById(id).lean();
@@ -109,6 +110,7 @@ export async function PUT(req, { params }) {
   if (!session) return json({ error: 'Unauthorized' }, 401);
 
   const { id } = await params;
+  if (!isValidObjectId(id)) return json({ error: 'Invalid POS invoice ID.' }, 400);
   const body = await req.json();
   await dbConnect();
 
@@ -163,6 +165,7 @@ export async function DELETE(req, { params }) {
   if (!session) return json({ error: 'Unauthorized' }, 401);
 
   const { id } = await params;
+  if (!isValidObjectId(id)) return json({ error: 'Invalid POS invoice ID.' }, 400);
   await dbConnect();
 
   const target = await PosInvoice.findById(id).select('businessId locationId').lean();
