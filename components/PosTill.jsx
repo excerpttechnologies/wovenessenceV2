@@ -246,7 +246,7 @@ const translateImport = (patch, blank) => {
 };
 
 function CustomerForm({
-  values, setValues, typeOptions, onClose, onSave, saving,
+  values, setValues, typeOptions, typeLocked = false, onClose, onSave, saving,
   error = '', existingMatch = null, onUseExisting,
 }) {
   const set = (key, value) => setValues((current) => ({ ...current, [key]: value }));
@@ -299,7 +299,7 @@ function CustomerForm({
         />
 
         <div className="grid grid-cols-1 gap-x-4 gap-y-2 md:grid-cols-4">
-          <label className="f-label">Type *<select className="f-input" value={values.typeId} onChange={(e) => set('typeId', e.target.value)} required>
+          <label className="f-label">Type *<select className="f-input" value={values.typeId} onChange={(e) => set('typeId', e.target.value)} required disabled={typeLocked}>
             <option value="">Select...</option>{typeOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select></label>
           <label className="f-label">Business Type *<select className="f-input" value={values.businessType} onChange={(e) => set('businessType', e.target.value)} required>
@@ -409,7 +409,11 @@ function CustomerForm({
 export default function PosTill() {
   const router = useRouter();
   const sp = useSearchParams();
-  const { can, permsReady, isCompanyLocked, isLocationLocked } = useScope();
+  const { can, permsReady, isCompanyLocked, isLocationLocked, user } = useScope();
+  /* Cashier accounts bill walk-in POS customers only: the Add Customer Type
+     box is locked on the POS CUSTOMER contact type, and POST /api/customer
+     refuses anything else from this role. */
+  const isCashier = user?.role === 'Cashier';
   const canReadSalesPerson = permsReady && can('/admin/staff-management/staff/salesperson', 'read');
   const canReadCustomer = permsReady && can('/admin/contact/customer', 'read');
   const canCreateCustomer = canReadCustomer && can('/admin/contact/customer', 'create');
@@ -441,6 +445,14 @@ export default function PosTill() {
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [customerSearch, setCustomerSearch] = useState('');
   const [customerTypes, setCustomerTypes] = useState([]);
+  /* The POS CUSTOMER contact type, matched on its label the same way the
+     backend matches the stored name. Exact "POS CUSTOMER" wins over any
+     other type that merely starts with POS. */
+  const posCustomerType = useMemo(() => {
+    const exact = customerTypes.find((o) => /^\s*pos\s*customer\s*$/i.test(String(o.label || '')));
+    return exact || customerTypes.find((o) => /^\s*pos\b/i.test(String(o.label || ''))) || null;
+  }, [customerTypes]);
+  const posTypeId = posCustomerType?.value || '';
   const [showCustomerForm, setShowCustomerForm] = useState(false);
   const [customerForm, setCustomerForm] = useState(CUSTOMER_DEFAULTS);
   const [savingCustomer, setSavingCustomer] = useState(false);
@@ -1332,6 +1344,10 @@ export default function PosTill() {
         gender: '',
       }
       : { ...customerForm, gstNo: '', businessName: '' };
+    /* A cashier's type is not theirs to choose - pin it to POS CUSTOMER even
+       if the form state somehow carries another id. The server enforces the
+       same rule, so this is belt-and-braces, not the only check. */
+    if (isCashier && posTypeId) payload.typeId = posTypeId;
 
     try {
       const response = await fetch('/api/customer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ business, quick: true, data: payload }) });
@@ -1381,11 +1397,21 @@ export default function PosTill() {
     setLoyalty(null);
     setCustomerForm((current) => ({
       ...CUSTOMER_DEFAULTS,
-      typeId: retailFirst(customerTypes) || current.typeId || '',
+      typeId: isCashier ? (posTypeId || '') : (retailFirst(customerTypes) || current.typeId || ''),
       billingMobile: customerSearch.trim(),
     }));
     setShowCustomerForm(true);
   }
+
+  /* The type options load asynchronously. If the modal is already open when
+     they arrive (or the role answer lands after it opened), a cashier's Type
+     box is re-pinned to POS CUSTOMER rather than left on whatever it had. */
+  useEffect(() => {
+    if (!isCashier || !showCustomerForm || !posTypeId) return;
+    setCustomerForm((current) => (
+      current.typeId === posTypeId ? current : { ...current, typeId: posTypeId }
+    ));
+  }, [isCashier, showCustomerForm, posTypeId]);
 
   function selectCustomer(value) {
     const option = customerOptions.find((row) => row.value === value);
@@ -1851,7 +1877,8 @@ export default function PosTill() {
         <CustomerForm
           values={customerForm}
           setValues={setCustomerForm}
-          typeOptions={customerTypes}
+          typeOptions={isCashier ? customerTypes.filter((o) => o.value === posTypeId) : customerTypes}
+          typeLocked={isCashier}
           onClose={closeCustomerForm}
           onSave={saveCustomer}
           saving={savingCustomer}

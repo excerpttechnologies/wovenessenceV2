@@ -131,6 +131,7 @@ import { validate, escapeRegex } from '@/lib/validate';
 import { TABS } from '@/app/admin/contact/customer/tabs';
 
 import ContactType from '@/models/ContactType';
+import { ROLES } from '@/models/User';
 import { nextContactId } from '@/lib/contactId';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
@@ -260,6 +261,32 @@ export async function POST(req) {
 
   /* stamped here, never taken from the client */
   doc.contactKind = 'Customer';
+
+  /* A Cashier sells to walk-in POS customers only, so the only type they may
+     file under is this business's POS CUSTOMER contact type. The till locks
+     its Type box for the same reason, but a hand-edited request must not be
+     able to create B2B SALES or E-COMM customers - this check is the one
+     that counts. Every other role keeps the existing behaviour. */
+  if (String(session.role || '').trim() === ROLES.CASHIER) {
+    const typeBusinessId = scope.businessId
+      || (body.business && isValidObjectId(body.business) ? String(body.business) : '');
+    const posTypes = await ContactType.find({
+      contactType: 'Customer',
+      name: { $regex: '^\\s*pos\\b', $options: 'i' },
+      ...(typeBusinessId ? { businessId: typeBusinessId } : {}),
+    }).select('_id name').lean();
+    /* "POS CUSTOMER" exactly, when the business has one, wins over any other
+       type that merely starts with POS. */
+    const posType = posTypes.find((t) => /^\s*pos\s*customer\s*$/i.test(String(t.name || '')))
+      || posTypes[0];
+    if (!posType || String(doc.typeId || '') !== String(posType._id)) {
+      return json({
+        error: 'Cashier accounts can only create POS Customer records.',
+        code: 'CASHIER_POS_CUSTOMER_ONLY',
+        errors: { typeId: 'Cashier accounts can only create POS Customer records.' },
+      }, 403);
+    }
+  }
 
   if (body.quick) {
     doc.loyaltyPointsApplicable = '';
