@@ -29,6 +29,12 @@ const LoyaltyPointSchema = new mongoose.Schema(
     minAmountForRedemption: { type: Number, default: 0 },
     redemptionType: { type: String, default: "Gateway" },
     otpRequired: { type: String, default: "No" },
+    /* WHEN EARNED POINTS BECOME REDEEMABLE (27-11-2026):
+       'instant'  - points earned on a bill may be redeemed on the same day
+       'nextDay'  - points earned today stay pending until the next business
+                    day (the behaviour every scheme had before this field
+                    existed, so it is the default) */
+    redeemTiming: { type: String, default: "nextDay" },
     fromDate: { type: Date, default: null },
     toDate: { type: Date, default: null },
     loyaltyPointsApplicable: { type: String, default: "Yes" },

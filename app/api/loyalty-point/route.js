@@ -99,6 +99,7 @@ export async function GET(req) {
       'toDate',
       'pointsExpireAfter',
       'otpRequired',
+      'redeemTiming',
     ],
   })) ?? await LoyaltyPoint.find(filter)
     .sort({ createdAt: -1 })

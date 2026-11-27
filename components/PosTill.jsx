@@ -1685,9 +1685,17 @@ export default function PosTill() {
                       {loyalty.name} - Balance: <b className="text-ink">{loyalty.balance} pts</b>
                       {Number(loyalty.balanceValue || 0) > 0 && ' (' + money(loyalty.balanceValue) + ')'}
                     </span>
+                    {/* available now vs pending - under "Redeem From Next
+                        Day" today's earnings sit out of the redeemable figure
+                        until the business's next day */}
+                    {loyalty.redeemablePoints != null && Number(loyalty.redeemablePoints) !== Number(loyalty.balance) && (
+                      <span className="text-inkmuted">
+                        Redeemable: <b className="text-ink">{loyalty.redeemablePoints} pts</b>
+                      </span>
+                    )}
                     {Number(loyalty.todayLockedPoints || 0) > 0 && (
                       <span className="text-warnyellow">
-                        {loyalty.todayLockedPoints} pts earned today - redeemable from tomorrow
+                        {loyalty.todayLockedPoints} pts pending - available from tomorrow
                       </span>
                     )}
                     {earnPreview > 0 && (

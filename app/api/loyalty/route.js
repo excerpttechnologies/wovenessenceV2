@@ -1,7 +1,7 @@
 import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
 import {
-  resolveCustomerLoyalty, pointsBalance, allowedRedemption,
+  resolveCustomerLoyalty, pointsBalance, allowedRedemption, businessTimeZone,
 } from '@/lib/loyalty';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 
@@ -100,12 +100,19 @@ export async function GET(req) {
     });
   }
 
-  const balance = await pointsBalance({ businessId: sp.get('business'), customerId: customer });
-  /* points earned TODAY spend from TOMORROW - the redemption ceiling is
-     worked on the balance without them, while `balance` above stays the
-     full figure for display */
+  /* The scheme's REDEEM POINTS setting decides whether points earned today
+     are spendable now ('instant') or stay pending until the business's next
+     day ('nextDay' - also every scheme saved before the field existed). */
+  const redeemNextDay = rules.redeemTiming !== 'instant';
+  const timeZone = redeemNextDay ? await businessTimeZone(sp.get('business')) : '';
+  const balance = await pointsBalance({
+    businessId: sp.get('business'), customerId: customer, timeZone,
+  });
+  /* under 'nextDay' the redemption ceiling leaves today's lots out, while
+     `balance` above stays the full figure for display */
   const redeemable = await pointsBalance({
-    businessId: sp.get('business'), customerId: customer, excludeEarnedToday: true,
+    businessId: sp.get('business'), customerId: customer,
+    excludeEarnedToday: redeemNextDay, timeZone,
   });
   const allowed = allowedRedemption({ rules, balance: redeemable, billAmount: amount });
   const todayLockedPoints = Math.max(0, balance - redeemable);
@@ -124,6 +131,8 @@ export async function GET(req) {
     perAmountModel: rules.hasPerAmount,
     purchaseAmountForOnePoint: rules.purchaseAmountForOnePoint,
     otpRequired: rules.otpRequired,
+    redeemTiming: rules.redeemTiming,
+    redeemablePoints: redeemable,
     earningPercentage: rules.earningPercentage,
     minPurchaseAmount: rules.minPurchaseAmount,
     maxRewardPoint: rules.maxRewardPoint,
@@ -136,7 +145,7 @@ export async function GET(req) {
     allowedPoints: allowed.points,
     allowedAmount: allowed.amount,
     reason: allowed.points === 0 && todayLockedPoints > 0 && balance > 0
-      ? 'Points earned today can be redeemed from tomorrow.'
+      ? 'Newly earned loyalty points will be available for redemption from tomorrow.'
       : allowed.reason,
   });
 }

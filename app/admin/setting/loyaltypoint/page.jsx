@@ -72,6 +72,12 @@ const CONFIG = {
       render: (r) => (r.pointsExpireAfter ? `${r.pointsExpireAfter} Months` : '—'),
     },
     { k: 'otpRequired', t: 'OTP Required' },
+    {
+      k: 'redeemTiming',
+      t: 'Redeem Points',
+      value: (r) => (String(r.redeemTiming || '').toLowerCase() === 'instant' ? 'Redeem Instantly (Same Day)' : 'Redeem From Next Day'),
+      render: (r) => (String(r.redeemTiming || '').toLowerCase() === 'instant' ? 'Redeem Instantly (Same Day)' : 'Redeem From Next Day'),
+    },
   ],
   fields: FIELDS,
 };

@@ -25,6 +25,7 @@ import LoyaltyLedger from '@/models/LoyaltyLedger';
 import { sortedPage } from '@/lib/listSort';
 import {
   resolveCustomerLoyalty, pointsBalance, allowedRedemption, redemptionValue, saleLedgerRows,
+  businessTimeZone,
 } from '@/lib/loyalty';
 import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 import { round2, roundRupee } from '@/lib/posRounding';
@@ -603,10 +604,16 @@ export const POST = handler(async (req) => {
   let redeemPoints = 0;
   let redeemAmount = 0;
 
+  /* The scheme's REDEEM POINTS setting: 'nextDay' (the default, and every
+     scheme saved before the field existed) leaves points earned since
+     business-midnight out of the ceiling; 'instant' counts them. */
+  const redeemNextDay = rules?.redeemTiming !== 'instant';
+  const loyaltyTimeZone = loyaltyEligible ? await businessTimeZone(doc.businessId) : '';
+
   if (loyaltyEligible && wantsPoints > 0) {
-    /* points earned TODAY spend from TOMORROW - the ceiling leaves them out */
     const balance = await pointsBalance({
-      businessId: doc.businessId, customerId: doc.customerId, excludeEarnedToday: true,
+      businessId: doc.businessId, customerId: doc.customerId,
+      excludeEarnedToday: redeemNextDay, timeZone: loyaltyTimeZone,
     });
     const allowed = allowedRedemption({ rules, balance, billAmount: doc.totalAmount });
 
@@ -731,7 +738,8 @@ export const POST = handler(async (req) => {
         const liveBalance = await pointsBalance({
           businessId: doc.businessId,
           customerId: doc.customerId,
-          excludeEarnedToday: true,
+          excludeEarnedToday: redeemNextDay,
+          timeZone: loyaltyTimeZone,
           session: dbSession,
         });
         const liveAllowed = allowedRedemption({ rules, balance: liveBalance, billAmount: doc.totalAmount });

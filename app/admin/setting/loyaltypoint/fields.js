@@ -33,6 +33,17 @@ export const SECTIONS = [
       { k: "purchaseAmountForOnePoint", label: "Purchase Amount for 1 Point [0 = No Points]", type: "number", req: true, def: 0 },
       { k: "pointsExpireAfter", label: "Points Expire After", type: "select", req: true, def: "12", opts: MONTH_OPTS },
       { k: "otpRequired", label: "OTP Required for Redemption", type: "select", req: true, def: "No", opts: [{ v: "Yes", l: "Yes" }, { v: "No", l: "No" }] },
+      {
+        k: "redeemTiming",
+        label: "REDEEM POINTS",
+        type: "select",
+        req: true,
+        def: "nextDay",
+        opts: [
+          { v: "instant", l: "Redeem Instantly (Same Day)" },
+          { v: "nextDay", l: "Redeem From Next Day" },
+        ],
+      },
       { k: "fromDate", label: "From Date", type: "date" },
       { k: "toDate", label: "To Date", type: "date" },
     ],
