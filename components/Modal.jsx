@@ -24,6 +24,7 @@ export default function Modal({
   footer,
   size = 'md',
   closeOnBackdrop = true,
+  backdropClassName = '',
 }) {
   const panelRef = useRef(null);
 
@@ -51,7 +52,7 @@ export default function Modal({
 
   return (
     <div
-      className="mdl-backdrop no-print"
+      className={'mdl-backdrop no-print' + (backdropClassName ? ' ' + backdropClassName : '')}
       onMouseDown={(e) => {
         if (closeOnBackdrop && e.target === e.currentTarget) onClose?.();
       }}

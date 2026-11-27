@@ -72,6 +72,8 @@ const P = {
      it. Two subpaths in one string: the circle, drawn as two arcs, then the
      tick. The renderer below emits a single <path>, which takes both. */
   checkCircle: 'M12 21a9 9 0 100-18 9 9 0 000 18zM8.25 12.25l2.5 2.5 5-5.5',
+  toggleOn: 'M16 5H8a7 7 0 000 14h8a7 7 0 000-14zM16 15a3 3 0 100-6 3 3 0 000 6z',
+  toggleOff: 'M16 5H8a7 7 0 000 14h8a7 7 0 000-14zM8 15a3 3 0 100-6 3 3 0 000 6z',
 };
 
 export default function Icon({ name, size = 18, className = '', stroke = 1.7 }) {

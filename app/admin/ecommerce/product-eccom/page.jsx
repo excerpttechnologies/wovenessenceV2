@@ -817,21 +817,22 @@ export default function ProductEccomPage() {
       pager: 'numbered',
       sortable: true,
       actionVariant: 'buttons',
-      actionLayout: 'vertical',
       nowrapHead: true,
       compact: true,
       actionMenu: [
-        { label: 'View', icon: 'eye', onClick: (r) => setViewing(r) },
+        { label: 'View', tooltip: 'View Product Details', icon: 'eye', tone: 'act-blue', onClick: (r) => setViewing(r) },
         {
           /* the Add form loads the saved product by its barcode and Save updates it (one per item) */
           label: 'Edit',
+          tooltip: 'Edit Product',
           icon: 'pencil',
+          tone: 'act-amber',
           to: editHref,
         },
         {
-          label: (r) => (r.isPublished ? 'Remove' : 'Enable'),
+          label: (r) => (r.isPublished ? 'Disable' : 'Enable'),
           tooltip: (r) => (r.isPublished ? 'Disable (Hide from Website)' : 'Enable (Show on Website)'),
-          icon: (r) => (r.isPublished ? 'x' : 'check'),
+          icon: (r) => (r.isPublished ? 'toggleOff' : 'checkCircle'),
           tone: (r) => (r.isPublished ? 'act-red' : 'act-green'),
           onClick: async (r) => {
             if (!r.barcode) return;

@@ -4821,7 +4821,7 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
               <thead>
                 <tr>
                   {actionPos === "left" && (
-                    <th className={verticalActions ? "w-[1%] whitespace-nowrap !px-1 text-center" : undefined}>Action</th>
+                    <th className={(verticalActions || cfg.compact) ? "w-[1%] whitespace-nowrap !px-1.5 text-center" : undefined}>Action</th>
                   )}
                   {cfg.serialNumber && <th>#</th>}
                   {visible.map((c, i) => (
@@ -4844,7 +4844,7 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
                     )
                   ))}
                   {actionPos === "right" && (
-                    <th className={verticalActions ? "w-[1%] whitespace-nowrap !px-1 text-center" : undefined}>Action</th>
+                    <th className={(verticalActions || cfg.compact) ? "w-[1%] whitespace-nowrap !px-1.5 text-center" : undefined}>Action</th>
                   )}
                 </tr>
               </thead>
@@ -4892,7 +4892,7 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
                 {!loading && !scopePending &&
                   state.rows.map((row, rowIndex) => {
                     const actions = (
-                      <td className={verticalActions ? "w-[1%] whitespace-nowrap !px-1 !py-1 align-middle" : undefined}>
+                      <td className={(verticalActions || cfg.compact) ? "w-[1%] whitespace-nowrap !px-1.5 !py-1 align-middle" : undefined}>
                         {actionVariant === "dropdown" ? (
                           <ActionMenu
                             items={rowActions(row)}

@@ -25,6 +25,7 @@ export default function ConfirmDialog({
   tone = 'danger',
   busy = false,
   error,
+  backdropClassName = '',
   onConfirm,
   onCancel,
 }) {
@@ -32,6 +33,7 @@ export default function ConfirmDialog({
     <Modal
       open={open}
       size="sm"
+      backdropClassName={backdropClassName}
       onClose={busy ? undefined : onCancel}
       closeOnBackdrop={!busy}
       footer={

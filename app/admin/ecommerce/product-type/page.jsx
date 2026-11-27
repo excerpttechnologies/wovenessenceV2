@@ -86,6 +86,9 @@ export default function ProductTypePage() {
   const [addError, setAddError] = useState('');
   const [pendingDelete, setPendingDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [pendingFilterDelete, setPendingFilterDelete] = useState(null);
+  const [deletingFilter, setDeletingFilter] = useState(false);
+  const [filterDeleteError, setFilterDeleteError] = useState('');
 
   /* Custom Filter creation modal */
   const [showAddFilter, setShowAddFilter] = useState(false);
@@ -252,6 +255,8 @@ export default function ProductTypePage() {
     setEditFilterMeta(meta);
     setEditEcom(defaultGroupConfig(row));
     setEditError('');
+    setPendingFilterDelete(null);
+    setFilterDeleteError('');
     setPreview(null);
     setPreviewError('');
   }
@@ -494,6 +499,75 @@ export default function ProductTypePage() {
     }
   }
 
+  async function confirmFilterDelete() {
+    const target = pendingFilterDelete;
+    const row = editing;
+    if (!target || !row || !business || deletingFilter) return;
+
+    const filterKey = target.key;
+    const label = target.label || filterKey;
+    const isPersistedOnType = Boolean(
+      (Array.isArray(row.filters) && row.filters.map(String).includes(filterKey))
+      || (Array.isArray(row.filterConfig)
+        && row.filterConfig.some((entry) => String(entry?.key || entry?.field || '') === filterKey)),
+    );
+
+    const applyLocalRemoval = (nextFilters, nextConfig) => {
+      setEditFilters((cur) => cur.filter((k) => k !== filterKey));
+      setEditFilterMeta((cur) => {
+        const next = { ...cur };
+        delete next[filterKey];
+        return next;
+      });
+      setEditing((cur) => (cur ? {
+        ...cur,
+        filters: Array.isArray(nextFilters) ? nextFilters : (cur.filters || []).filter((k) => k !== filterKey),
+        filterConfig: Array.isArray(nextConfig)
+          ? nextConfig
+          : (cur.filterConfig || []).filter((e) => String(e?.key || e?.field || '') !== filterKey),
+      } : cur));
+      setPreview((cur) => (cur ? {
+        ...cur,
+        filters: (cur.filters || []).filter((f) => f.key !== filterKey),
+      } : cur));
+    };
+
+    if (!isPersistedOnType) {
+      applyLocalRemoval();
+      setPendingFilterDelete(null);
+      setFilterDeleteError('');
+      setFlash(`Filter "${label}" removed.`);
+      return;
+    }
+
+    setDeletingFilter(true);
+    setFilterDeleteError('');
+    setEditError('');
+    try {
+      const q = new URLSearchParams({
+        business,
+        value: row.value || '',
+        filterKey,
+        ...(row._id ? { id: row._id } : {}),
+      });
+      const r = await fetch('/api/v1/admin/product-types?' + q.toString(), { method: 'DELETE' });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        throw new Error(d.error || 'Could not delete filter.');
+      }
+
+      applyLocalRemoval(d.filters, d.filterConfig);
+      setPendingFilterDelete(null);
+      setFlash(`Filter "${label}" deleted from "${row.label || row.value}".`);
+      window.dispatchEvent(new Event('ecommerce-filters-updated'));
+      await load();
+    } catch (err) {
+      setFilterDeleteError(err.message || 'Could not delete filter.');
+    } finally {
+      setDeletingFilter(false);
+    }
+  }
+
   /*
    * Search Product Types.
    */
@@ -672,7 +746,7 @@ export default function ProductTypePage() {
         <div
           className="fixed inset-0 z-[80] flex items-center justify-center overflow-y-auto bg-black/45 p-4"
           onMouseDown={() => {
-            if (!editSaving) setEditing(null);
+            if (!editSaving && !deletingFilter && !pendingFilterDelete) setEditing(null);
           }}
         >
           <form
@@ -687,7 +761,7 @@ export default function ProductTypePage() {
                 type="button"
                 aria-label="Close"
                 className="flex h-6 w-6 items-center justify-center rounded-full bg-[#e0342c] text-white"
-                disabled={editSaving}
+                disabled={editSaving || deletingFilter}
                 onClick={() => setEditing(null)}
               >
                 <Icon name="x" size={12} />
@@ -864,13 +938,17 @@ export default function ProductTypePage() {
                           </button>
                           <button
                             type="button"
-                            title={'Disable ' + label}
-                            aria-label={'Disable ' + label}
-                            disabled={editSaving}
-                            className="ml-1 text-inkmuted hover:text-danger"
-                            onClick={() => setEditFilters((cur) => cur.filter((f) => f !== type))}
+                            title={'Delete ' + label}
+                            aria-label={'Delete ' + label}
+                            disabled={editSaving || deletingFilter}
+                            className="act-btn act-red ml-1"
+                            onClick={() => {
+                              if (deletingFilter) return;
+                              setFilterDeleteError('');
+                              setPendingFilterDelete({ key: type, label });
+                            }}
                           >
-                            <Icon name="x" size={13} />
+                            <Icon name="trash" size={12} />
                           </button>
                         </div>
                         <div className="grid grid-cols-2 gap-2 border-t border-line px-3 py-2 sm:grid-cols-4">
@@ -1360,6 +1438,25 @@ export default function ProductTypePage() {
         confirmLabel="Delete"
         onCancel={() => !deleting && setPendingDelete(null)}
         onConfirm={confirmDelete}
+      />
+
+      <ConfirmDialog
+        open={Boolean(pendingFilterDelete)}
+        tone="danger"
+        busy={deletingFilter}
+        backdropClassName="z-[95]"
+        title="Delete Filter"
+        recordName={pendingFilterDelete?.label}
+        message="Are you sure you want to delete this filter? It will be permanently removed from this Product Type and the E-commerce storefront side panel."
+        error={filterDeleteError}
+        confirmLabel="Delete"
+        onCancel={() => {
+          if (!deletingFilter) {
+            setPendingFilterDelete(null);
+            setFilterDeleteError('');
+          }
+        }}
+        onConfirm={confirmFilterDelete}
       />
     </div>
   );

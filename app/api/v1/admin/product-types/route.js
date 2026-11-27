@@ -107,7 +107,7 @@ import { CLASSIFICATION_TYPES, PRODUCT_TYPES } from '@/lib/productClassification
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { businessMatch } from '@/lib/classificationCollections';
 import { bumpCatalogVersion } from '@/lib/ecommerceCatalog';
-import { normalizeFilterConfig, normalizeGroupConfig } from '@/lib/ecommerceFilterConfig';
+import { normalizeFilterConfig, normalizeGroupConfig, resolveGroupFilters } from '@/lib/ecommerceFilterConfig';
 import { getValidFilterKeys } from '@/lib/ecommerceFilterMaster';
 
 const json = (data, status = 200) => Response.json(data, { status });
@@ -333,6 +333,7 @@ export async function DELETE(req) {
   const businessId = String(params.get('business') || body.business || '').trim();
   const id = String(params.get('id') || body.id || body._id || '').trim();
   const value = String(params.get('value') || body.value || '').trim().toUpperCase();
+  const filterKey = String(params.get('filterKey') || body.filterKey || '').trim();
 
   if (!isValidObjectId(businessId)) {
     return json({ error: 'Valid business ID required' }, 422);
@@ -346,7 +347,7 @@ export async function DELETE(req) {
     screen: SCREENS.ECOM_PRODUCT_TYPE,
     action: PERM.DELETE,
     businessId,
-    label: 'Product Type',
+    label: filterKey ? 'Product Type Filter' : 'Product Type',
   });
   if (denial) return json({ error: denial.message, code: denial.code }, 403);
 
@@ -361,6 +362,57 @@ export async function DELETE(req) {
   const existing = await collection.findOne(filter);
   if (!existing) {
     return json({ error: 'Product type not found.' }, 404);
+  }
+
+  /* Deleting a single filter removes only its association/configuration on
+     this Product Type, leaving shared filter masters and other groups intact. */
+  if (filterKey) {
+    const assignedList = Array.isArray(existing.filters) ? existing.filters.map(String) : [];
+    const existingConfig = Array.isArray(existing.filterConfig) ? existing.filterConfig : [];
+    const configKeys = existingConfig.map((entry) => String(entry?.key || entry?.field || '')).filter(Boolean);
+    if (!assignedList.includes(filterKey) && !configKeys.includes(filterKey)) {
+      return json({
+        error: `Filter "${filterKey}" is not configured on "${existing.label || existing.value}".`,
+      }, 404);
+    }
+
+    const validFilterKeys = await getValidFilterKeys(businessId, { includeInactive: true });
+    const allKeys = [...new Set([...BUILT_IN_FILTERS, ...validFilterKeys, ...assignedList, ...configKeys])];
+    const resolved = resolveGroupFilters(existing, { validKeys: allKeys });
+    const nextConfig = resolved
+      .filter((entry) => entry.key !== filterKey)
+      .map((entry) => ({
+        key: entry.key,
+        field: entry.field,
+        label: entry.label,
+        displayLabel: entry.displayLabel,
+        displayOrder: entry.displayOrder,
+        isActive: entry.isActive,
+        isVisible: entry.isVisible,
+        isFilterable: entry.isFilterable,
+        selectionMode: entry.selectionMode,
+        type: entry.type,
+      }));
+    const nextFilters = nextConfig.map((entry) => entry.key);
+
+    await collection.updateOne(
+      { _id: existing._id },
+      {
+        $set: {
+          filterConfig: nextConfig,
+          filters: nextFilters,
+          updatedAt: new Date(),
+        },
+      },
+    );
+    await bumpCatalogVersion(businessId);
+
+    return json({
+      ok: true,
+      deletedFilterKey: filterKey,
+      filters: nextFilters,
+      filterConfig: nextConfig,
+    });
   }
 
   const targetValue = String(existing.value || '').trim();
