@@ -1574,26 +1574,25 @@ export default function PosTill() {
   /* WHAT THIS BILL WILL EARN - shown before it is rung up, so the cashier can
      answer "how many will I get" without guessing.
 
-     Uses Taxable Amount rounded half-up to the nearest whole rupee (without
-     modifying the displayed/stored Taxable Amount or Net Amount), less any
-     redeemed loyalty amount so spending points does not earn more of them. */
+     Uses the unrounded Taxable Amount (less any redeemed loyalty amount so
+     spending points does not earn more of them) and rounds ONLY the final
+     loyalty points result to the nearest whole number (>= 0.50 up, < 0.50 down). */
   const earnPreview = (() => {
-    const roundedTaxable = Math.max(0, roundRupee(Math.max(0, taxableAmount)));
-    const earnBase = Math.max(0, roundedTaxable - redeemAmount);
+    const earnBase = Math.max(0, Number(taxableAmount || 0) - redeemAmount);
     if (!loyaltyEligible || earnBase <= 0) return 0;
     /* the six-field master: one point per every purchaseAmountForOnePoint
        rupees. The percentage arithmetic below only serves a config saved
        before that master and never re-saved. */
     if (loyalty.perAmountModel) {
       const per = Number(loyalty.purchaseAmountForOnePoint || 0);
-      return per > 0 ? Math.floor(earnBase / per) : 0;
+      return per > 0 ? Math.round(earnBase / per + Number.EPSILON) : 0;
     }
     const pct = Number(loyalty.earningPercentage || 0);
     if (pct <= 0) return 0;
     const min = Number(loyalty.minPurchaseAmount || 0);
     if (min > 0 && earnBase < min) return 0;
     const cap = Number(loyalty.maxRewardPoint || 0);
-    const points = Math.floor((earnBase * pct) / 100);
+    const points = Math.round((earnBase * pct) / 100 + Number.EPSILON);
     return Math.max(0, cap > 0 ? Math.min(points, cap) : points);
   })();
 
