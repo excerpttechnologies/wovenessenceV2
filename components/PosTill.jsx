@@ -20,7 +20,7 @@ const PAYMENT_MODES = ['Cash', 'Credit', 'Export', 'COD'];
 const MULTI_PAYMENT_METHODS = ['Cash', 'UPI/Card', 'Bank Deposit'];
 const CUSTOMER_DEFAULTS = {
   typeId: '', businessType: 'Un-Registered', gstNo: '', businessName: '', shortName: '',
-  prefix: 'Mr.', firstName: '', middleName: '', lastName: '', dob: '', gender: 'Male',
+  prefix: 'Mrs.', firstName: '', middleName: '', lastName: '', dob: '', gender: 'Female',
   billingAddressLine1: '', billingAddressLine2: '',
   /* the counter is in Bangalore, so that is the city nearly every walk-in customer gets.
      Stored exactly as /api/cities returns it - the picker's value IS the city name,
