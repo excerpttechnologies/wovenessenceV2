@@ -49,9 +49,14 @@ const retailFirst = (types) => (
   (types.find((t) => /^\s*(retail|e-comm)\s*$/i.test(String(t.label || ''))) || types[0] || {}).value || ''
 );
 
-/* Whole rupees everywhere on the till - the paise are dropped, not rounded,
-   the same rule as the POS list. */
-const money = (value) => String(Math.trunc(Number(value || 0)));
+const round2 = (value) => {
+  const n = Math.round(((Number(value) || 0) + Number.EPSILON) * 100) / 100;
+  return Object.is(n, -0) ? 0 : n;
+};
+const money = (value) => {
+  const n = round2(value);
+  return Number.isInteger(n) ? String(n) : n.toFixed(2);
+};
 /* GST is a PERCENTAGE, not money, so it keeps a real fraction (2.5) and
    loses only a pointless one (5, not 5.00) */
 const gstPct = (value) => String(Math.round(Number(value || 0) * 100) / 100);
@@ -242,7 +247,10 @@ const translateImport = (patch, blank) => {
   return out;
 };
 
-function CustomerForm({ values, setValues, typeOptions, onClose, onSave, saving }) {
+function CustomerForm({
+  values, setValues, typeOptions, onClose, onSave, saving,
+  error = '', existingMatch = null, onUseExisting,
+}) {
   const set = (key, value) => setValues((current) => ({ ...current, [key]: value }));
   const text = (key, label, required) => (
     <label className="f-label" key={key}>{label}
@@ -258,6 +266,21 @@ function CustomerForm({ values, setValues, typeOptions, onClose, onSave, saving 
           <h2 className="text-[15px] font-semibold">Add Customer</h2>
           <button type="button" aria-label="Close" onClick={onClose}><Icon name="x" size={18} /></button>
         </div>
+
+        {error && (
+          <div className="flash flash-err mb-3 flex flex-wrap items-center justify-between gap-2">
+            <span>{error}</span>
+            {existingMatch && onUseExisting && (
+              <button
+                type="button"
+                className="btn btn-primary h-7 px-2.5 text-[12px]"
+                onClick={() => onUseExisting(existingMatch)}
+              >
+                Use Existing ({customerLabel(existingMatch)})
+              </button>
+            )}
+          </div>
+        )}
 
         {/* SAME PANEL AS THE SUPPLIER FORM, not a copy of it - one GST parser
             and one Excel reader, so a fix to either reaches both screens.
@@ -417,6 +440,8 @@ export default function PosTill() {
   const [showCustomerForm, setShowCustomerForm] = useState(false);
   const [customerForm, setCustomerForm] = useState(CUSTOMER_DEFAULTS);
   const [savingCustomer, setSavingCustomer] = useState(false);
+  const [customerFormError, setCustomerFormError] = useState('');
+  const [existingCustomerMatch, setExistingCustomerMatch] = useState(null);
   const [items, setItems] = useState([]);
   /* The highlighted bill line, by index. Arrow Up / Down moves THAT line up
      or down the bill - see the keyboard effect further down. Set by clicking
@@ -610,19 +635,45 @@ export default function PosTill() {
   }, [business, location]);
 
   useEffect(() => {
-    if (!customerSearch.trim()) {
-      if (customer && customer !== 'walkin') return undefined;
-      setCustomerOptions([{ value: 'walkin', label: 'Walk-in Customer' }]);
+    const selectedOption = customer && customer !== 'walkin' && selectedCustomer
+      ? { value: customer, label: customerLabel(selectedCustomer), customer: selectedCustomer }
+      : null;
+    const baseOptions = selectedOption
+      ? [selectedOption, { value: 'walkin', label: 'Walk-in Customer' }]
+      : [{ value: 'walkin', label: 'Walk-in Customer' }];
+
+    const query = customerSearch.trim();
+    if (!query || !business) {
+      setCustomerOptions(baseOptions);
       return undefined;
     }
-    const timer = setTimeout(() => fetch(`/api/customer?perPage=30&business=${business}&search=${encodeURIComponent(customerSearch)}`).then((r) => r.json()).then((d) => {
-      const rows = d.rows || [];
-      setCustomerOptions(rows.length
-        ? rows.map((r) => ({ value: String(r._id), label: customerLabel(r), customer: r }))
-        : [{ value: 'add-customer', label: 'Add Customer', addCustomer: true }]);
-    }).catch(() => {}), 250);
-    return () => clearTimeout(timer);
-  }, [business, customerSearch, customer]);
+
+    let off = false;
+    const timer = setTimeout(() => {
+      fetch(`/api/customer?perPage=30&business=${business}&search=${encodeURIComponent(query)}`)
+        .then((r) => r.json())
+        .then((d) => {
+          if (off) return;
+          const rows = d.rows || [];
+          if (rows.length) {
+            const matched = rows.map((r) => ({ value: String(r._id), label: customerLabel(r), customer: r }));
+            setCustomerOptions(
+              matched.some((m) => m.value === 'walkin')
+                ? matched
+                : [...matched, { value: 'walkin', label: 'Walk-in Customer' }]
+            );
+          } else {
+            setCustomerOptions([
+              { value: 'add-customer', label: 'Add Customer', addCustomer: true },
+              { value: 'walkin', label: 'Walk-in Customer' },
+            ]);
+          }
+        })
+        .catch(() => {});
+    }, 250);
+
+    return () => { off = true; clearTimeout(timer); };
+  }, [business, customerSearch, customer, selectedCustomer]);
 
   /* Item suggestions for the scan box.
 
@@ -1100,7 +1151,6 @@ export default function PosTill() {
     /* the next bill is a different bill, and may be a different customer */
     setRedeemPoints(0);
     setLoyalty(null);
-    setSelectedSchemeId('');
     setSelectedProduct(null);
     setCustomer('walkin');
     setSelectedCustomer(null);
@@ -1217,39 +1267,37 @@ export default function PosTill() {
     await loadHolds();
   }
 
+  function useExistingCustomer(existing) {
+    if (!existing?._id) return;
+    const id = String(existing._id);
+    const option = { value: id, label: customerLabel(existing), customer: existing };
+    setRedeemPoints(0);
+    setLoyalty(null);
+    setCustomerOptions([option, { value: 'walkin', label: 'Walk-in Customer' }]);
+    setCustomer(id);
+    setSelectedCustomer(existing);
+    setCustomerSearch('');
+    setCustomerFormError('');
+    setExistingCustomerMatch(null);
+    setShowCustomerForm(false);
+    setMsg('');
+  }
+
   async function saveCustomer(event) {
     event.preventDefault();
-    if (!customerForm.typeId) { setMsg('Create a customer type in Customer Type master first.'); return; }
+    setCustomerFormError('');
+    setExistingCustomerMatch(null);
+    if (!customerForm.typeId) {
+      setCustomerFormError('Create a customer type in Customer Type master first.');
+      return;
+    }
     setSavingCustomer(true);
 
-    /* WHAT IS ACTUALLY SENT, which is not quite what is on screen.
-
-       REGISTERED: firstName is req:true on the customer master (see
-       app/admin/contact/customer/tabs.js) and this dialog shows no Name box
-       for a registered customer, so the business name stands in as the name.
-       Without it the save comes back 422 against a field the operator cannot
-       see. customerLabel drops the repeat when it builds the picker's text,
-       so the customer reads as "LABH FASHIONS", not as it twice.
-
-       UN-REGISTERED: a GSTIN on such a customer is a contradiction, and a
-       business name the operator cannot see is worse than none - it would
-       still lead the customer picker, which reads businessName first. Both
-       are dropped HERE rather than when the dropdown changes, so the two
-       boxes survive a mis-click while the dialog is open and only the saved
-       record is held to the rule.
-
-       Named `payload`, NOT `data`. The try below declares its own `data` for
-       the parsed response, and a `data` out here would sit in that block's
-       temporal dead zone - the fetch call reads it before the inner one is
-       initialised, and the dialog dies with "Cannot access 'data' before
-       initialization" before a single request is sent. */
     const payload = customerForm.businessType === 'Registered'
       ? {
         ...customerForm,
         firstName: String(customerForm.firstName || '').trim()
           || String(customerForm.businessName || '').trim(),
-        /* hidden for a business, so not saved against one either - the
-           defaults (Mr. / Male) would otherwise describe a firm as a man */
         prefix: '',
         gender: '',
       }
@@ -1258,13 +1306,35 @@ export default function PosTill() {
     try {
       const response = await fetch('/api/customer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ business, quick: true, data: payload }) });
       const data = await response.json();
+      if (response.status === 409 && data.existingCustomer) {
+        setExistingCustomerMatch(data.existingCustomer);
+        setCustomerFormError(data.error || 'A customer with this mobile number already exists.');
+        return;
+      }
       if (!response.ok) throw new Error(data.errors ? Object.values(data.errors).join(', ') : data.error || 'Unable to save customer');
-      const savedCustomer = { ...customerForm, contactId: data.customer?.contactId || '', _id: data.id };
+      const savedCustomer = { ...customerForm, contactId: data.customer?.contactId || '', _id: data.id, typeId: data.customer?.typeId || customerForm.typeId };
       const option = { value: data.id, label: customerLabel(savedCustomer), customer: savedCustomer };
       setRedeemPoints(0);
       setLoyalty(null);
-      setCustomerOptions((rows) => [option, ...rows.filter((row) => row.value !== 'walkin' && row.value !== data.id)]); setCustomer(data.id); setSelectedCustomer(savedCustomer); setCustomerSearch(''); setShowCustomerForm(false); setCustomerForm({ ...CUSTOMER_DEFAULTS, typeId: customerForm.typeId }); setMsg('');
-    } catch (error) { setMsg(error.message); } finally { setSavingCustomer(false); }
+      setCustomerOptions([option, { value: 'walkin', label: 'Walk-in Customer' }]);
+      setCustomer(data.id);
+      setSelectedCustomer(savedCustomer);
+      setCustomerSearch('');
+      setShowCustomerForm(false);
+      setCustomerForm({ ...CUSTOMER_DEFAULTS, typeId: customerForm.typeId });
+      setMsg('');
+    } catch (error) { setCustomerFormError(error.message); } finally { setSavingCustomer(false); }
+  }
+
+  function closeCustomerForm() {
+    setShowCustomerForm(false);
+    setCustomerFormError('');
+    setExistingCustomerMatch(null);
+    setCustomerSearch('');
+    setCustomer('walkin');
+    setSelectedCustomer(null);
+    setRedeemPoints(0);
+    setLoyalty(null);
   }
 
   /* Opens a blank Add Customer form. Reached two ways: the "add" row the
@@ -1272,6 +1342,8 @@ export default function PosTill() {
      button next to the picker - the deployed till has both. Any digits already
      typed into the search box are carried into Mobile so they are not retyped. */
   function openCustomerForm() {
+    setCustomerFormError('');
+    setExistingCustomerMatch(null);
     setCustomer('walkin');
     setSelectedCustomer(null);
     setRedeemPoints(0);
@@ -1289,8 +1361,7 @@ export default function PosTill() {
     if (option?.addCustomer) { openCustomerForm(); return; }
     setRedeemPoints(0);
     setLoyalty(null);
-    setSelectedSchemeId('');
-    if (!value) {
+    if (!value || value === 'walkin') {
       setCustomer('walkin');
       setSelectedCustomer(null);
       setCustomerSearch('');
@@ -1310,8 +1381,8 @@ export default function PosTill() {
     const gross = Number(row.rsp || 0) * Number(row.qty || 0);
     return {
       ...row,
-      discountAmount: sign * gross * Number(row.discountPct || 0) / 100,
-      lineTotal: sign * gross * (1 - Number(row.discountPct || 0) / 100),
+      discountAmount: round2(sign * gross * Number(row.discountPct || 0) / 100),
+      lineTotal: round2(sign * gross * (1 - Number(row.discountPct || 0) / 100)),
     };
   });
   const qty = rows.reduce((sum, row) => sum + (row.isReturn ? -1 : 1) * Number(row.qty || 0), 0);
@@ -1356,20 +1427,17 @@ export default function PosTill() {
 
 
 ///////new code without tax add on top of bill value
-  const billValue = rows.reduce((sum, row) => sum + row.lineTotal, 0);
+  const billValue = round2(rows.reduce((sum, row) => sum + row.lineTotal, 0));
   /* RSP is GST-inclusive, as on the deployed till: the customer pays the
      ticket price and the tax is backed OUT of it for the record, never added
      on top. 295 at 5% bills 295, of which 14.05 is tax and 280.95 taxable. */
-  const tax = rows.reduce((sum, row) => {
+  const tax = round2(rows.reduce((sum, row) => {
     const rate = Number(row.gst || 0);
     return sum + (row.lineTotal - row.lineTotal / (1 + rate / 100));
-  }, 0);
-  const taxableAmount = billValue - tax;
-  /* Net amount = goods + shipping. Tax is inside `billValue` already. */
-  /* WHOLE RUPEES, and not only on screen: this is the figure the bill is
-     SAVED at and the payment dialog asks for. Showing 1097 while charging
-     1097.80 would leave every exact payment 0.80 short and Part Paid. */
-  const netAmount = Math.trunc(billValue + Number(shipping || 0));
+  }, 0));
+  const taxableAmount = round2(billValue - tax);
+  /* Net amount = goods + shipping, preserving decimal precision. */
+  const netAmount = round2(billValue + Number(shipping || 0));
 
 
 
@@ -1440,9 +1508,9 @@ export default function PosTill() {
     setRedeemPoints((current) => (current > maxRedeem ? maxRedeem : current));
   }, [loyaltyEligible, maxRedeem]);
 
-  const redeemAmount = loyaltyEligible ? redeemPoints * Number(loyalty.pointsToInr || 0) : 0;
+  const redeemAmount = loyaltyEligible ? round2(redeemPoints * Number(loyalty.pointsToInr || 0)) : 0;
   /* what the customer actually hands over */
-  const payableAfterPoints = Math.max(0, Math.trunc(netAmount - redeemAmount));
+  const payableAfterPoints = round2(Math.max(0, netAmount - redeemAmount));
 
   /* WHAT THIS BILL WILL EARN - shown before it is rung up, so the cashier can
      answer "how many will I get" without guessing.
@@ -1530,7 +1598,7 @@ export default function PosTill() {
           every one of them was a dead control: it looked pressable and did
           nothing. The Calculator above is the only one of the five that was
           ever wired, and it stays. */}</div>
-      <div className="grid grid-cols-1 gap-2 px-4 md:grid-cols-[1fr_1fr_0.85fr_0.7fr]"><input className="f-input" type="date" value={saleDate} onChange={(e) => setSaleDate(e.target.value)} /><MultiSelect mode="single" options={salesPeople} value={salesPerson} placeholder="Sales Person" onChange={pickHeaderSalesPerson} /><div className="flex items-center gap-2"><div className="min-w-0 flex-1"><MultiSelect mode="single" options={customerOptions} value={customer} placeholder="Walk-in Customer / phone number" onSearch={setCustomerSearch} onChange={selectCustomer} /></div></div><input className="f-input" value={cashier} readOnly /></div>
+      <div className="grid grid-cols-1 gap-2 px-4 md:grid-cols-[1fr_1fr_0.85fr_0.7fr]"><input className="f-input" type="date" value={saleDate} onChange={(e) => setSaleDate(e.target.value)} /><MultiSelect mode="single" options={salesPeople} value={salesPerson} placeholder="Sales Person" onChange={pickHeaderSalesPerson} /><div className="flex items-center gap-2"><div className="min-w-0 flex-1"><MultiSelect mode="single" options={customerOptions} value={customer} placeholder="Walk-in Customer / phone number" filterLocally={false} onSearch={setCustomerSearch} onChange={selectCustomer} /></div></div><input className="f-input" value={cashier} readOnly /></div>
       <div className="mt-2 grid grid-cols-1 items-center gap-2 px-4 md:grid-cols-[1fr_1.5fr_1fr_auto]"><select className="f-input" value={payMode} onChange={(e) => setPayMode(e.target.value)}>{PAYMENT_MODES.map((mode) => <option key={mode}>{mode}</option>)}</select><div className="relative"><input ref={scanRef} data-scan-target="" className="f-input" placeholder="Scan barcode, or type a product name / SKU" value={code} /* typed in CAPITALS (user, 26-10-2026) - the screen only showed capitals, the value stayed as typed */ onChange={(e) => setCode(e.target.value.toUpperCase())} onKeyDown={(e) => { if (['Enter', 'F9', 'Tab'].includes(e.key)) { e.preventDefault(); scan(); } }} />{scanBusy && <span className="absolute right-2 top-2 text-[11px] text-inkmuted">checking...</span>}{itemSuggestions.length > 0 && <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-64 overflow-auto rounded border border-line bg-white shadow-lg">{itemSuggestions.map((item) => <button type="button" key={item._id} className="flex w-full items-center gap-2 border-b border-line px-3 py-2 text-left text-[12px] hover:bg-[#f4f7fb]" onClick={() => addBarcodeItem(item)}><ProductImage src={item.productImageUrl} alt={item.itemId || item.itemCode} size={44} /><span className="min-w-0 flex-1"><b className="block truncate">{item.itemId || item.description || item.itemCode}</b><span className="text-inkmuted">{item.barcodeNo} · RSP {money(item.rsp)}</span></span></button>)}</div>}</div><select className="f-input disabled:cursor-not-allowed disabled:bg-[#f3f4f6]" value={counter} disabled={counterLocked} title={counterLocked ? 'Your assigned cash counter' : undefined} onChange={(e) => setCounter(e.target.value)}><option value="">Select Cash Counter</option>{counterChoices.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><div className="flex items-center gap-3 whitespace-nowrap"><button type="button" className="btn bg-danger px-2 py-1 text-white" title="Process a customer return against a previous bill" onClick={() => { /* a new browser tab, so the bill in progress on the till is not lost */ const w = window.open(`/admin/transaction/sell/pos-return/add?business=${business}&location=${location}&finYear=${finYear}${customer && customer !== 'walkin' ? '&customer=' + customer : ''}`, '_blank'); if (w) { try { w.opener = null; } catch { /* cross-origin */ } } }}><Icon name="undo" size={13} /> Return / Refund</button><label className="flex items-center gap-1" title="Take goods back against a previous bill"><input type="checkbox" checked={isExchange} onChange={(e) => { setIsExchange(e.target.checked); setExchangePick(null); setExchangeInvoiceId(''); }} /> Exchange</label></div></div>
       </div>{selectedProduct && <div className="flex shrink-0 flex-col items-center justify-center gap-1 border-l border-line px-4 py-2"><ProductImage src={selectedProduct.image} alt={selectedProduct.name} size={170} width={300} onOpen={() => setPreviewImage({ src: selectedProduct.image, alt: selectedProduct.name })} /><span className="max-w-[300px] truncate text-[12px] font-semibold">{selectedProduct.barcode || selectedProduct.code}</span></div>}</div>
       {/* The customer summary strip that used to sit here - name, contact id,
@@ -1733,7 +1801,19 @@ export default function PosTill() {
           </div>
         </div>
       )}
-      {showCustomerForm && <CustomerForm values={customerForm} setValues={setCustomerForm} typeOptions={customerTypes} onClose={() => setShowCustomerForm(false)} onSave={saveCustomer} saving={savingCustomer} />}
+      {showCustomerForm && (
+        <CustomerForm
+          values={customerForm}
+          setValues={setCustomerForm}
+          typeOptions={customerTypes}
+          onClose={closeCustomerForm}
+          onSave={saveCustomer}
+          saving={savingCustomer}
+          error={customerFormError}
+          existingMatch={existingCustomerMatch}
+          onUseExisting={useExistingCustomer}
+        />
+      )}
     </div>
   );
 }

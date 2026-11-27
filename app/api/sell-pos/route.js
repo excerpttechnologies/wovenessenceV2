@@ -49,6 +49,10 @@ const FIELDS = [];
 
 const json = (d, s = 200) => Response.json(d, { status: s });
 const PER_PAGE = 10;
+const round2 = (v) => {
+  const n = Math.round(((Number(v) || 0) + Number.EPSILON) * 100) / 100;
+  return Object.is(n, -0) ? 0 : n;
+};
 
 export async function GET(req) {
   const session = await requireSession();
@@ -481,12 +485,12 @@ export const POST = handler(async (req) => {
   if (body.data?.customerSnapshot) doc.customerSnapshot = body.data.customerSnapshot;
   if (body.data?.sellNote !== undefined) doc.sellNote = body.data.sellNote;
   if (body.data?.staffNote !== undefined) doc.staffNote = body.data.staffNote;
-  doc.shipping = Number(body.data?.shipping || 0);
-  doc.totalAmount = Number(body.data?.totalAmount || 0);
+  doc.shipping = round2(body.data?.shipping || 0);
+  doc.totalAmount = round2(body.data?.totalAmount || 0);
   const forgedLoyaltyPaid = rawPayments
     .filter((p) => p && p.loyalty === true)
     .reduce((sum, p) => sum + Number(p?.amount || 0), 0);
-  doc.paid = Math.max(0, Number(body.data?.paid || 0) - forgedLoyaltyPaid);
+  doc.paid = round2(Math.max(0, Number(body.data?.paid || 0) - forgedLoyaltyPaid));
 
   /* ------------------------------------------------------------------
      LOYALTY POINTS.
@@ -574,7 +578,7 @@ export const POST = handler(async (req) => {
   doc.loyaltySchemeName = loyaltyEligible ? String(rules?.name || '') : '';
 
   if (redeemAmount > 0) {
-    doc.paid = Number(doc.paid || 0) + redeemAmount;
+    doc.paid = round2(Number(doc.paid || 0) + redeemAmount);
     doc.payments = [
       ...(Array.isArray(doc.payments) ? doc.payments : []),
       {
@@ -586,7 +590,7 @@ export const POST = handler(async (req) => {
     ];
   }
 
-  doc.sellDue = Math.max(0, doc.totalAmount - doc.paid);
+  doc.sellDue = Math.max(0, round2(doc.totalAmount - doc.paid));
   doc.paymentStatus = doc.sellDue === 0 ? 'Paid' : doc.paid > 0 ? 'Part Paid' : 'Unpaid';
 
   /* Barcoded lines are the ones that move stock. A line entered from the item

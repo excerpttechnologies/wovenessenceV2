@@ -18,8 +18,14 @@ import Icon from '@/components/Icon';
 const UPI_METHOD = 'UPI/Card';
 const MULTI_PAYMENT_METHODS = ['Cash', UPI_METHOD, 'Bank Deposit'];
 
-/* whole rupees, as on the till and the POS list */
-const money = (value) => String(Math.trunc(Number(value || 0)));
+const round2 = (value) => {
+  const n = Math.round(((Number(value) || 0) + Number.EPSILON) * 100) / 100;
+  return Object.is(n, -0) ? 0 : n;
+};
+const money = (value) => {
+  const n = round2(value);
+  return Number.isInteger(n) ? String(n) : n.toFixed(2);
+};
 
 const sameMethod = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
 
@@ -76,9 +82,9 @@ export default function MultiplePayDialog({
   const [salesChannel, setSalesChannel] = useState(
     String(initialSalesChannel || '') === 'instagram' ? 'instagram' : ''
   );
-  const totalPaying = payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
-  const changeReturn = Math.max(0, totalPaying - totalPayable);
-  const balance = Math.max(0, totalPayable - totalPaying);
+  const totalPaying = round2(payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0));
+  const changeReturn = round2(Math.max(0, totalPaying - round2(totalPayable)));
+  const balance = round2(Math.max(0, round2(totalPayable) - totalPaying));
 
   /* The + on the UPI/Card row: one more UPI/Card row, right under it - for a
      bill split across two UPI payments. Removable, like any added row. */
@@ -103,9 +109,10 @@ export default function MultiplePayDialog({
      Total Paying / Balance add up as before. */
   function chooseMethod(index) {
     setSelectedIndex(index);
+    const payableText = String(round2(totalPayable));
     setPayments((current) => current.map((payment, i) => (
       i === index
-        ? { ...payment, amount: String(totalPayable) }
+        ? { ...payment, amount: payableText }
         : { ...payment, amount: '' }
     )));
   }

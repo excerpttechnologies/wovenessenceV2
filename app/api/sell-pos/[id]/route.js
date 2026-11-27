@@ -18,6 +18,10 @@ const FIELDS = [];
 /* /api/sell-pos/<id> - read one, update, delete. */
 
 const json = (d, s = 200) => Response.json(d, { status: s });
+const round2 = (v) => {
+  const n = Math.round(((Number(v) || 0) + Number.EPSILON) * 100) / 100;
+  return Object.is(n, -0) ? 0 : n;
+};
 
 export async function GET(req, { params }) {
   const session = await requireSession();
@@ -132,9 +136,9 @@ export async function PUT(req, { params }) {
        edited payment updated the rows on screen while PAID, DUE and STATUS
        kept the figures from the original sale. */
     const existing = await PosInvoice.findById(id).select('totalAmount').lean();
-    const total = Number(existing?.totalAmount || 0);
-    doc.paid = doc.payments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
-    doc.sellDue = Math.max(0, total - doc.paid);
+    const total = round2(existing?.totalAmount || 0);
+    doc.paid = round2(doc.payments.reduce((sum, p) => sum + Number(p.amount || 0), 0));
+    doc.sellDue = Math.max(0, round2(total - doc.paid));
     doc.paymentStatus = doc.sellDue === 0 ? 'Paid' : doc.paid > 0 ? 'Part Paid' : 'Unpaid';
   }
   if (body.data?.sellNote !== undefined) doc.sellNote = body.data.sellNote;

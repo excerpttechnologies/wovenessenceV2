@@ -259,6 +259,29 @@ export async function POST(req) {
 
   /* stamped here, never taken from the client */
   doc.contactKind = 'Customer';
+
+  const mobile = String(doc.billingMobile || '').trim();
+  if (mobile) {
+    const dupFilter = { contactKind: 'Customer', billingMobile: mobile };
+    if (doc.businessId) dupFilter.businessId = doc.businessId;
+    const existingCustomer = await Contact.findOne(dupFilter)
+      .select('_id businessId typeId contactKind contactId businessName firstName middleName lastName billingMobile')
+      .lean();
+    if (existingCustomer) {
+      return json({
+        error: 'A customer with this mobile number already exists.',
+        code: 'CUSTOMER_ALREADY_EXISTS',
+        errors: { billingMobile: 'A customer with this mobile number already exists.' },
+        existingCustomer: {
+          ...existingCustomer,
+          _id: String(existingCustomer._id),
+          businessId: existingCustomer.businessId ? String(existingCustomer.businessId) : '',
+          typeId: existingCustomer.typeId ? String(existingCustomer.typeId) : '',
+        },
+      }, 409);
+    }
+  }
+
   /* Two arguments, not three. nextContactId(ContactType, typeId) takes the
      Contact Type model and the chosen type's id; the extra Contact model this
      used to pass landed in the typeId slot, and a Mongoose model is a

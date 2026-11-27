@@ -22,9 +22,14 @@ import { shareEmail } from '@/lib/shareRoutes';
    `onBack` is the Back / Close button: router.back() on the page, closing the
    popup on the list. */
 
-/* whole rupees - the paise are dropped, not rounded, the same rule as the
-   POS list and the Payments popup */
-const money = (value) => String(Math.trunc(Number(value || 0)));
+const round2 = (value) => {
+  const n = Math.round(((Number(value) || 0) + Number.EPSILON) * 100) / 100;
+  return Object.is(n, -0) ? 0 : n;
+};
+const money = (value) => {
+  const n = round2(value);
+  return Number.isInteger(n) ? String(n) : n.toFixed(2);
+};
 /* GST is a PERCENTAGE - it keeps a real fraction (2.5), loses a pointless
    one (5, not 5.00) */
 const gstPct = (value) => String(Math.round(Number(value || 0) * 100) / 100);

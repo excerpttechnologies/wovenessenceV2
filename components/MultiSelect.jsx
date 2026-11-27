@@ -7,7 +7,7 @@ import Icon from './Icon';
 export default function MultiSelect({
   options = [], value, onChange, mode = 'multi',
   placeholder = 'Select...', disabled = false, loading = false, error = '', emptyText = '', onSearch,
-  maxOptions = 200, clearable = true,
+  maxOptions = 200, clearable = true, filterLocally = true,
 }) {
   const [open, setOpen] = useState(false);
   const [term, setTerm] = useState('');
@@ -20,11 +20,12 @@ export default function MultiSelect({
       if (box.current && !box.current.contains(e.target)) {
         setOpen(false);
         setTerm('');
+        onSearch?.('');
       }
     }
     document.addEventListener('mousedown', away);
     return () => document.removeEventListener('mousedown', away);
-  }, []);
+  }, [onSearch]);
 
   const selected = mode === 'multi'
     ? (Array.isArray(value) ? value : []).map((v) => options.find((o) => String(o.value) === String(v)) || { value: v, label: v })
@@ -36,7 +37,7 @@ export default function MultiSelect({
 
   const shown = options.filter((o) => {
     if (o.addCustomer) return true;
-    if (term && !String(o.label).toLowerCase().includes(term.toLowerCase())) return false;
+    if (filterLocally && term && !String(o.label).toLowerCase().includes(term.toLowerCase())) return false;
     if (mode === 'multi') return !(value || []).map(String).includes(String(o.value));
     return true;
   });
@@ -56,6 +57,7 @@ export default function MultiSelect({
       ignoreNextFocusRef.current = true;
       setOpen(false);
       setTerm('');
+      onSearch?.('');
       setTimeout(() => { ignoreNextFocusRef.current = false; }, 0);
       return;
     }
@@ -113,6 +115,7 @@ export default function MultiSelect({
               e.stopPropagation();
               setOpen(false);
               setTerm('');
+              onSearch?.('');
             } else if (e.key === 'Enter' && open && shown.length > 0 && term.trim()) {
               e.preventDefault();
               pick(shown[0]);

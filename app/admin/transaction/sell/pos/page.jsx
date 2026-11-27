@@ -235,10 +235,12 @@ const CONFIG = {
       render: (r) => {
         const status = String(r.paymentStatus || '').trim();
         const look = PAID_LOOK[status.toLowerCase()] || { tick: false, className: 'text-inkmuted' };
+        const amt = Math.round(((Number(r.totalAmount || 0)) + Number.EPSILON) * 100) / 100;
+        const amtText = Number.isInteger(amt) ? String(amt) : amt.toFixed(2);
         return (
           <span className="inline-flex flex-col gap-0.5 leading-tight">
             <span className="font-semibold text-okgreen">
-              {'₹' + Math.trunc(Number(r.totalAmount || 0))}
+              {'₹' + amtText}
             </span>
             {status && (
               <span className={'inline-flex items-center gap-1 text-[11px] font-semibold ' + look.className}>

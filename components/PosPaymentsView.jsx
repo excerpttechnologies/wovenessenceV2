@@ -13,9 +13,14 @@ import MultiplePayDialog from '@/components/MultiplePayDialog';
    `onSaved` called after an edited split is saved, so the list behind the
              popup can refresh its Paid / Sell Due figures. */
 
-/* whole rupees on this screen - the paise are dropped, not rounded, the
-   same rule the POS list uses */
-const money = (value) => String(Math.trunc(Number(value || 0)));
+const round2 = (value) => {
+  const n = Math.round(((Number(value) || 0) + Number.EPSILON) * 100) / 100;
+  return Object.is(n, -0) ? 0 : n;
+};
+const money = (value) => {
+  const n = round2(value);
+  return Number.isInteger(n) ? String(n) : n.toFixed(2);
+};
 
 export default function PosPaymentsView({ id, onBack, backLabel = 'Back', onSaved }) {
   const [doc, setDoc] = useState(null);
