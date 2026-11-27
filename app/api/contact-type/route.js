@@ -86,7 +86,7 @@ export async function GET(req) {
         loyaltySchemeId: scheme ? String(scheme._id) : '',
         loyaltySchemeName: scheme ? String(scheme.loyaltyPointName || 'Loyalty Points') : '',
         loyaltySchemeActive: scheme ? String(scheme.active || '').trim().toLowerCase() === 'yes' : false,
-        loyaltyPointsApplicable: r.loyaltyPointsApplicable === true,
+        loyaltyPointsApplicable: Boolean(scheme),
         _id: String(r._id),
       };
     }),
@@ -114,7 +114,16 @@ export async function POST(req) {
   if (!ok) return json({ errors }, 422);
   doc.name = String(doc.name || '').trim().toUpperCase();
   if (body.business && isValidObjectId(body.business)) doc.businessId = body.business;
-  doc.loyaltyPointsApplicable = doc.loyaltyPointsApplicable === true;
+
+  const schemeCheck = await validateContactTypeLoyaltyScheme({
+    businessId: doc.businessId || body.business,
+    loyaltySchemeId: doc.loyaltySchemeId,
+  });
+  if (!schemeCheck.ok) {
+    return json({ errors: { loyaltySchemeId: schemeCheck.error } }, 422);
+  }
+  doc.loyaltySchemeId = schemeCheck.loyaltySchemeId;
+  doc.loyaltyPointsApplicable = schemeCheck.loyaltyPointsApplicable;
 
   const created = await ContactType.create(doc);
   return json({ ok: true, id: String(created._id) });
