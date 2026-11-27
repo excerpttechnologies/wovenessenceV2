@@ -2641,6 +2641,7 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
   const mayCreate = can(screenKey, 'create');
   const mayUpdate = can(screenKey, 'update');
   const mayDelete = can(screenKey, 'delete');
+  const mayDownload = can(screenKey, 'download');
   const [state, setState] = useState({
     rows: [],
     labels: {},
@@ -3528,12 +3529,14 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
             showAdd={cfg.showAdd !== false}
             addDisabled={!mayCreate}
             addDisabledReason="You do not have Create permission for this screen."
-            showCsv={cfg.showCsv !== false}
+            showCsv={cfg.showCsv !== false && mayDownload}
+            showExcel={cfg.showExcel !== false && mayDownload}
+            showPdf={cfg.showPdf !== false && mayDownload}
             exporting={exporting}
             onExportCsv={() => runExport("csv")}
             onExportExcel={() => runExport("excel")}
             onExportPdf={() => runExport("pdf")}
-            onExportFull={fullExportEnabled ? runFullExport : null}
+            onExportFull={fullExportEnabled && mayDownload ? runFullExport : null}
             showSelectedExport={canSelect}
             selectedCount={selected.size}
           />

@@ -4,7 +4,7 @@ import Grc from '@/models/Grc';
 import Grt from '@/models/Grt';
 import { BarcodeLabel } from '@/lib/barcodeLabel';
 import { requireSession } from '@/lib/session';
-import { screenDenialAny, ACTIONS as PERM, BARCODE_LIST_SCREENS } from '@/lib/screenPermission';
+import { screenDenialAny, SCREENS, ACTIONS as PERM, BARCODE_LIST_SCREENS } from '@/lib/screenPermission';
 import { escapeRegex } from '@/lib/validate';
 import { imageUrl } from '@/lib/inventory';
 import { barcodeSearchPattern } from '@/lib/barcodeValue';
@@ -119,6 +119,25 @@ export async function GET(req) {
      grc ids first, then constrain BarcodeLabel.grcId to that set. */
   const supplierId = sp.get('supplierId');
   const grcNo = (sp.get('grcNo') || '').trim();
+  const canSeeCostAndSupplier = !(await screenDenialAny({
+    session,
+    screens: [
+      SCREENS.BARCODE_ITEM,
+      SCREENS.MASTER_STOCK_REPORT,
+      SCREENS.GRC,
+      SCREENS.GRT,
+      SCREENS.PRINT_LABEL,
+    ],
+    action: PERM.READ,
+    businessId: scope.businessId || sp.get('business'),
+    label: 'inventory cost details',
+  }));
+  if (!canSeeCostAndSupplier && (supplierId || grcNo || sp.get('cpStart') || sp.get('cpEnd'))) {
+    return json({
+      error: 'Your role is not allowed to filter inventory by supplier, GRC, or cost price.',
+      code: 'FORBIDDEN',
+    }, 403);
+  }
   if (supplierId || grcNo) {
     const grcFilter = {};
     if (supplierId && isValidObjectId(supplierId)) grcFilter.supplierId = supplierId;
@@ -182,8 +201,10 @@ export async function GET(req) {
       gst: Number(String(r.gst || '').match(/[\d.]+/)?.[0] || 0),
       quantity: Number(r.qty) || 0,
       rsp: Number(r.retailPrice) || 0,
-      cp: Number(r.finalNet || r.purRate) || 0,
-      grcNo: grcNumberById[r.grcId] || '',
+      ...(canSeeCostAndSupplier ? {
+        cp: Number(r.finalNet || r.purRate) || 0,
+        grcNo: grcNumberById[r.grcId] || '',
+      } : {}),
       /* The mobile app writes the staff-uploaded photo straight onto the
          barcode row, so it arrives with the row - no join, no second
          collection. Units that never got one fall back to the photo shipped

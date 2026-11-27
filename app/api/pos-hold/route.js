@@ -1,6 +1,8 @@
 import { isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
 import PosHold from '@/models/PosHold';
+import { Customer } from '@/lib/contacts';
+import SalesPerson from '@/models/SalesPerson';
 import { requireSession } from '@/lib/session';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
@@ -88,6 +90,62 @@ export async function POST(req) {
      the list forever with nothing to resume. */
   const items = Array.isArray(data.items) ? data.items : [];
   if (!items.length) return json({ error: 'Add an item before holding the bill.' }, 422);
+
+  const targetBusinessId = scope.businessId || (body.business && isValidObjectId(body.business) ? body.business : null);
+  const rawCustomerName = String(data.customerName || '').trim();
+  const hasNamedCustomerLabel = Boolean(rawCustomerName && !/^walk[-\s]?in(\s+customer)?$/i.test(rawCustomerName));
+  const hasCustomerInput = Boolean(
+    (data.customerId && String(data.customerId).trim())
+    || String(data.customerContact || '').trim()
+    || data.customerSnapshot
+    || hasNamedCustomerLabel,
+  );
+  if (hasCustomerInput) {
+    const custDenied = await screenDenial({
+      session,
+      screen: SCREENS.CUSTOMER,
+      label: 'Customer',
+      action: PERM.READ,
+      businessId: targetBusinessId,
+    });
+    if (custDenied) return json({ error: custDenied.message, code: custDenied.code }, 403);
+    if (data.customerId && isValidObjectId(data.customerId)) {
+      const validCustomer = await Customer.findOne({
+        _id: data.customerId,
+        contactKind: 'Customer',
+        ...(targetBusinessId ? { businessId: targetBusinessId } : {}),
+      }).select('_id').lean();
+      if (!validCustomer) {
+        return json({ error: 'Selected customer does not belong to this business.', code: 'INVALID_CUSTOMER' }, 422);
+      }
+    }
+  }
+
+  const spIds = [...new Set(
+    [data.salesPerson, ...items.map((l) => l?.salesPerson)]
+      .map((v) => String(v || '').trim())
+      .filter(Boolean),
+  )];
+  if (spIds.length) {
+    const spDenied = await screenDenial({
+      session,
+      screen: SCREENS.SALES_PERSON,
+      label: 'Sales Person',
+      action: PERM.READ,
+      businessId: targetBusinessId,
+    });
+    if (spDenied) return json({ error: spDenied.message, code: spDenied.code }, 403);
+    if (spIds.some((id) => !isValidObjectId(id))) {
+      return json({ error: 'Invalid sales person selection.', code: 'INVALID_SALES_PERSON' }, 422);
+    }
+    const matchedSpCount = await SalesPerson.countDocuments({
+      _id: { $in: spIds },
+      ...(targetBusinessId ? { businessId: targetBusinessId } : {}),
+    });
+    if (matchedSpCount !== spIds.length) {
+      return json({ error: 'Selected sales person does not belong to this business.', code: 'INVALID_SALES_PERSON' }, 422);
+    }
+  }
 
   const doc = {
     businessId: scope.businessId || (body.business && isValidObjectId(body.business) ? body.business : null),

@@ -492,6 +492,61 @@ export const POST = handler(async (req) => {
     .reduce((sum, p) => sum + Number(p?.amount || 0), 0);
   doc.paid = round2(Math.max(0, Number(body.data?.paid || 0) - forgedLoyaltyPaid));
 
+  const hasCustomerInput = Boolean(
+    doc.customerId
+    || String(doc.customerContact || '').trim()
+    || doc.customerSnapshot
+    || Number(body.data?.loyaltyRedeemPoints || 0) > 0
+    || String(body.data?.loyaltySchemeId || '').trim()
+    || Number(body.data?.loyaltyPointsEarned || 0) > 0,
+  );
+  if (hasCustomerInput) {
+    const custDenied = await screenDenial({
+      session,
+      screen: SCREENS.CUSTOMER,
+      label: 'Customer',
+      action: PERM.READ,
+      businessId: doc.businessId || scope.businessId || body.business,
+    });
+    if (custDenied) return json({ error: custDenied.message, code: custDenied.code }, 403);
+    if (doc.customerId) {
+      const validCustomer = await Customer.findOne({
+        _id: doc.customerId,
+        contactKind: 'Customer',
+        ...(doc.businessId ? { businessId: doc.businessId } : {}),
+      }).select('_id').lean();
+      if (!validCustomer) {
+        return json({ error: 'Selected customer does not belong to this business.', code: 'INVALID_CUSTOMER' }, 422);
+      }
+    }
+  }
+
+  const spIds = [...new Set(
+    [body.data?.salesPerson, ...(doc.items || []).map((l) => l?.salesPerson)]
+      .map((v) => String(v || '').trim())
+      .filter(Boolean),
+  )];
+  if (spIds.length) {
+    const spDenied = await screenDenial({
+      session,
+      screen: SCREENS.SALES_PERSON,
+      label: 'Sales Person',
+      action: PERM.READ,
+      businessId: doc.businessId || scope.businessId || body.business,
+    });
+    if (spDenied) return json({ error: spDenied.message, code: spDenied.code }, 403);
+    if (spIds.some((id) => !isValidObjectId(id))) {
+      return json({ error: 'Invalid sales person selection.', code: 'INVALID_SALES_PERSON' }, 422);
+    }
+    const matchedSpCount = await SalesPerson.countDocuments({
+      _id: { $in: spIds },
+      ...(doc.businessId ? { businessId: doc.businessId } : {}),
+    });
+    if (matchedSpCount !== spIds.length) {
+      return json({ error: 'Selected sales person does not belong to this business.', code: 'INVALID_SALES_PERSON' }, 422);
+    }
+  }
+
   /* ------------------------------------------------------------------
      LOYALTY POINTS.
 

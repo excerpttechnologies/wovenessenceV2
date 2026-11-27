@@ -2,8 +2,28 @@ import dbConnect from '@/lib/db';
 import { requireUser } from '@/lib/rbac';
 import { handler, json } from '@/lib/apiError';
 import { scanBarcode, shape } from '@/lib/inventory';
-import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { screenDenial, screenDenialAny, screenDenialAnyAction, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
+
+const NON_POS_SCAN_SCREENS = [
+  SCREENS.GRC,
+  SCREENS.GRT,
+  SCREENS.BARCODE_ITEM,
+  SCREENS.PRINT_LABEL,
+  SCREENS.MASTER_STOCK_REPORT,
+  SCREENS.ITEM,
+  SCREENS.STOCK_ADJUSTMENT,
+  SCREENS.BARCODE_SPLIT,
+  SCREENS.BARCODE_MERGE,
+  SCREENS.TRANSFER_PACKET,
+  SCREENS.TRANSFER_LOCATION,
+  SCREENS.TRANSFER_RECEIVED,
+  SCREENS.IC_DELIVERY_CHALLAN,
+  SCREENS.IC_RECEIVE_DELIVERY_CHALLAN,
+  SCREENS.SELL_DELIVERY_CHALLAN,
+  SCREENS.DELIVERY,
+  SCREENS.DISPATCH,
+];
 
 /* POST /api/barcode/scan
    { code, business, location, intent, invoiceId, transferId, scanned: [] }
@@ -42,11 +62,25 @@ export const POST = handler(async (req) => {
      Create OR Update lets them through. Every other intent (LOOKUP, TRANSFER,
      ...) is used by other screens and is not checked here, exactly as before. */
   if (intent === 'SELL' || intent === 'POS_RETURN') {
-    let denied = null;
-    for (const action of [PERM.READ, PERM.CREATE, PERM.UPDATE]) {
-      denied = await screenDenial({ session, screen: SCREENS.POS, label: 'POS', action, businessId: scope.businessId || business });
-      if (!denied) break;
-    }
+    const allowedScreens = intent === 'POS_RETURN'
+      ? [SCREENS.POS_RETURN, SCREENS.POS]
+      : [SCREENS.POS];
+    const denied = await screenDenialAnyAction({
+      session,
+      screens: allowedScreens,
+      actions: [PERM.READ, PERM.CREATE, PERM.UPDATE],
+      businessId: scope.businessId || business,
+      label: intent === 'POS_RETURN' ? 'POS Return' : 'POS',
+    });
+    if (denied) return json({ error: denied.message, code: denied.code }, 403);
+  } else {
+    const denied = await screenDenialAnyAction({
+      session,
+      screens: NON_POS_SCAN_SCREENS,
+      actions: [PERM.READ, PERM.CREATE, PERM.UPDATE],
+      businessId: scope.businessId || business,
+      label: 'barcode scan',
+    });
     if (denied) return json({ error: denied.message, code: denied.code }, 403);
   }
 
@@ -61,5 +95,26 @@ export const POST = handler(async (req) => {
   });
 
   void session;
-  return json({ ok: true, unit: shape(unit) });
+  const fullUnit = shape(unit);
+  if (intent === 'SELL' || intent === 'POS_RETURN') {
+    const invDenied = await screenDenialAny({
+      session,
+      screens: [
+        SCREENS.GRC,
+        SCREENS.GRT,
+        SCREENS.BARCODE_ITEM,
+        SCREENS.PRINT_LABEL,
+        SCREENS.MASTER_STOCK_REPORT,
+        SCREENS.ITEM,
+      ],
+      action: PERM.READ,
+      businessId: scope.businessId || business,
+      label: 'inventory cost details',
+    });
+    if (invDenied) {
+      const { rate, wsp, supplierId, grcId, grcNo, serialNo, batchNo, transferNo, ...posSafeUnit } = fullUnit;
+      return json({ ok: true, unit: posSafeUnit });
+    }
+  }
+  return json({ ok: true, unit: fullUnit });
 });

@@ -5,6 +5,7 @@ import { escapeRegex } from '@/lib/validate';
 import { Supplier } from '@/lib/contacts';
 import { isSplitContactStorage } from '@/lib/contactStorage';
 import { resolveAuthorizedScope } from '@/lib/locationAccess';
+import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 
 /* /api/reports/supplier-cities?q=<part>&business=<id>
 
@@ -39,6 +40,14 @@ export async function GET(req) {
     asObjectId: true,
   });
   if (!scope.ok) return json({ error: scope.error, code: scope.code }, scope.status || 403);
+  const denied = await screenDenial({
+    session,
+    screen: SCREENS.MASTER_STOCK_REPORT,
+    label: 'Master Stock Report',
+    action: PERM.READ,
+    businessId: scope.businessId || sp.get('business') || '',
+  });
+  if (denied) return json({ error: denied.message, code: denied.code }, 403);
   const business = scope.businessId;
 
   const match = {};

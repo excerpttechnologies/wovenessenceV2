@@ -5716,6 +5716,142 @@ import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
 import { getSessionLocationAccess, resolveAuthorizedScope } from '@/lib/locationAccess';
 import { contactTypeDisplayName } from '@/lib/contactTypeLabels';
+import {
+  screenDenialAnyAction,
+  SCREENS,
+  ACTIONS as PERM,
+  ITEM_LOOKUP_SCREENS,
+  COUNTER_PICKER_SCREENS,
+  HSN_LOOKUP_SCREENS,
+  TAX_LOOKUP_SCREENS,
+} from '@/lib/screenPermission';
+
+const TRANSFER_DEST_SCREENS = [
+  SCREENS.TRANSFER_PACKET,
+  SCREENS.TRANSFER_LOCATION,
+  SCREENS.IC_DELIVERY_CHALLAN,
+  SCREENS.IC_ITEM_INVOICE,
+  SCREENS.SELL_DELIVERY_CHALLAN,
+];
+
+const SUPPLIER_PICKER_SCREENS = [
+  SCREENS.SUPPLIER,
+  SCREENS.GRC,
+  SCREENS.GRT,
+  SCREENS.BARCODE_ITEM,
+  SCREENS.PRINT_LABEL,
+  SCREENS.ITEM,
+  SCREENS.MASTER_STOCK_REPORT,
+  SCREENS.ITEM_BARCODE_REPORT,
+  SCREENS.SALES_REPORT,
+  SCREENS.PERFORMANCE_LOG_REPORT,
+  SCREENS.STOCK_GALLERY_VIEW,
+  SCREENS.SUPPLIER_BILL_REPORT,
+  SCREENS.SUPPLIER_OUTSTANDING_REPORT,
+  SCREENS.SUPPLIER_SUMMARY_REPORT,
+  SCREENS.SUPPLIER_BILL_WISE_REPORT,
+  SCREENS.SUPPLIER_BATCH_WISE_REPORT,
+  SCREENS.PAYMENT_VOUCHER,
+];
+
+const AGENT_PICKER_SCREENS = [
+  SCREENS.AGENT,
+  SCREENS.SUPPLIER,
+  SCREENS.GRC,
+  SCREENS.GRT,
+  SCREENS.DELIVERY,
+  SCREENS.MASTER_STOCK_REPORT,
+];
+
+const GRC_PICKER_SCREENS = [
+  SCREENS.GRC,
+  SCREENS.GRT,
+  SCREENS.BARCODE_ITEM,
+  SCREENS.PRINT_LABEL,
+  SCREENS.MASTER_STOCK_REPORT,
+  SCREENS.SUPPLIER_SUMMARY_REPORT,
+  SCREENS.SUPPLIER_BILL_WISE_REPORT,
+];
+
+const LEDGER_PICKER_SCREENS = [
+  SCREENS.LEDGER_GROUP,
+  SCREENS.LEDGER,
+  SCREENS.LEDGER_MAPPING,
+  SCREENS.ACCOUNTS_CHART,
+  SCREENS.ACCOUNTS_JOURNAL,
+  SCREENS.ACCOUNTS_SETTINGS,
+  SCREENS.ACCOUNTS_LEDGER,
+  SCREENS.RECEIPT_VOUCHER,
+  SCREENS.PAYMENT_VOUCHER,
+  SCREENS.CONTRA_VOUCHER,
+  SCREENS.SUPPLIER,
+  SCREENS.CUSTOMER,
+];
+
+const TRANSPORT_PICKER_SCREENS = [
+  SCREENS.TRANSPORTER,
+  SCREENS.VEHICLE,
+  SCREENS.DRIVER,
+  SCREENS.ROUTE,
+  SCREENS.DISPATCH,
+  SCREENS.DELIVERY,
+  SCREENS.LOGISTIC,
+  SCREENS.GRC,
+  SCREENS.SELL_DELIVERY_CHALLAN,
+  SCREENS.IC_DELIVERY_CHALLAN,
+];
+
+const REF_GATES = {
+  salesperson: { screens: [SCREENS.SALES_PERSON], actions: [PERM.READ], label: 'sales persons' },
+  customer: { screens: [SCREENS.CUSTOMER], actions: [PERM.READ], label: 'customers' },
+  supplier: { screens: SUPPLIER_PICKER_SCREENS, actions: [PERM.READ], label: 'suppliers' },
+  'supplier-code': { screens: SUPPLIER_PICKER_SCREENS, actions: [PERM.READ], label: 'supplier codes' },
+  agent: { screens: AGENT_PICKER_SCREENS, actions: [PERM.READ], label: 'agents' },
+  'grc-number': { screens: GRC_PICKER_SCREENS, actions: [PERM.READ], label: 'GRC numbers' },
+  'contact-type': { screens: [SCREENS.CONTACT_TYPE, SCREENS.CUSTOMER, SCREENS.SUPPLIER, SCREENS.AGENT], actions: [PERM.READ], label: 'contact types' },
+  'contact-type-customer': { screens: [SCREENS.CONTACT_TYPE, SCREENS.CUSTOMER], actions: [PERM.READ], label: 'customer contact types' },
+  'contact-type-supplier': { screens: [SCREENS.CONTACT_TYPE, SCREENS.SUPPLIER], actions: [PERM.READ], label: 'supplier contact types' },
+  'contact-type-agent': { screens: [SCREENS.CONTACT_TYPE, SCREENS.AGENT], actions: [PERM.READ], label: 'agent contact types' },
+  poscounter: { screens: COUNTER_PICKER_SCREENS, actions: [PERM.READ], label: 'POS counters' },
+  paymentmethod: { screens: [SCREENS.PAYMENT_METHOD, SCREENS.POS, SCREENS.POS_RETURN, SCREENS.RECEIPT_VOUCHER, SCREENS.PAYMENT_VOUCHER], actions: [PERM.READ], label: 'payment methods' },
+  item: { screens: [...ITEM_LOOKUP_SCREENS, SCREENS.MASTER_STOCK_REPORT, SCREENS.ITEM_BARCODE_REPORT, SCREENS.STOCK_GALLERY_VIEW], actions: [PERM.READ], label: 'items' },
+  'item-code': { screens: [...ITEM_LOOKUP_SCREENS, SCREENS.MASTER_STOCK_REPORT, SCREENS.ITEM_BARCODE_REPORT, SCREENS.STOCK_GALLERY_VIEW], actions: [PERM.READ], label: 'item codes' },
+  hsn: { screens: [...HSN_LOOKUP_SCREENS, SCREENS.MASTER_STOCK_REPORT, SCREENS.HSN_SUMMARY], actions: [PERM.READ], label: 'HSN codes' },
+  tax: { screens: TAX_LOOKUP_SCREENS, actions: [PERM.READ], label: 'taxes' },
+  uom: { screens: [SCREENS.UOM, SCREENS.ITEM, SCREENS.UOM_CONVERSION, SCREENS.GRC], actions: [PERM.READ], label: 'UOMs' },
+  'attribute-addon': { screens: [SCREENS.ATTRIBUTE_ADDON, SCREENS.ITEM, SCREENS.GRC, SCREENS.BARCODE_ITEM], actions: [PERM.READ], label: 'attributes' },
+  'product/filter': { screens: [SCREENS.PRODUCT_FILTER, SCREENS.ITEM, SCREENS.MASTER_STOCK_REPORT], actions: [PERM.READ], label: 'product filters' },
+  'product/group': { screens: [SCREENS.PRODUCT_GROUP, SCREENS.ITEM, SCREENS.MASTER_STOCK_REPORT, SCREENS.STOCK_GALLERY_VIEW, SCREENS.BARCODE_ITEM], actions: [PERM.READ], label: 'product groups' },
+  'product/group-parent': { screens: [SCREENS.PRODUCT_GROUP, SCREENS.ITEM, SCREENS.MASTER_STOCK_REPORT, SCREENS.STOCK_GALLERY_VIEW, SCREENS.BARCODE_ITEM], actions: [PERM.READ], label: 'product groups' },
+  stockpoint: { screens: [SCREENS.STOCK_POINT, SCREENS.COMPANY_LOCATION, SCREENS.GRC, SCREENS.TRANSFER_PACKET, SCREENS.TRANSFER_LOCATION, SCREENS.IC_DELIVERY_CHALLAN, SCREENS.SELL_DELIVERY_CHALLAN, SCREENS.STOCK_ADJUSTMENT], actions: [PERM.READ], label: 'stock points' },
+  purchasegroup: { screens: [SCREENS.PURCHASE_GROUP, SCREENS.GRC, SCREENS.GRT, SCREENS.ITEM], actions: [PERM.READ], label: 'purchase groups' },
+  'purchase/master/charge': { screens: [SCREENS.PURCHASE_CHARGE, SCREENS.GRC, SCREENS.GRT], actions: [PERM.READ], label: 'purchase charges' },
+  'purchase/master/term': { screens: [SCREENS.PURCHASE_TERM, SCREENS.GRC, SCREENS.GRT], actions: [PERM.READ], label: 'purchase terms' },
+  'sales/master/term': { screens: [SCREENS.SALES_TERM, SCREENS.SELL_DELIVERY_CHALLAN, SCREENS.IC_ITEM_INVOICE], actions: [PERM.READ], label: 'sales terms' },
+  ledgergroups: { screens: LEDGER_PICKER_SCREENS, actions: [PERM.READ], label: 'ledger groups' },
+  ledger: { screens: LEDGER_PICKER_SCREENS, actions: [PERM.READ], label: 'ledgers' },
+  accounts: { screens: LEDGER_PICKER_SCREENS, actions: [PERM.READ], label: 'accounts' },
+  docsetup: { screens: [SCREENS.DOC_SETUP], actions: [PERM.READ], label: 'document setup' },
+  citygroup: { screens: [SCREENS.CITY_GROUP, SCREENS.SUPPLIER, SCREENS.MASTER_STOCK_REPORT], actions: [PERM.READ], label: 'city groups' },
+  barcodesetting: { screens: [SCREENS.BARCODE_SETTING, SCREENS.PRINT_LABEL, SCREENS.BARCODE_ITEM, SCREENS.GRC], actions: [PERM.READ], label: 'barcode settings' },
+  logistic: { screens: TRANSPORT_PICKER_SCREENS, actions: [PERM.READ], label: 'logistics' },
+  transporter: { screens: TRANSPORT_PICKER_SCREENS, actions: [PERM.READ], label: 'transporters' },
+  vehicle: { screens: TRANSPORT_PICKER_SCREENS, actions: [PERM.READ], label: 'vehicles' },
+  driver: { screens: TRANSPORT_PICKER_SCREENS, actions: [PERM.READ], label: 'drivers' },
+  'transport-route': { screens: TRANSPORT_PICKER_SCREENS, actions: [PERM.READ], label: 'routes' },
+  dispatch: { screens: [SCREENS.DISPATCH, SCREENS.DELIVERY], actions: [PERM.READ], label: 'dispatches' },
+  'delivery-unassigned': { screens: [SCREENS.DISPATCH, SCREENS.DELIVERY], actions: [PERM.READ], label: 'deliveries' },
+  'delivery-available-grc': { screens: [SCREENS.DELIVERY, SCREENS.GRC], actions: [PERM.READ], label: 'deliveries' },
+  'ic-delivery-challan': { screens: [SCREENS.IC_DELIVERY_CHALLAN, SCREENS.IC_RECEIVE_DELIVERY_CHALLAN, SCREENS.IC_ITEM_INVOICE], actions: [PERM.READ], label: 'inter-company delivery challans' },
+  'ic-delivery-challan-open': { screens: [SCREENS.IC_DELIVERY_CHALLAN, SCREENS.IC_ITEM_INVOICE], actions: [PERM.READ], label: 'inter-company delivery challans' },
+  'ic-sales-invoice': { screens: [SCREENS.IC_ITEM_INVOICE, SCREENS.IC_PURCHASE_RECEIVED], actions: [PERM.READ], label: 'inter-company sales invoices' },
+  'ic-auto-purchase-return': { screens: [SCREENS.IC_RETURN_APPROVAL, SCREENS.IC_PURCHASE_RECEIVED], actions: [PERM.READ], label: 'inter-company returns' },
+  'ic-sales-return': { screens: [SCREENS.IC_RETURN_APPROVAL], actions: [PERM.READ], label: 'inter-company sales returns' },
+  'stock-transfer-packet': { screens: [SCREENS.TRANSFER_PACKET, SCREENS.TRANSFER_LOCATION], actions: [PERM.READ], label: 'stock transfer packets' },
+  'stock-transfer-packet-open': { screens: [SCREENS.TRANSFER_PACKET, SCREENS.TRANSFER_LOCATION], actions: [PERM.READ], label: 'stock transfer packets' },
+  'stock-transfer-location': { screens: [SCREENS.TRANSFER_LOCATION, SCREENS.TRANSFER_RECEIVED], actions: [PERM.READ], label: 'stock transfer locations' },
+  'stock-transfer-received': { screens: [SCREENS.TRANSFER_RECEIVED], actions: [PERM.READ], label: 'stock transfer receipts' },
+};
  
 /* /api/options?ref=<name>&business=<id>
    Feeds every `ref` dropdown in the app. Replaces the `options` branch of the
@@ -6027,7 +6163,18 @@ export async function GET(req) {
   const forTransferDestination =
     (sp.get('transferTarget') === '1' || sp.get('groupStores') === '1') &&
     (ref === 'companylocations' || ref === 'stockpoint');
+  if (forTransferDestination) {
+    const destDenied = await screenDenialAnyAction({
+      session,
+      screens: TRANSFER_DEST_SCREENS,
+      actions: [PERM.READ, PERM.CREATE, PERM.UPDATE],
+      businessId: sp.get('business') || '',
+      label: 'transfer destinations',
+    });
+    if (destDenied) return json({ error: destDenied.message, code: destDenied.code }, 403);
+  }
 
+  let scopedCheckBusinessId = '';
   /* Enforce company & location restrictions on all scoped reference lookups,
      except explicit destination pickers used by outbound inter-branch transfers. */
   if (access.isRestricted && !forTransferDestination) {
@@ -6045,7 +6192,21 @@ export async function GET(req) {
       if (!check.ok) {
         return json({ error: check.error, code: check.code }, check.status || 403);
       }
+      scopedCheckBusinessId = check.businessId || '';
     }
+  }
+
+  const gateSpec = REF_GATES[ref];
+  if (gateSpec) {
+    const gateBiz = scopedCheckBusinessId || (isValidObjectId(sp.get('business') || '') ? sp.get('business') : '') || access.allowedBusinessIds?.[0] || '';
+    const refDenied = await screenDenialAnyAction({
+      session,
+      screens: gateSpec.screens,
+      actions: gateSpec.actions,
+      businessId: gateBiz,
+      label: gateSpec.label,
+    });
+    if (refDenied) return json({ error: refDenied.message, code: refDenied.code }, 403);
   }
 
   if (ref === 'supplier-code') {

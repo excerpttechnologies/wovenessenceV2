@@ -8,6 +8,7 @@ import MultiSelect from '@/components/MultiSelect';
 import ProductImage from '@/components/ProductImage';
 import { useScanner, useBarcodeLookup, useScanSound } from '@/components/useScanner';
 import { useOptions } from '@/components/useOptions';
+import { useScope } from '@/components/ScopeContext';
 import MultiplePayDialog from '@/components/MultiplePayDialog';
 import SupplierImportPanel from '@/components/SupplierImportPanel';
 import { uomTypeOf } from '@/lib/barcodeUnits';
@@ -411,6 +412,11 @@ function CustomerForm({
 export default function PosTill() {
   const router = useRouter();
   const sp = useSearchParams();
+  const { can, permsReady, isCompanyLocked, isLocationLocked } = useScope();
+  const canReadSalesPerson = permsReady && can('/admin/staff-management/staff/salesperson', 'read');
+  const canReadCustomer = permsReady && can('/admin/contact/customer', 'read');
+  const canCreateCustomer = canReadCustomer && can('/admin/contact/customer', 'create');
+  const canReadMasterStockReport = permsReady && can('/admin/report/master-stock-report', 'read');
   const initialBusiness = sp.get('business') || '';
   const initialLocation = sp.get('location') || '';
   const finYear = sp.get('finYear') || '2026-2027';
@@ -423,12 +429,13 @@ export default function PosTill() {
   const [counters, setCounters] = useState([]);
   const [counter, setCounter] = useState('');
   /* Staff Management -> Sales Persons, via /api/options?ref=salesperson.
-     This was `useState([])` with no setter ever called, so both the header
-     picker and the per-line Sales Person column were permanently empty. */
-  /* ...for the Business / Location picked on THIS screen (19-10-2026). It
-     followed the top bar's company, so changing the till's own business
-     left the previous business's sales persons in the list. */
-  const { options: salesPeople } = useOptions('salesperson', '', true, { business, location });
+     Fetched ONLY when the role holds Sales Person read permission. */
+  const { options: salesPeople } = useOptions(
+    'salesperson',
+    '',
+    canReadSalesPerson && Boolean(business),
+    { business, location },
+  );
 
   const [salesPerson, setSalesPerson] = useState('');
   const [payMode, setPayMode] = useState('Cash');
@@ -606,12 +613,16 @@ export default function PosTill() {
       if (!location && options[0]) setLocation(options[0].value);
     }).catch(() => {});
 
-    json(`/api/options?ref=contact-type-customer&business=${business}`)
-      .then((d) => { if (!off) setCustomerTypes(d.options || []); })
-      .catch(() => {});
+    if (canReadCustomer) {
+      json(`/api/options?ref=contact-type-customer&business=${business}`)
+        .then((d) => { if (!off) setCustomerTypes(d.options || []); })
+        .catch(() => {});
+    } else {
+      setCustomerTypes([]);
+    }
 
     return () => { off = true; };
-  }, [business]);
+  }, [business, canReadCustomer]);
 
   function changeBusiness(value) {
     setBusiness(value);
@@ -635,6 +646,26 @@ export default function PosTill() {
   }, [business, location]);
 
   useEffect(() => {
+    if (!permsReady) return;
+    if (!canReadCustomer) {
+      setCustomer('walkin');
+      setSelectedCustomer(null);
+      setCustomerSearch('');
+      setCustomerTypes([]);
+      setShowCustomerForm(false);
+      setCustomerOptions([{ value: 'walkin', label: 'Walk-in Customer' }]);
+    }
+    if (!canReadSalesPerson) {
+      setSalesPerson('');
+      setItems((rows) => (rows.some((r) => r.salesPerson) ? rows.map((r) => (r.salesPerson ? { ...r, salesPerson: '' } : r)) : rows));
+    }
+  }, [permsReady, canReadCustomer, canReadSalesPerson]);
+
+  useEffect(() => {
+    if (!canReadCustomer) {
+      setCustomerOptions([{ value: 'walkin', label: 'Walk-in Customer' }]);
+      return undefined;
+    }
     const selectedOption = customer && customer !== 'walkin' && selectedCustomer
       ? { value: customer, label: customerLabel(selectedCustomer), customer: selectedCustomer }
       : null;
@@ -664,7 +695,7 @@ export default function PosTill() {
             );
           } else {
             setCustomerOptions([
-              { value: 'add-customer', label: 'Add Customer', addCustomer: true },
+              ...(canCreateCustomer ? [{ value: 'add-customer', label: 'Add Customer', addCustomer: true }] : []),
               { value: 'walkin', label: 'Walk-in Customer' },
             ]);
           }
@@ -673,7 +704,7 @@ export default function PosTill() {
     }, 250);
 
     return () => { off = true; clearTimeout(timer); };
-  }, [business, customerSearch, customer, selectedCustomer]);
+  }, [business, customerSearch, customer, selectedCustomer, canReadCustomer, canCreateCustomer]);
 
   /* Item suggestions for the scan box.
 
@@ -791,7 +822,7 @@ export default function PosTill() {
      (the header pick fills new lines; each line can also be set on its own),
      the cash counter and the cashier. Checked when Pay is clicked, before
      the payment popup opens, and again on submit. '' = all present. */
-  const noSalesPerson = items.filter((item) => !item.salesPerson).length;
+  const noSalesPerson = canReadSalesPerson ? items.filter((item) => !item.salesPerson).length : 0;
   /* a quantity on every line - an MTR line can be left at 0 or "0." while typing (22-10-2026) */
   const noQty = items.some((item) => !(Number(item.qty) > 0));
   const payBlockMsg = noQty ? 'Please enter the quantity on every line.'
@@ -804,6 +835,7 @@ export default function PosTill() {
      carry the previous top pick; a row set by hand to someone else keeps
      its own. New scans take the top pick as before. */
   function pickHeaderSalesPerson(value) {
+    if (!canReadSalesPerson) return;
     const previous = salesPerson;
     setSalesPerson(value);
     setItems((rows) => rows.map((row) => (!row.salesPerson || row.salesPerson === previous ? { ...row, salesPerson: value || '' } : row)));
@@ -929,7 +961,7 @@ export default function PosTill() {
         description: item.description || hit.description || item.name || hit.name,
         hsn: item.hsnCode || '', gst: Number(item.slabs?.[0]?.igst || 0), qty: 1,
         rsp: Math.trunc(Number(item.rsp ?? hit.rsp ?? 0)), discountPct: 0, image: hit.image || '',
-        uom: item.uom || '', salesPerson: salesPerson || '',
+        uom: item.uom || '', salesPerson: canReadSalesPerson ? (salesPerson || '') : '',
       };
       setItems((rows) => [{ ...product, isReturn: isExchange && !rows.some((r) => r.isReturn) }, ...rows]);
       setActiveRow(0);
@@ -1034,8 +1066,8 @@ export default function PosTill() {
       discountPct: 0,
       image: unit.image || '',
       grcNo: unit.grcNo || '',
-      salesPerson: salesPerson || '',
-      ...overrides,
+      salesPerson: canReadSalesPerson ? (salesPerson || '') : '',
+      ...(canReadSalesPerson ? overrides : { ...overrides, salesPerson: '' }),
     };
     setItems((rows) => [{ ...product, isReturn: isExchange && !rows.some((r) => r.isReturn) }, ...rows]);
     setActiveRow(0);
@@ -1112,15 +1144,15 @@ export default function PosTill() {
           business, location, finYear,
           data: {
             date: saleDate,
-            customerId: customer === 'walkin' ? null : customer,
-            customerName: customerOptions.find((o) => o.value === customer)?.label || '',
-            customerContact: record?.billingMobile || '',
-            customerSnapshot: customer === 'walkin' ? null : record || null,
+            customerId: canReadCustomer && customer !== 'walkin' ? customer : null,
+            customerName: canReadCustomer ? (customerOptions.find((o) => o.value === customer)?.label || '') : '',
+            customerContact: canReadCustomer ? (record?.billingMobile || '') : '',
+            customerSnapshot: canReadCustomer && customer !== 'walkin' ? (record || null) : null,
             counterId: counter || null,
             billingType: payMode,
             exempted: 'NO',
-            salesPerson,
-            items,
+            salesPerson: canReadSalesPerson ? salesPerson : '',
+            items: canReadSalesPerson ? items : items.map(({ salesPerson: _sp, ...rest }) => rest),
             shipping: Number(shipping || 0),
             totalAmount: netAmount,
             totalQty: qty,
@@ -1181,16 +1213,16 @@ export default function PosTill() {
     try {
       const saved = JSON.parse(window.localStorage.getItem(draftKey) || 'null');
       if (!saved || !Array.isArray(saved.items) || !saved.items.length) return;
-      setItems(saved.items);
+      setItems(canReadSalesPerson ? saved.items : saved.items.map(({ salesPerson: _sp, ...rest }) => rest));
       setActiveRow(null);
-      setSalesPerson(saved.salesPerson || '');
+      setSalesPerson(canReadSalesPerson ? (saved.salesPerson || '') : '');
       setCounter(saved.counter || '');
       setPayMode(saved.payMode || 'Cash');
       setShipping(Number(saved.shipping || 0));
       setLineDiscPct(saved.lineDiscPct || '');
       setLineDiscAmt(saved.lineDiscAmt || '');
       setSelectedProduct(saved.selectedProduct || null);
-      if (saved.customer && saved.customer !== 'walkin' && saved.customerOption) {
+      if (canReadCustomer && saved.customer && saved.customer !== 'walkin' && saved.customerOption) {
         setCustomerOptions((rows) => [saved.customerOption, ...rows.filter((r) => r.value !== saved.customerOption.value && r.value !== 'walkin')]);
         setCustomer(saved.customer);
         setSelectedCustomer(saved.selectedCustomer || null);
@@ -1224,11 +1256,12 @@ export default function PosTill() {
       if (!r.ok || !d.doc) { setMsg('That held bill is no longer available'); beep('err'); return; }
 
       const h = d.doc;
-      setItems(Array.isArray(h.items) ? h.items : []);
+      const resumedItems = Array.isArray(h.items) ? h.items : [];
+      setItems(canReadSalesPerson ? resumedItems : resumedItems.map(({ salesPerson: _sp, ...rest }) => rest));
       setActiveRow(null);
       setRedeemPoints(0);
       setLoyalty(null);
-      if (h.customerId) {
+      if (canReadCustomer && h.customerId) {
         const resumedId = String(h.customerId);
         const resumedSnap = h.customerSnapshot || null;
         const resumedLabel = h.customerName
@@ -1246,7 +1279,7 @@ export default function PosTill() {
       }
       setCounter(h.counterId ? String(h.counterId) : '');
       setPayMode(h.billingType || 'Cash');
-      setSalesPerson(h.salesPerson || '');
+      setSalesPerson(canReadSalesPerson ? (h.salesPerson || '') : '');
       setShipping(Number(h.shipping || 0));
       if (h.date) setSaleDate(String(h.date).slice(0, 10));
 
@@ -1342,6 +1375,7 @@ export default function PosTill() {
      button next to the picker - the deployed till has both. Any digits already
      typed into the search box are carried into Mobile so they are not retyped. */
   function openCustomerForm() {
+    if (!canCreateCustomer) return;
     setCustomerFormError('');
     setExistingCustomerMatch(null);
     setCustomer('walkin');
@@ -1466,7 +1500,7 @@ export default function PosTill() {
   }, [business, customer]);
 
   useEffect(() => {
-    if (!business) { setLoyalty(null); return undefined; }
+    if (!business || !canReadCustomer) { setLoyalty(null); return undefined; }
 
     let off = false;
     const qs = new URLSearchParams({
@@ -1485,12 +1519,12 @@ export default function PosTill() {
       .catch(() => { if (!off) setLoyalty(null); });
 
     return () => { off = true; };
-  }, [business, customer, netAmount, saleDate]);
+  }, [business, customer, netAmount, saleDate, canReadCustomer]);
 
   /* Eligible only when BOTH global loyalty is active AND the customer's
      Contact Type has loyaltyPointsApplicable enabled. */
   const loyaltyEligible = Boolean(
-    loyalty && loyalty.active && loyalty.eligible === true && customer !== 'walkin'
+    canReadCustomer && loyalty && loyalty.active && loyalty.eligible === true && customer !== 'walkin'
   );
 
   /* A choice cannot outlive what allows it. Switching customer, emptying the
@@ -1565,8 +1599,13 @@ export default function PosTill() {
     setSubmitting(true);
     try {
       const paid = paymentData.payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
-      const customerRecord = selectedCustomer || customerOptions.find((option) => option.value === customer)?.customer;
-      const response = await fetch('/api/sell-pos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ business, location, finYear, data: { date: saleDate, finYear, customerId: customer === 'walkin' ? null : customer, customerContact: customerRecord?.billingMobile || '', customerSnapshot: customer === 'walkin' ? null : customerRecord || null, counterId: counter || null, billingType: payMode, exempted: 'NO', items, payments: paymentData.payments, sellNote: paymentData.sellNote, staffNote: paymentData.staffNote, salesChannel: paymentData.salesChannel || '', shipping: Number(shipping || 0), totalAmount: netAmount, paid, /* the server re-reads the balance and the master and decides for itself; this is the request, not the ruling */ loyaltyRedeemPoints: loyaltyEligible ? redeemPoints : 0, loyaltySchemeId: loyaltyEligible ? (loyalty?.schemeId || '') : '' } }) });
+      const customerRecord = canReadCustomer
+        ? (selectedCustomer || customerOptions.find((option) => option.value === customer)?.customer)
+        : null;
+      const submitItems = canReadSalesPerson
+        ? items
+        : items.map(({ salesPerson: _sp, ...rest }) => rest);
+      const response = await fetch('/api/sell-pos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ business, location, finYear, data: { date: saleDate, finYear, customerId: canReadCustomer && customer !== 'walkin' ? customer : null, customerContact: canReadCustomer ? (customerRecord?.billingMobile || '') : '', customerSnapshot: canReadCustomer && customer !== 'walkin' ? (customerRecord || null) : null, counterId: counter || null, billingType: payMode, exempted: 'NO', items: submitItems, payments: paymentData.payments, sellNote: paymentData.sellNote, staffNote: paymentData.staffNote, salesChannel: paymentData.salesChannel || '', shipping: Number(shipping || 0), totalAmount: netAmount, paid, /* the server re-reads the balance and the master and decides for itself; this is the request, not the ruling */ loyaltyRedeemPoints: loyaltyEligible ? redeemPoints : 0, loyaltySchemeId: loyaltyEligible ? (loyalty?.schemeId || '') : '' } }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Unable to save POS invoice');
       /* billed - the refresh copy of this bill must not come back */
@@ -1593,12 +1632,12 @@ export default function PosTill() {
       <div className="flex flex-wrap items-center gap-3 px-4 py-2.5 text-[13.5px]">{/* The till fills the screen and has no sidebar, so without this the only
           way out is the browser's own Back. It goes to the POS list - the
           screen whose ADD button opens this one - and carries the scope so the
-          list lands on the same business, location and year. */}<button type="button" aria-label="Back to POS list" title="Back to POS list" className="flex h-8 w-9 items-center justify-center rounded border border-line bg-white text-ink hover:bg-pillgrey" onClick={() => router.push(`/admin/transaction/sell/pos?business=${business || ''}&location=${location || ''}&finYear=${finYear || ''}`)}><Icon name="back" size={16} /></button><span className="text-inkmuted">Business:</span><select className="f-input w-64" value={business} onChange={(e) => changeBusiness(e.target.value)}><option value="">Select business</option>{businesses.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><span className="text-inkmuted">Location:</span><select className="f-input w-64" value={location} onChange={(e) => setLocation(e.target.value)} disabled={!business}><option value="">Select location</option>{locations.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><span className="flex items-center gap-1.5 whitespace-nowrap text-cell">{timeStr}</span>{/* calculator sits beside the clock */}<div className="relative"><button type="button" aria-label="Calculator" title="Calculator" className={'flex h-8 w-9 items-center justify-center rounded ' + (showCalc ? 'bg-[#dbe6f7] text-brand' : 'bg-brand text-white')} onClick={() => setShowCalc((v) => !v)}><Icon name="calculator" size={15} /></button>{showCalc && <Calculator onClose={() => setShowCalc(false)} />}</div>{/* Main Reports, in a tab of its own so the bill in progress stays put */}<button type="button" title="Main Reports - Master Stock Report" className="flex h-8 items-center gap-1.5 rounded bg-brand px-2.5 text-[12.5px] font-semibold text-white hover:opacity-90" onClick={() => window.open('/admin/report/master-stock-report', '_blank')}><Icon name="chart" size={14} /> Main Reports</button>{/* last bill number (user, 21-10-2026) */}<span className="flex h-8 items-center rounded border border-line bg-[#f3f4f6] px-2.5 text-[12.5px] font-semibold text-ink" title="Last bill number">Last Bill:&nbsp;<span className="text-brand">{lastBillNo || '-'}</span></span><span className="flex-1" />{/* The four buttons that sat after the Calculator - refresh, register,
+          list lands on the same business, location and year. */}<button type="button" aria-label="Back to POS list" title="Back to POS list" className="flex h-8 w-9 items-center justify-center rounded border border-line bg-white text-ink hover:bg-pillgrey" onClick={() => router.push(`/admin/transaction/sell/pos?business=${business || ''}&location=${location || ''}&finYear=${finYear || ''}`)}><Icon name="back" size={16} /></button><span className="text-inkmuted">Business:</span><select className="f-input w-64 disabled:cursor-not-allowed disabled:bg-[#f3f4f6]" value={business} disabled={isCompanyLocked} onChange={(e) => changeBusiness(e.target.value)}><option value="">Select business</option>{businesses.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><span className="text-inkmuted">Location:</span><select className="f-input w-64 disabled:cursor-not-allowed disabled:bg-[#f3f4f6]" value={location} onChange={(e) => setLocation(e.target.value)} disabled={!business || isLocationLocked}><option value="">Select location</option>{locations.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><span className="flex items-center gap-1.5 whitespace-nowrap text-cell">{timeStr}</span>{/* calculator sits beside the clock */}<div className="relative"><button type="button" aria-label="Calculator" title="Calculator" className={'flex h-8 w-9 items-center justify-center rounded ' + (showCalc ? 'bg-[#dbe6f7] text-brand' : 'bg-brand text-white')} onClick={() => setShowCalc((v) => !v)}><Icon name="calculator" size={15} /></button>{showCalc && <Calculator onClose={() => setShowCalc(false)} />}</div>{canReadMasterStockReport && (/* Main Reports, in a tab of its own so the bill in progress stays put */<button type="button" title="Main Reports - Master Stock Report" className="flex h-8 items-center gap-1.5 rounded bg-brand px-2.5 text-[12.5px] font-semibold text-white hover:opacity-90" onClick={() => window.open('/admin/report/master-stock-report', '_blank')}><Icon name="chart" size={14} /> Main Reports</button>)}{/* last bill number (user, 21-10-2026) */}<span className="flex h-8 items-center rounded border border-line bg-[#f3f4f6] px-2.5 text-[12.5px] font-semibold text-ink" title="Last bill number">Last Bill:&nbsp;<span className="text-brand">{lastBillNo || '-'}</span></span><span className="flex-1" />{/* The four buttons that sat after the Calculator - refresh, register,
           ledger and a chevron - are gone. They carried no onClick at all, so
           every one of them was a dead control: it looked pressable and did
           nothing. The Calculator above is the only one of the five that was
           ever wired, and it stays. */}</div>
-      <div className="grid grid-cols-1 gap-2 px-4 md:grid-cols-[1fr_1fr_0.85fr_0.7fr]"><input className="f-input" type="date" value={saleDate} onChange={(e) => setSaleDate(e.target.value)} /><MultiSelect mode="single" options={salesPeople} value={salesPerson} placeholder="Sales Person" onChange={pickHeaderSalesPerson} /><div className="flex items-center gap-2"><div className="min-w-0 flex-1"><MultiSelect mode="single" options={customerOptions} value={customer} placeholder="Walk-in Customer / phone number" filterLocally={false} onSearch={setCustomerSearch} onChange={selectCustomer} /></div></div><input className="f-input" value={cashier} readOnly /></div>
+      <div className={'grid grid-cols-1 gap-2 px-4 ' + ((canReadSalesPerson && canReadCustomer) ? 'md:grid-cols-[1fr_1fr_0.85fr_0.7fr]' : (canReadSalesPerson || canReadCustomer) ? 'md:grid-cols-[1fr_1fr_0.7fr]' : 'md:grid-cols-[1fr_0.7fr]')}><input className="f-input" type="date" value={saleDate} onChange={(e) => setSaleDate(e.target.value)} />{canReadSalesPerson && <MultiSelect mode="single" options={salesPeople} value={salesPerson} placeholder="Sales Person" onChange={pickHeaderSalesPerson} />}{canReadCustomer && <div className="flex items-center gap-2"><div className="min-w-0 flex-1"><MultiSelect mode="single" options={customerOptions} value={customer} placeholder="Walk-in Customer / phone number" filterLocally={false} onSearch={setCustomerSearch} onChange={selectCustomer} /></div></div>}<input className="f-input" value={cashier} readOnly /></div>
       <div className="mt-2 grid grid-cols-1 items-center gap-2 px-4 md:grid-cols-[1fr_1.5fr_1fr_auto]"><select className="f-input" value={payMode} onChange={(e) => setPayMode(e.target.value)}>{PAYMENT_MODES.map((mode) => <option key={mode}>{mode}</option>)}</select><div className="relative"><input ref={scanRef} data-scan-target="" className="f-input" placeholder="Scan barcode, or type a product name / SKU" value={code} /* typed in CAPITALS (user, 26-10-2026) - the screen only showed capitals, the value stayed as typed */ onChange={(e) => setCode(e.target.value.toUpperCase())} onKeyDown={(e) => { if (['Enter', 'F9', 'Tab'].includes(e.key)) { e.preventDefault(); scan(); } }} />{scanBusy && <span className="absolute right-2 top-2 text-[11px] text-inkmuted">checking...</span>}{itemSuggestions.length > 0 && <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-64 overflow-auto rounded border border-line bg-white shadow-lg">{itemSuggestions.map((item) => <button type="button" key={item._id} className="flex w-full items-center gap-2 border-b border-line px-3 py-2 text-left text-[12px] hover:bg-[#f4f7fb]" onClick={() => addBarcodeItem(item)}><ProductImage src={item.productImageUrl} alt={item.itemId || item.itemCode} size={44} /><span className="min-w-0 flex-1"><b className="block truncate">{item.itemId || item.description || item.itemCode}</b><span className="text-inkmuted">{item.barcodeNo} · RSP {money(item.rsp)}</span></span></button>)}</div>}</div><select className="f-input disabled:cursor-not-allowed disabled:bg-[#f3f4f6]" value={counter} disabled={counterLocked} title={counterLocked ? 'Your assigned cash counter' : undefined} onChange={(e) => setCounter(e.target.value)}><option value="">Select Cash Counter</option>{counterChoices.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><div className="flex items-center gap-3 whitespace-nowrap"><button type="button" className="btn bg-danger px-2 py-1 text-white" title="Process a customer return against a previous bill" onClick={() => { /* a new browser tab, so the bill in progress on the till is not lost */ const w = window.open(`/admin/transaction/sell/pos-return/add?business=${business}&location=${location}&finYear=${finYear}${customer && customer !== 'walkin' ? '&customer=' + customer : ''}`, '_blank'); if (w) { try { w.opener = null; } catch { /* cross-origin */ } } }}><Icon name="undo" size={13} /> Return / Refund</button><label className="flex items-center gap-1" title="Take goods back against a previous bill"><input type="checkbox" checked={isExchange} onChange={(e) => { setIsExchange(e.target.checked); setExchangePick(null); setExchangeInvoiceId(''); }} /> Exchange</label></div></div>
       </div>{selectedProduct && <div className="flex shrink-0 flex-col items-center justify-center gap-1 border-l border-line px-4 py-2"><ProductImage src={selectedProduct.image} alt={selectedProduct.name} size={170} width={300} onOpen={() => setPreviewImage({ src: selectedProduct.image, alt: selectedProduct.name })} /><span className="max-w-[300px] truncate text-[12px] font-semibold">{selectedProduct.barcode || selectedProduct.code}</span></div>}</div>
       {/* The customer summary strip that used to sit here - name, contact id,
@@ -1612,7 +1651,7 @@ export default function PosTill() {
           "Loading history..." for a moment. */}
       {previewImage && <div className={'fixed inset-0 z-[70] flex items-center justify-center bg-black/75 p-6' + (previewImage.hover ? ' pointer-events-none' : '')} onClick={() => setPreviewImage(null)}><div className="relative max-h-[70vh] max-w-2xl rounded bg-white p-2 shadow-2xl" onClick={(e) => e.stopPropagation()}>{!previewImage.hover && <button type="button" aria-label="Close image preview" className="absolute right-2 top-2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-black/70 text-white" onClick={() => setPreviewImage(null)}><Icon name="x" size={16} /></button>}<img src={previewImage.src} alt={previewImage.alt} className="max-h-[65vh] max-w-[60vw] object-contain" /></div></div>}
       {msg && <div className="mx-4 mt-2 flash flash-err whitespace-pre-line">{msg}</div>}
-      <div className="mt-3 flex-1 overflow-x-auto px-4"><table className="dt"><thead><tr>{['Sl. No.', 'Stock', 'Barcode No', 'Item Name', 'Print Description', 'Item Code', 'HSN', 'GST%', 'Qty', 'RSP Price', 'Disc %', 'Disc Amt', 'Net Amount', 'Sales Person', 'Image', ''].map((heading) => <th key={heading} className={'!whitespace-normal !leading-tight' + (heading === 'Sl. No.' ? ' !w-12 !px-1.5 !text-center' : '') + (heading === 'Print Description' ? ' !w-[250px]' : '') + (heading === 'Qty' ? ' !w-[150px]' : '')}>{heading}</th>)}</tr></thead><tbody>{rows.length === 0 ? <tr><td colSpan="16" className="dt-empty">No Items Added</td></tr> : rows.map((row, index) => <tr key={`${row.itemId}-${index}`} className={'cursor-pointer ' + (index === activeRow ? '!bg-[#ffe08a] outline outline-2 -outline-offset-2 outline-[#e0a800]' : '!bg-[#FFF3CD]')} onClick={() => { setSelectedProduct(row); setActiveRow(index); }}><td className={'!w-12 !px-1.5 !text-center'}>{index + 1}</td><td>{/* ONE STOCK COLUMN, two ticks. They were two columns headed Stock Issue and Stock Addition, which read as two unrelated settings when they are one question with two answers - and the pair is already exclusive, so ticking Add clears Issue. Nothing about that changed here; this is the same two checkboxes and the same handler under one heading. The click guard moves to the wrapper so it still covers both, and now the labels too - a label click must tick the box, not select the row behind it. */}<span className="flex items-center justify-center gap-3" onClick={(e) => e.stopPropagation()}><label className={'flex items-center gap-1 leading-none ' + (stockAdjustable(row) ? 'cursor-pointer' : 'cursor-not-allowed opacity-40')} title={stockAdjustable(row) ? undefined : 'Stock - / + is for Fabrics and Plain Fabrics only'}><input type="checkbox" disabled={!stockAdjustable(row)} checked={!!row.stockIssue} onChange={(e) => setStockFlag(index, 'stockIssue', e.target.checked)} /> <span className="text-danger" title="Stock Issue" aria-label="Stock Issue"><Icon name="minus" size={14} stroke={2.5} /></span></label><label className={'flex items-center gap-1 leading-none ' + (stockAdjustable(row) ? 'cursor-pointer' : 'cursor-not-allowed opacity-40')} title={stockAdjustable(row) ? undefined : 'Stock - / + is for Fabrics and Plain Fabrics only'}><input type="checkbox" disabled={!stockAdjustable(row)} checked={!!row.stockAddition} onChange={(e) => setStockFlag(index, 'stockAddition', e.target.checked)} /> <span className="text-okgreen" title="Stock Addition" aria-label="Stock Addition"><Icon name="plus" size={14} stroke={2.5} /></span></label></span></td><td className={row.isReturn ? '!text-danger font-semibold' : undefined}>{row.barcode || '-'}</td>{/* Item Name (19-10-2026) - the unit's own item name, beside its print description */}<td>{row.itemName || row.name || '-'}</td><td>{row.description || row.name}</td><td>{row.code}</td><td>{row.hsn}</td><td>{gstPct(row.gst)}</td><td>{(() => { const closing = row.closing; const known = closing !== undefined && closing !== null; const over = known && Number(row.qty || 0) > Number(closing); return (<div className="flex flex-col items-center gap-0.5" onClick={(e) => e.stopPropagation()}><div className="flex items-center justify-center gap-1"><button type="button" aria-label="Decrease quantity" className="inline-flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded border border-line bg-pillgrey text-[15px] font-bold leading-none text-ink hover:bg-linestrong disabled:opacity-40" disabled={Number(row.qty || 0) <= 1} onClick={() => updateItem(index, 'qty', Math.max(1, Number(row.qty || 1) - 1))}>-</button><input data-qty-row={index} className={'f-input w-14 text-center' + (over ? ' border-danger text-danger' : '')} /* MTR lines take decimals - .23, 0.40, 2.75 (user, 22-10-2026); a text box with the decimal keypad, filtered below */ type={unitLabel(row) === 'MTR' ? 'text' : 'number'} inputMode={unitLabel(row) === 'MTR' ? 'decimal' : undefined} min="1" max={known ? closing : undefined} value={row.qty} onWheel={(e) => e.currentTarget.blur()} onFocus={() => updateItem(index, 'qty', '')} /* Enter finishes the quantity and hands the cursor back to the scan box for the next barcode. A box left empty takes 1 - the line cannot be billed at no quantity. */ onKeyDown={(e) => { if (e.key !== 'Enter') return; e.preventDefault(); if (String(row.qty ?? '').trim() === '' || !(Number(row.qty) > 0)) updateItem(index, 'qty', 1); scanRef.current?.focus(); }} /* min="1" only limits the spinner - a negative can still be typed or pasted, and it flips the whole bill: -222 x 600 billed -133,200.00. Anything below 1 becomes 1. '' is kept so the box can be cleared and retyped, which is what onFocus above relies on. */ onChange={(e) => { const v = e.target.value; if (unitLabel(row) === 'MTR') { /* metres: digits, one point, up to 2 decimals; a leading point reads as 0. - never negative */ if (/^\d*\.?\d{0,2}$/.test(v)) updateItem(index, 'qty', v.startsWith('.') ? '0' + v : v); return; } updateItem(index, 'qty', v === '' ? '' : (Number(v) < 1 ? 1 : v)); }} /><button type="button" aria-label="Increase quantity" className="inline-flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded border border-line bg-pillgrey text-[15px] font-bold leading-none text-ink hover:bg-linestrong disabled:opacity-40" disabled={known && Number(row.qty || 0) >= Number(closing)} onClick={() => updateItem(index, 'qty', Number(row.qty || 0) + 1)}>+</button></div>{/* the unit type after the stock figure - PCS or MTR, from the line's own uomType, else read off its UOM text */}<span className={'text-[11px] ' + (over ? 'font-semibold text-danger' : 'text-inkmuted')}>{known ? (over ? 'Only ' + closing + ' in stock' : 'Closing: ' + closing) + ' ' : ''}{unitLabel(row)}</span></div>); })()}</td><td><input className="f-input w-full min-w-0" type="number" min="0" step="1" value={row.rsp === '' ? '' : Math.trunc(Number(row.rsp || 0))} onWheel={(e) => e.currentTarget.blur()} /* whole rupees - anything after the point is dropped as it is typed */ onChange={(e) => { const v = e.target.value; updateItem(index, 'rsp', v === '' ? '' : Math.max(0, Math.trunc(Number(v)))); }} /></td><td><input className="f-input w-full min-w-0" type="number" min="0" max="100" step="1" value={row.discountPct === '' ? '' : Math.trunc(Number(row.discountPct || 0))} onWheel={(e) => e.currentTarget.blur()} /* a discount over 100% turns the line NEGATIVE - the bill then pays the customer. Clamped here as well as with max= because max only stops the spinner, not typing or pasting. */ onChange={(e) => { const v = e.target.value; updateItem(index, 'discountPct', v === '' ? '' : Math.min(100, Math.max(0, Math.trunc(Number(v))))); }} /></td><td>{money(row.discountAmount)}</td><td className={row.isReturn ? '!text-danger font-semibold' : undefined}>{money(row.lineTotal)}</td><td><select className="f-input min-w-35" value={row.salesPerson || ''} onChange={(e) => { updateItem(index, 'salesPerson', e.target.value); /* the row's pick shows at the top too (user, 21-10-2026) */ if (e.target.value) setSalesPerson(e.target.value); }}><option value="">Select...</option>{salesPeople.map((person) => <option key={person.value} value={person.value}>{person.label}</option>)}</select></td><td onMouseEnter={() => row.image && setPreviewImage({ src: row.image, alt: row.name, hover: true })} onMouseLeave={() => setPreviewImage((p) => (p && p.hover ? null : p))}><ProductImage src={row.image} alt={row.name} size={56} onOpen={() => { setSelectedProduct(row); setPreviewImage({ src: row.image, alt: row.name, hover: false }); }} /></td><td><button type="button" className="act-btn bg-danger" onClick={(e) => { e.stopPropagation(); setItems((current) => current.filter((_, itemIndex) => itemIndex !== index)); setActiveRow((a) => (a === null || a === index ? null : a > index ? a - 1 : a)); if (selectedProduct?.itemId === row.itemId) setSelectedProduct(null); }}><Icon name="x" size={12} /></button></td></tr>)}</tbody></table></div>
+      <div className="mt-3 flex-1 overflow-x-auto px-4"><table className="dt"><thead><tr>{['Sl. No.', 'Stock', 'Barcode No', 'Item Name', 'Print Description', 'Item Code', 'HSN', 'GST%', 'Qty', 'RSP Price', 'Disc %', 'Disc Amt', 'Net Amount', ...(canReadSalesPerson ? ['Sales Person'] : []), 'Image', ''].map((heading) => <th key={heading} className={'!whitespace-normal !leading-tight' + (heading === 'Sl. No.' ? ' !w-12 !px-1.5 !text-center' : '') + (heading === 'Print Description' ? ' !w-[250px]' : '') + (heading === 'Qty' ? ' !w-[150px]' : '')}>{heading}</th>)}</tr></thead><tbody>{rows.length === 0 ? <tr><td colSpan={canReadSalesPerson ? 16 : 15} className="dt-empty">No Items Added</td></tr> : rows.map((row, index) => <tr key={`${row.itemId}-${index}`} className={'cursor-pointer ' + (index === activeRow ? '!bg-[#ffe08a] outline outline-2 -outline-offset-2 outline-[#e0a800]' : '!bg-[#FFF3CD]')} onClick={() => { setSelectedProduct(row); setActiveRow(index); }}><td className={'!w-12 !px-1.5 !text-center'}>{index + 1}</td><td>{/* ONE STOCK COLUMN, two ticks. They were two columns headed Stock Issue and Stock Addition, which read as two unrelated settings when they are one question with two answers - and the pair is already exclusive, so ticking Add clears Issue. Nothing about that changed here; this is the same two checkboxes and the same handler under one heading. The click guard moves to the wrapper so it still covers both, and now the labels too - a label click must tick the box, not select the row behind it. */}<span className="flex items-center justify-center gap-3" onClick={(e) => e.stopPropagation()}><label className={'flex items-center gap-1 leading-none ' + (stockAdjustable(row) ? 'cursor-pointer' : 'cursor-not-allowed opacity-40')} title={stockAdjustable(row) ? undefined : 'Stock - / + is for Fabrics and Plain Fabrics only'}><input type="checkbox" disabled={!stockAdjustable(row)} checked={!!row.stockIssue} onChange={(e) => setStockFlag(index, 'stockIssue', e.target.checked)} /> <span className="text-danger" title="Stock Issue" aria-label="Stock Issue"><Icon name="minus" size={14} stroke={2.5} /></span></label><label className={'flex items-center gap-1 leading-none ' + (stockAdjustable(row) ? 'cursor-pointer' : 'cursor-not-allowed opacity-40')} title={stockAdjustable(row) ? undefined : 'Stock - / + is for Fabrics and Plain Fabrics only'}><input type="checkbox" disabled={!stockAdjustable(row)} checked={!!row.stockAddition} onChange={(e) => setStockFlag(index, 'stockAddition', e.target.checked)} /> <span className="text-okgreen" title="Stock Addition" aria-label="Stock Addition"><Icon name="plus" size={14} stroke={2.5} /></span></label></span></td><td className={row.isReturn ? '!text-danger font-semibold' : undefined}>{row.barcode || '-'}</td>{/* Item Name (19-10-2026) - the unit's own item name, beside its print description */}<td>{row.itemName || row.name || '-'}</td><td>{row.description || row.name}</td><td>{row.code}</td><td>{row.hsn}</td><td>{gstPct(row.gst)}</td><td>{(() => { const closing = row.closing; const known = closing !== undefined && closing !== null; const over = known && Number(row.qty || 0) > Number(closing); return (<div className="flex flex-col items-center gap-0.5" onClick={(e) => e.stopPropagation()}><div className="flex items-center justify-center gap-1"><button type="button" aria-label="Decrease quantity" className="inline-flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded border border-line bg-pillgrey text-[15px] font-bold leading-none text-ink hover:bg-linestrong disabled:opacity-40" disabled={Number(row.qty || 0) <= 1} onClick={() => updateItem(index, 'qty', Math.max(1, Number(row.qty || 1) - 1))}>-</button><input data-qty-row={index} className={'f-input w-14 text-center' + (over ? ' border-danger text-danger' : '')} /* MTR lines take decimals - .23, 0.40, 2.75 (user, 22-10-2026); a text box with the decimal keypad, filtered below */ type={unitLabel(row) === 'MTR' ? 'text' : 'number'} inputMode={unitLabel(row) === 'MTR' ? 'decimal' : undefined} min="1" max={known ? closing : undefined} value={row.qty} onWheel={(e) => e.currentTarget.blur()} onFocus={() => updateItem(index, 'qty', '')} /* Enter finishes the quantity and hands the cursor back to the scan box for the next barcode. A box left empty takes 1 - the line cannot be billed at no quantity. */ onKeyDown={(e) => { if (e.key !== 'Enter') return; e.preventDefault(); if (String(row.qty ?? '').trim() === '' || !(Number(row.qty) > 0)) updateItem(index, 'qty', 1); scanRef.current?.focus(); }} /* min="1" only limits the spinner - a negative can still be typed or pasted, and it flips the whole bill: -222 x 600 billed -133,200.00. Anything below 1 becomes 1. '' is kept so the box can be cleared and retyped, which is what onFocus above relies on. */ onChange={(e) => { const v = e.target.value; if (unitLabel(row) === 'MTR') { /* metres: digits, one point, up to 2 decimals; a leading point reads as 0. - never negative */ if (/^\d*\.?\d{0,2}$/.test(v)) updateItem(index, 'qty', v.startsWith('.') ? '0' + v : v); return; } updateItem(index, 'qty', v === '' ? '' : (Number(v) < 1 ? 1 : v)); }} /><button type="button" aria-label="Increase quantity" className="inline-flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded border border-line bg-pillgrey text-[15px] font-bold leading-none text-ink hover:bg-linestrong disabled:opacity-40" disabled={known && Number(row.qty || 0) >= Number(closing)} onClick={() => updateItem(index, 'qty', Number(row.qty || 0) + 1)}>+</button></div>{/* the unit type after the stock figure - PCS or MTR, from the line's own uomType, else read off its UOM text */}<span className={'text-[11px] ' + (over ? 'font-semibold text-danger' : 'text-inkmuted')}>{known ? (over ? 'Only ' + closing + ' in stock' : 'Closing: ' + closing) + ' ' : ''}{unitLabel(row)}</span></div>); })()}</td><td><input className="f-input w-full min-w-0" type="number" min="0" step="1" value={row.rsp === '' ? '' : Math.trunc(Number(row.rsp || 0))} onWheel={(e) => e.currentTarget.blur()} /* whole rupees - anything after the point is dropped as it is typed */ onChange={(e) => { const v = e.target.value; updateItem(index, 'rsp', v === '' ? '' : Math.max(0, Math.trunc(Number(v)))); }} /></td><td><input className="f-input w-full min-w-0" type="number" min="0" max="100" step="1" value={row.discountPct === '' ? '' : Math.trunc(Number(row.discountPct || 0))} onWheel={(e) => e.currentTarget.blur()} /* a discount over 100% turns the line NEGATIVE - the bill then pays the customer. Clamped here as well as with max= because max only stops the spinner, not typing or pasting. */ onChange={(e) => { const v = e.target.value; updateItem(index, 'discountPct', v === '' ? '' : Math.min(100, Math.max(0, Math.trunc(Number(v))))); }} /></td><td>{money(row.discountAmount)}</td><td className={row.isReturn ? '!text-danger font-semibold' : undefined}>{money(row.lineTotal)}</td>{canReadSalesPerson && <td><select className="f-input min-w-35" value={row.salesPerson || ''} onChange={(e) => { updateItem(index, 'salesPerson', e.target.value); /* the row's pick shows at the top too (user, 21-10-2026) */ if (e.target.value) setSalesPerson(e.target.value); }}><option value="">Select...</option>{salesPeople.map((person) => <option key={person.value} value={person.value}>{person.label}</option>)}</select></td>}<td onMouseEnter={() => row.image && setPreviewImage({ src: row.image, alt: row.name, hover: true })} onMouseLeave={() => setPreviewImage((p) => (p && p.hover ? null : p))}><ProductImage src={row.image} alt={row.name} size={56} onOpen={() => { setSelectedProduct(row); setPreviewImage({ src: row.image, alt: row.name, hover: false }); }} /></td><td><button type="button" className="act-btn bg-danger" onClick={(e) => { e.stopPropagation(); setItems((current) => current.filter((_, itemIndex) => itemIndex !== index)); setActiveRow((a) => (a === null || a === index ? null : a > index ? a - 1 : a)); if (selectedProduct?.itemId === row.itemId) setSelectedProduct(null); }}><Icon name="x" size={12} /></button></td></tr>)}</tbody></table></div>
       
       <div className="border-t border-line px-4 pt-2">{/* TWO SIDES: the bill totals and the discount / shipping boxes on the LEFT, loyalty on the RIGHT */}<div className="flex flex-col gap-4 md:flex-row md:items-start"><div className="min-w-0 flex-1"><div className="grid grid-cols-2 gap-2 text-[13px] md:grid-cols-6"><div><div className="text-cell">Qty</div><div>{qty}{rows.length > 0 && <span className="ml-2 text-[12px] text-inkmuted">(Pcs {qtyPc} · Mtrs {qtyMtr})</span>}</div></div><div><div className="text-cell">Bill Value</div><div>{money(rows.reduce((sum, row) => sum + (row.isReturn ? -1 : 1) * Number(row.rsp || 0) * Number(row.qty || 0), 0))}</div></div><div><div className="text-cell">Total Discount</div><div>{money(rows.reduce((sum, row) => sum + row.discountAmount, 0))}</div></div><div><div className="text-cell">Sub Total</div><div>{money(billValue)}</div></div>
       
@@ -1628,7 +1667,7 @@ export default function PosTill() {
 
               Renders only where loyalty is switched on for the business, so a
               till that has never configured it looks exactly as it did. */}
-          {loyalty && (
+          {loyalty && canReadCustomer && (
             <div className="text-[12.5px] md:text-right">
               {customer === 'walkin' ? (
                 /* Nobody to credit. Said plainly rather than hidden, so the
@@ -1801,7 +1840,7 @@ export default function PosTill() {
           </div>
         </div>
       )}
-      {showCustomerForm && (
+      {showCustomerForm && canCreateCustomer && (
         <CustomerForm
           values={customerForm}
           setValues={setCustomerForm}

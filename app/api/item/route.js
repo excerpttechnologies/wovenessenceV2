@@ -40,6 +40,18 @@ const LEGACY_ECOMMERCE_FIELDS = new Set([
 const itemFieldsOnly = (item) => Object.fromEntries(
   Object.entries(item).filter(([field]) => !LEGACY_ECOMMERCE_FIELDS.has(field))
 );
+const POS_SAFE_ITEM_FIELDS = new Set(['_id', 'businessId', 'itemCode', 'name', 'description', 'rsp', 'image', 'hsnId', 'uomId']);
+const posSafeItemFieldsOnly = (item) => Object.fromEntries(
+  Object.entries(item).filter(([field]) => POS_SAFE_ITEM_FIELDS.has(field))
+);
+const ITEM_MASTER_VIEW_SCREENS = [
+  SCREENS.ITEM,
+  SCREENS.GRC,
+  SCREENS.GRT,
+  SCREENS.BARCODE_ITEM,
+  SCREENS.PRINT_LABEL,
+  SCREENS.MASTER_STOCK_REPORT,
+];
 
 export async function GET(req) {
   const session = await requireSession();
@@ -61,6 +73,14 @@ export async function GET(req) {
     businessId: scope.businessId || sp.get('business'), label: 'items',
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
+
+  const canSeeFullItem = !(await screenDenialAny({
+    session,
+    screens: ITEM_MASTER_VIEW_SCREENS,
+    action: PERM.READ,
+    businessId: scope.businessId || sp.get('business'),
+    label: 'items',
+  }));
 
   const filter = {};
   const barcodeImageByCode = {};
@@ -98,9 +118,11 @@ export async function GET(req) {
     .limit(perPage)
     .lean();
 
+  const shapeRow = canSeeFullItem ? itemFieldsOnly : posSafeItemFieldsOnly;
+  const shapedRows = rows.map((r) => ({ ...shapeRow(r), _id: String(r._id), image: r.image || barcodeImageByCode[String(r.itemCode)] || '' }));
   return json({
-    rows: rows.map((r) => ({ ...itemFieldsOnly(r), _id: String(r._id), image: r.image || barcodeImageByCode[String(r.itemCode)] || '' })),
-    labels: await resolveRefLabels(rows),
+    rows: shapedRows,
+    labels: await resolveRefLabels(shapedRows),
     total,
     page,
     pages: Math.max(1, Math.ceil(total / perPage)),

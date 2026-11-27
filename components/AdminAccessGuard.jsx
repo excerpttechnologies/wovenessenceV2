@@ -36,13 +36,7 @@ export default function AdminAccessGuard({ children }) {
   const isAdminUser = isSuperAdmin || user?.role === 'Admin';
   const ready = userReady && (isSuperAdmin || permsReady);
   const needsAssignment = !isSuperAdmin && Boolean(user?.needsAssignment);
-  const isCashierRoot = user?.role === 'Cashier' && (pathname === '/admin' || pathname === '/admin/');
-
-  useEffect(() => {
-    if (ready && isCashierRoot && !needsAssignment) {
-      router.replace('/admin/transaction/sell/pos');
-    }
-  }, [ready, isCashierRoot, needsAssignment, router]);
+  const isAdminRoot = pathname === '/admin' || pathname === '/admin/';
 
   const entry = useMemo(() => screenEntryForPath(pathname), [pathname]);
 
@@ -67,10 +61,20 @@ export default function AdminAccessGuard({ children }) {
     return firstAccessibleLink(visible);
   }, [ready, allowed, needsAssignment, can, user, isAdminUser, perms]);
 
-  if (!ready || (isCashierRoot && !needsAssignment)) {
+  const shouldRedirectRoot = Boolean(
+    ready && isAdminRoot && !allowed && !needsAssignment && fallback && fallback !== '/admin',
+  );
+
+  useEffect(() => {
+    if (shouldRedirectRoot) {
+      router.replace(fallback);
+    }
+  }, [shouldRedirectRoot, fallback, router]);
+
+  if (!ready || shouldRedirectRoot) {
     return (
       <div className="flex min-h-[240px] items-center justify-center p-8 text-sm text-inkmuted">
-        {isCashierRoot ? 'Redirecting to POS…' : 'Checking permissions…'}
+        {shouldRedirectRoot ? 'Redirecting…' : 'Checking permissions…'}
       </div>
     );
   }

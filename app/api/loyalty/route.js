@@ -46,6 +46,17 @@ export async function GET(req) {
   const customer = (sp.get('customer') || '').trim();
   const amount = Number(sp.get('amount') || 0);
 
+  if (customer) {
+    const custDenied = await screenDenial({
+      session,
+      screen: SCREENS.CUSTOMER,
+      label: 'Customer',
+      action: PERM.READ,
+      businessId: sp.get('business'),
+    });
+    if (custDenied) return json({ error: custDenied.message, code: custDenied.code }, 403);
+  }
+
   const resolution = await resolveCustomerLoyalty({
     businessId: sp.get('business'),
     customerId: customer,

@@ -7,6 +7,17 @@ import CompanyLocation from '@/models/CompanyLocation';
 import { Supplier } from '@/lib/contacts';
 import Grc from '@/models/Grc';
 import { assertDocumentLocationAccess } from '@/lib/locationAccess';
+import { screenDenialAny, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+
+const TRACEABILITY_SCREENS = [
+  SCREENS.BARCODE_REPORT,
+  SCREENS.BARCODE_ITEM,
+  SCREENS.ITEM_BARCODE_REPORT,
+  SCREENS.MASTER_STOCK_REPORT,
+  SCREENS.GRC,
+  SCREENS.GRT,
+  SCREENS.PRINT_LABEL,
+];
 
 /* GET /api/barcode/<code>
    The full traceable life of one barcode: what it is, where it is now, and
@@ -23,6 +34,14 @@ export const GET = handler(async (req, { params }) => {
   const session = await requireUser();
   const { code } = await params;
   await dbConnect();
+
+  const initialDenied = await screenDenialAny({
+    session,
+    screens: TRACEABILITY_SCREENS,
+    action: PERM.READ,
+    label: 'barcode traceability',
+  });
+  if (initialDenied) return json({ error: initialDenied.message, code: initialDenied.code }, 403);
 
   /* any spelling of the unit's number, composed value or old barcode; of
      several rows, the one the code is closest to (see unitFor) */
@@ -41,6 +60,15 @@ export const GET = handler(async (req, { params }) => {
     locationKeys: ['currentLocationId', 'locationId'],
   });
   if (locDenied) return locDenied;
+
+  const scopedDenied = await screenDenialAny({
+    session,
+    screens: TRACEABILITY_SCREENS,
+    action: PERM.READ,
+    businessId: unit.businessId || '',
+    label: 'barcode traceability',
+  });
+  if (scopedDenied) return json({ error: scopedDenied.message, code: scopedDenied.code }, 403);
 
   const events = await barcodeHistory(unit.barcodeNo || unit.barcodeGenerated, { barcodeId: unit._id });
 

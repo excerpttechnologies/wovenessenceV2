@@ -1,6 +1,4 @@
-import { redirect } from 'next/navigation';
 import { requireSession } from '@/lib/session';
-import { ROLES } from '@/models/User';
 import DashboardClient from '@/components/dashboard/DashboardClient';
 
 export const metadata = {
@@ -9,9 +7,6 @@ export const metadata = {
 };
 
 export default async function DashboardPage() {
-  const session = await requireSession();
-  if (session?.role === ROLES.CASHIER) {
-    redirect('/admin/transaction/sell/pos');
-  }
+  await requireSession();
   return <DashboardClient />;
 }

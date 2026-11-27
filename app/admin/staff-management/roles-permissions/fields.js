@@ -242,7 +242,6 @@ const RULES = {
   Cashier: {
     groups: {
       General: READ,
-      'Main Reports': READ,
       Reports: READ,
     },
     resources: {
