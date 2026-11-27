@@ -472,7 +472,13 @@ export const POST = handler(async (req) => {
      the item-stock report showed closing stock equal to everything ever
      received. normaliseLines() writes both keys, so old screens that read
      `code` keep working and the reports start matching. */
-  if (Array.isArray(body.data?.items)) doc.items = normaliseLines(body.data.items);
+  if (Array.isArray(body.data?.items)) {
+    doc.items = normaliseLines(body.data.items);
+    const invalidLine = doc.items.find((l) => !Number.isFinite(l.qty) || l.qty <= 0);
+    if (invalidLine) {
+      return json({ error: 'All bill items must have a quantity greater than zero.', code: 'INVALID_QTY' }, 422);
+    }
+  }
   const rawPayments = Array.isArray(body.data?.payments) ? body.data.payments : [];
   const hasManualLoyaltyPayment = rawPayments.some((p) => p && p.loyalty === true);
   /* Client requests must never forge loyalty payment rows; the server adds
@@ -824,15 +830,17 @@ export const POST = handler(async (req) => {
           need = Math.round((need - take) * 1000) / 1000;
         }
         if (need > 0.0005) {
-          throw new InventoryError('INSUFFICIENT_QTY',
-            (unit.barcodeNo || '') + ': only ' + Math.round((asked.get(String(unit._id)) - need) * 1000) / 1000
-            + ' in stock, ' + asked.get(String(unit._id)) + ' on the bill.',
-            { status: 409, skipped: [unit.barcodeNo || ''] });
+          /* Physical stock verified at POS may exceed ERP closing stock. After
+             exhausting all in-stock rows for this barcode, post the remaining
+             sold quantity onto the scanned unit without creating fake stock or
+             mutating opening stock, keeping StockMovement & sales[] exact. */
+          const currentTake = Number(qtyByUnit.get(String(unit._id)) || 0);
+          qtyByUnit.set(String(unit._id), Math.round((currentTake + need) * 1000) / 1000);
         }
       }
 
       await sellUnits({
-        units: toSell, invoice, locationId: doc.locationId, user: session, session: dbSession, qtyByUnit,
+        units: toSell, invoice, locationId: doc.locationId, user: session, session: dbSession, qtyByUnit, allowNegativeStock: true,
       });
     }
 
@@ -902,10 +910,12 @@ export const POST = handler(async (req) => {
 function normaliseLines(items) {
   return (items || []).map((l) => {
     const itemCode = String(l.itemCode ?? l.code ?? l['Item Code'] ?? '').trim();
-    const qty = Number(l.qty ?? l.Qty ?? l.QTY ?? 1) || 1;
+    const rawQty = l.qty ?? l.Qty ?? l.QTY;
+    const parsedQty = (rawQty === undefined || rawQty === null || rawQty === '') ? 0 : Number(rawQty);
+    const qty = Number.isFinite(parsedQty) ? Math.round(parsedQty * 1000) / 1000 : NaN;
     const rate = Number(l.rsp ?? l.rate ?? l.price ?? 0) || 0;
     const discountPct = Number(l.discountPct ?? 0) || 0;
-    const gross = rate * qty;
+    const gross = rate * (Number.isFinite(qty) ? qty : 0);
     const netAmount = Math.round((gross - (gross * discountPct) / 100) * 100) / 100;
 
     return {
