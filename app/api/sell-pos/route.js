@@ -758,6 +758,15 @@ export const POST = handler(async (req) => {
         }
       }
 
+      const itemsTax = round2((doc.items || []).reduce((sum, l) => {
+        const signedLine = (l.isReturn ? -1 : 1) * Number(l.netAmount || 0);
+        const rate = Number(l.gst || 0);
+        return sum + (signedLine - signedLine / (1 + rate / 100));
+      }, 0));
+      const loyaltyTaxableAmount = (doc.items || []).length
+        ? round2(itemsSubTotal - itemsTax)
+        : rawNetTotal;
+
       const ledgerRows = saleLedgerRows({
         rules,
         businessId: doc.businessId,
@@ -766,6 +775,7 @@ export const POST = handler(async (req) => {
         invoiceId: invoice._id,
         invoiceNo: invoice.invoiceNo,
         billAmount: doc.totalAmount,
+        taxableAmount: loyaltyTaxableAmount,
         redeemPoints,
         schemeId: rules.schemeId,
         schemeName: rules.name,

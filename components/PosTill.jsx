@@ -1574,26 +1574,26 @@ export default function PosTill() {
   /* WHAT THIS BILL WILL EARN - shown before it is rung up, so the cashier can
      answer "how many will I get" without guessing.
 
-     The same arithmetic as pointsEarnedFor in lib/loyalty.js, on the rules the
-     API hands over. A PREVIEW ONLY: the server works it out again from the
-     master when the sale is saved, and its figure is the one that lands in the
-     ledger. Worked on the payable rather than the bill, because spending
-     points does not earn more of them. */
+     Uses Taxable Amount rounded half-up to the nearest whole rupee (without
+     modifying the displayed/stored Taxable Amount or Net Amount), less any
+     redeemed loyalty amount so spending points does not earn more of them. */
   const earnPreview = (() => {
-    if (!loyaltyEligible || payableAfterPoints <= 0) return 0;
+    const roundedTaxable = Math.max(0, roundRupee(Math.max(0, taxableAmount)));
+    const earnBase = Math.max(0, roundedTaxable - redeemAmount);
+    if (!loyaltyEligible || earnBase <= 0) return 0;
     /* the six-field master: one point per every purchaseAmountForOnePoint
        rupees. The percentage arithmetic below only serves a config saved
        before that master and never re-saved. */
     if (loyalty.perAmountModel) {
       const per = Number(loyalty.purchaseAmountForOnePoint || 0);
-      return per > 0 ? Math.floor(payableAfterPoints / per) : 0;
+      return per > 0 ? Math.floor(earnBase / per) : 0;
     }
     const pct = Number(loyalty.earningPercentage || 0);
     if (pct <= 0) return 0;
     const min = Number(loyalty.minPurchaseAmount || 0);
-    if (min > 0 && payableAfterPoints < min) return 0;
+    if (min > 0 && earnBase < min) return 0;
     const cap = Number(loyalty.maxRewardPoint || 0);
-    const points = Math.floor((payableAfterPoints * pct) / 100);
+    const points = Math.floor((earnBase * pct) / 100);
     return Math.max(0, cap > 0 ? Math.min(points, cap) : points);
   })();
 
