@@ -520,6 +520,9 @@ export default function PrintPosPage() {
   const pcs = r2(items.filter((it) => kindOf(it) === 'PC').reduce((a, it) => a + Number(it.qty || 0), 0));
   const mtr = r2(items.filter((it) => kindOf(it) === 'MTR').reduce((a, it) => a + Number(it.qty || 0), 0));
   const changeReturn = Math.max(0, Number(doc.paid || 0) - netAmount);
+  const loyaltyPointsEarned = Number.isFinite(Number(doc.loyaltyPointsEarned))
+    ? Number(doc.loyaltyPointsEarned)
+    : 0;
 
   /* payment modes, one line per method that took money */
   const paidBy = new Map();
@@ -822,6 +825,11 @@ export default function PrintPosPage() {
             <div className="flex justify-between gap-1 border-t border-black font-bold"><span>Net Amt</span><span>{inr0(netAmount)}</span></div>
           </div>
         </div>
+        {loyaltyPointsEarned > 0 && (
+          <div className="mt-0.5 text-[9.5px] font-bold">
+            LOYALTY POINTS EARNED: {loyaltyPointsEarned}
+          </div>
+        )}
 
         {/* ---------------------------------------------- tax summary -- */}
         <Rule />
@@ -954,6 +962,9 @@ function SheetInvoice({
     <div className="flex justify-between gap-2"><span>{label}</span><span>{children}</span></div>
   );
   const sellerName = seller.name || doc.businessName || '';
+  const loyaltyPointsEarned = Number.isFinite(Number(doc.loyaltyPointsEarned))
+    ? Number(doc.loyaltyPointsEarned)
+    : 0;
 
   return (
     <main
@@ -1085,6 +1096,11 @@ function SheetInvoice({
           </div>
         </div>
       </div>
+      {loyaltyPointsEarned > 0 && (
+        <div className="mt-1 font-bold" style={{ fontSize: '0.9em' }}>
+          LOYALTY POINTS EARNED: {loyaltyPointsEarned}
+        </div>
+      )}
 
       {/* ---------------------------------------------- tax summary -- */}
       <Rule />
