@@ -47,7 +47,7 @@ export async function GET(req, { params }) {
       loyaltySchemeId: scheme ? String(scheme._id) : '',
       loyaltySchemeName: scheme ? String(scheme.loyaltyPointName || 'Loyalty Points') : '',
       loyaltySchemeActive: scheme ? String(scheme.active || '').trim().toLowerCase() === 'yes' : false,
-      loyaltyPointsApplicable: Boolean(scheme),
+      loyaltyPointsApplicable: doc.loyaltyPointsApplicable === true,
       _id: String(doc._id),
     },
   });
@@ -75,16 +75,7 @@ export async function PUT(req, { params }) {
   const { errors, doc, ok } = validate(FIELDS, body.data || {});
   if (!ok) return json({ errors }, 422);
   doc.name = String(doc.name || '').trim().toUpperCase();
-
-  const schemeCheck = await validateContactTypeLoyaltyScheme({
-    businessId: body.business || existing.businessId,
-    loyaltySchemeId: doc.loyaltySchemeId,
-  });
-  if (!schemeCheck.ok) {
-    return json({ errors: { loyaltySchemeId: schemeCheck.error } }, 422);
-  }
-  doc.loyaltySchemeId = schemeCheck.loyaltySchemeId;
-  doc.loyaltyPointsApplicable = schemeCheck.loyaltyPointsApplicable;
+  doc.loyaltyPointsApplicable = doc.loyaltyPointsApplicable === true;
 
   const updated = await ContactType.findByIdAndUpdate(id, doc, { new: true, runValidators: true });
   if (!updated) return json({ error: 'Not found' }, 404);

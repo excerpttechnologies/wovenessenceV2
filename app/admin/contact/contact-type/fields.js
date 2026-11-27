@@ -8,11 +8,16 @@ export const FIELDS = [
     { k: "colorLebel", label: "Color Lebel", type: "text" },
     { k: "description", label: "Description", type: "text", span: "all" },
     {
-      k: "loyaltySchemeId",
+      k: "loyaltyPointsApplicable",
       label: "Loyalty Points Applicable",
       sectionTitle: "LOYALTY POINTS APPLICABLE",
-      type: "loyaltySchemeSelect",
+      type: "booleanButtons",
+      valueType: "boolean",
       span: "all",
-      def: "",
+      def: false,
+      opts: [
+        { v: true, l: "YES – Enable Loyalty Points" },
+        { v: false, l: "NO – Disable Loyalty Points" },
+      ],
     },
   ];

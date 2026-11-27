@@ -23,23 +23,15 @@ const CONFIG = {
     { k: "prefix", t: "Prefix" },
     { k: "status", t: "Status" },
     {
-      k: "loyaltySchemeId",
+      k: "loyaltyPointsApplicable",
       t: "Loyalty Points",
-      value: (r) => r.loyaltySchemeName || 'Not Applicable',
+      value: (r) => (r.loyaltyPointsApplicable === true ? 'Enabled' : 'Disabled'),
       render: (r) => {
-        const hasScheme = Boolean(r.loyaltySchemeId && r.loyaltySchemeName);
-        if (!hasScheme) {
-          return (
-            <span className="pill pill-grey inline-flex items-center gap-1">
-              Not Applicable
-            </span>
-          );
-        }
-        const inactive = r.loyaltySchemeActive === false;
+        const enabled = r.loyaltyPointsApplicable === true;
         return (
-          <span className={'pill inline-flex items-center gap-1 ' + (inactive ? 'pill-yellow' : 'pill-green')}>
-            <Icon name={inactive ? 'x' : 'checkCircle'} size={12} stroke={2.2} />
-            {r.loyaltySchemeName}{inactive ? ' (Inactive)' : ''}
+          <span className={'pill inline-flex items-center gap-1 ' + (enabled ? 'pill-green' : 'pill-red')}>
+            <Icon name={enabled ? 'checkCircle' : 'x'} size={12} stroke={2.2} />
+            {enabled ? 'Enabled' : 'Disabled'}
           </span>
         );
       },
