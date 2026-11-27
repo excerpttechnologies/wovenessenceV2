@@ -284,6 +284,24 @@ function buildMatrix() {
 
 export const DEFAULT_MATRIX = buildMatrix();
 
+/* Default navbar visibility mirrors READ permission from DEFAULT_MATRIX:
+   every screen with default READ starts visible in the sidebar, and screens
+   without READ stay hidden. */
+export function buildDefaultNavbar(matrix = DEFAULT_MATRIX) {
+  const out = {};
+  ROLES.forEach((r) => {
+    out[r.k] = {};
+    RESOURCES.forEach((res) => {
+      if (matrix[r.k]?.[res.k]?.read) {
+        out[r.k][res.k] = true;
+      }
+    });
+  });
+  return out;
+}
+
+export const DEFAULT_NAVBAR = buildDefaultNavbar();
+
 export const DEFAULT_MASTER_STOCK_FIELDS = ROLES.reduce(
   (acc, r) => ({ ...acc, [r.k]: defaultMasterStockFieldsForRole(r.k) }),
   {},
@@ -298,15 +316,41 @@ export function grantedCount(matrix, role) {
   );
 }
 
-/* Granted / total within one sidebar group, for the group header. */
-export function groupTally(matrix, role, group) {
+/* Navbar visibility summary for one sidebar group among READ-eligible screens. */
+export function navbarGroupTally(matrix, navbarMatrix, role, group) {
   const held = (matrix && matrix[role]) || {};
+  const navHeld = (navbarMatrix && navbarMatrix[role]) || {};
   const resources = RESOURCE_GROUPS.find((g) => g.group === group)?.resources || [];
-  const on = resources.reduce(
+  let eligible = 0;
+  let visible = 0;
+  resources.forEach((r) => {
+    if (held[r.k]?.read) {
+      eligible += 1;
+      if (navHeld[r.k]) visible += 1;
+    }
+  });
+  return { visible, eligible };
+}
+
+/* Granted / total within one sidebar group, for the group header.
+   When `navbarMatrix` is passed, includes VIEW IN NAVBAR alongside the 5 action
+   permissions (only counted when READ is enabled for that screen). */
+export function groupTally(matrix, role, group, navbarMatrix = null) {
+  const held = (matrix && matrix[role]) || {};
+  const navHeld = (navbarMatrix && navbarMatrix[role]) || {};
+  const resources = RESOURCE_GROUPS.find((g) => g.group === group)?.resources || [];
+  const actionsOn = resources.reduce(
     (n, r) => n + ACTIONS.filter((a) => held[r.k] && held[r.k][a.k]).length,
     0
   );
-  return { on, total: resources.length * ACTIONS.length };
+  if (!navbarMatrix) {
+    return { on: actionsOn, total: resources.length * ACTIONS.length };
+  }
+  const navOn = resources.reduce(
+    (n, r) => n + (held[r.k]?.read && navHeld[r.k] ? 1 : 0),
+    0
+  );
+  return { on: actionsOn + navOn, total: resources.length * (ACTIONS.length + 1) };
 }
 
 /* ---------------------------------------------------------------- users --

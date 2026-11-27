@@ -82,6 +82,7 @@
 
 'use client';
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { isScreenVisibleInNavbar } from '@/lib/navRegistry';
 
 /* The three top-bar selectors scope every query in the app:
    business -> location -> financial year. */
@@ -124,7 +125,7 @@ export function ScopeProvider({ children }) {
      means show everything - the pre-permissions behaviour. The server checks
      every request regardless, so a stale or missing answer here is a cosmetic
      problem, never a security one. */
-  const [perms, setPerms] = useState({ governed: false, screens: {}, masterStock: null });
+  const [perms, setPerms] = useState({ governed: false, screens: {}, navbar: null, masterStock: null });
 
   /* `userReady` and `permsReady` let a consumer wait for the answer instead of
      treating "not loaded yet" as "nothing to show". The quick actions and the
@@ -309,12 +310,14 @@ export function ScopeProvider({ children }) {
      control the operator is actually allowed to use is the worse mistake:
      the button going missing looks like a bug, while a button that turns out
      to be refused at least explains itself. */
-  const can = (screen, action) => {
+  const can = useCallback((screen, action) => {
     if (!perms.governed) return true;
     if (!screen) return true;
     const held = perms.screens?.[screen];
     return Array.isArray(held) && held.includes(action);
-  };
+  }, [perms]);
+
+  const canNavbar = useCallback((screen) => isScreenVisibleInNavbar(perms, screen), [perms]);
 
   const canMasterStock = (fieldKey) => {
     if (user?.role === 'Super Admin') return true;
@@ -336,7 +339,7 @@ export function ScopeProvider({ children }) {
     businessReady, locationReady, permsReady,
     isRestricted, needsAssignment, isLocationLocked, isCompanyLocked,
     setBusiness, setLocation, setFinYear,
-    perms, can, canMasterStock, refreshPermissions, refreshScope: fetchMe,
+    perms, can, canNavbar, canMasterStock, refreshPermissions, refreshScope: fetchMe,
     // appended to every list/save request
     query: () => new URLSearchParams({ business, location, finYear }).toString(),
   };

@@ -89,6 +89,25 @@ function cleanPermissions(raw) {
   return out;
 }
 
+/* Normalise per-screen navbar visibility against cleaned `permissions`.
+   A screen without `read` can never appear in the navbar, so entries for
+   unreadable or unrecognised screens are dropped. Readable screens with no
+   explicit entry preserve backward compatibility by defaulting to true. */
+function cleanNavbarVisibility(raw, cleanedPermissions) {
+  const out = {};
+  const hasMap = raw && typeof raw === 'object' && !Array.isArray(raw);
+
+  Object.entries(cleanedPermissions || {}).forEach(([resource, list]) => {
+    if (!VALID_RESOURCES.has(resource)) return;
+    if (!Array.isArray(list) || !list.includes('read')) return;
+    out[resource] = hasMap && Object.prototype.hasOwnProperty.call(raw, resource)
+      ? Boolean(raw[resource])
+      : true;
+  });
+
+  return out;
+}
+
 export const GET = handler(async (req) => {
   await requirePermission(PERMISSIONS.ADMIN_ALL);
   const sp = new URL(req.url).searchParams;
@@ -103,9 +122,12 @@ export const GET = handler(async (req) => {
   const rows = await RolePermission.find(filter).lean();
 
   const roles = {};
+  const navbarVisibility = {};
   const masterStockFields = {};
   rows.forEach((r) => {
-    roles[r.role] = cleanPermissions(r.permissions);
+    const cleaned = cleanPermissions(r.permissions);
+    roles[r.role] = cleaned;
+    navbarVisibility[r.role] = cleanNavbarVisibility(r.navbarVisibility, cleaned);
     if (Array.isArray(r.masterStockFields)) {
       masterStockFields[r.role] = cleanMasterStockFields(r.masterStockFields);
     } else {
@@ -115,6 +137,7 @@ export const GET = handler(async (req) => {
 
   return json({
     roles,
+    navbarVisibility,
     masterStockFields,
     /* which roles carry an override - the caller uses its own defaults for
        every role NOT in this list */
@@ -148,10 +171,12 @@ export const POST = handler(async (req) => {
 
   const permissions = cleanPermissions(body.permissions);
   const hasMsFields = Array.isArray(body.masterStockFields);
+  const navbarVisibility = cleanNavbarVisibility(body.navbarVisibility, permissions);
   const updateSet = {
     businessId: business,
     role,
     permissions,
+    navbarVisibility,
     updatedBy: session?.name || session?.email || '',
   };
   if (hasMsFields) {
@@ -165,8 +190,9 @@ export const POST = handler(async (req) => {
   );
 
   const granted = Object.values(permissions).reduce((n, list) => n + list.length, 0);
+  const navbarVisibleCount = Object.values(navbarVisibility).filter(Boolean).length;
   const msGranted = Array.isArray(updatedDoc?.masterStockFields) ? updatedDoc.masterStockFields.length : 0;
-  return json({ ok: true, role, granted, masterStockGranted: msGranted });
+  return json({ ok: true, role, granted, navbarVisibleCount, masterStockGranted: msGranted });
 });
 
 /* Reset. Deletes the override rather than saving an empty one, because an

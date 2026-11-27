@@ -6,7 +6,9 @@ import {
   LuChevronDown, LuChevronRight, LuHistory, LuStar,
 } from 'react-icons/lu';
 import { useScope } from './ScopeContext';
-import { isAdminOnlyHref, isFrequentHref, navEntry } from '@/lib/navRegistry';
+import {
+  isAdminOnlyHref, isFrequentHref, isScreenVisibleInNavbar, navEntry,
+} from '@/lib/navRegistry';
 
 /* ==========================================================================
    Frequently Visited Pages – display component.
@@ -32,12 +34,10 @@ const OPEN_KEY = 'orbit.freq.open';
 const MAX_ITEMS = 8;
 const ACTIONS = ['create', 'read', 'update', 'download', 'delete'];
 
-/* Require READ permission so pages with READ disabled are never offered in
-   Frequently Visited shortcuts. */
+/* Require both READ permission and VIEW IN NAVBAR visibility so pages hidden
+   from the sidebar or lacking READ access never appear in Frequently Visited. */
 function holdsScreen(perms, href) {
-  if (!perms?.governed) return true;
-  const held = perms.screens?.[href];
-  return Array.isArray(held) && held.includes('read');
+  return isScreenVisibleInNavbar(perms, href);
 }
 
 /* Human-readable "last visited" string for the tooltip. */

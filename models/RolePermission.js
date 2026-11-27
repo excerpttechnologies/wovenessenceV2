@@ -53,6 +53,12 @@ const RolePermissionSchema = new mongoose.Schema(
     /* { '<sidebar href>': ['create', 'read', ...] } */
     permissions: { type: mongoose.Schema.Types.Mixed, default: {} },
 
+    /* Per-screen sidebar/navbar visibility map: { '<sidebar href>': true | false }.
+       Undefined on legacy docs (any screen holding 'read' defaults to visible
+       in navbar for backward compatibility). Screens without READ permission
+       must always resolve to false regardless of this map. */
+    navbarVisibility: { type: mongoose.Schema.Types.Mixed, default: undefined },
+
     /* Master Stock Report granular field/filter/summary/drilldown keys granted
        to this role on this business. Undefined on legacy docs (fails closed for
        non-Admin roles; any newly registered keys stay restricted until saved). */

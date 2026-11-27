@@ -5,8 +5,8 @@ import { useScope } from '@/components/ScopeContext';
 import { useClientTable } from '@/components/NumberedPager';
 import {
   ROLES as BUILT_IN_ROLES, ACTIONS, RESOURCES, RESOURCE_GROUPS, DEFAULT_MATRIX,
-  DEFAULT_MASTER_STOCK_FIELDS, MASTER_STOCK_PERMISSION_GROUPS, MASTER_STOCK_ALL_KEYS,
-  isLockedRole, isOwnerRole, grantedCount, groupTally, resourceTitle, TOTAL_GRANTS,
+  DEFAULT_NAVBAR, DEFAULT_MASTER_STOCK_FIELDS, MASTER_STOCK_PERMISSION_GROUPS, MASTER_STOCK_ALL_KEYS,
+  isLockedRole, isOwnerRole, grantedCount, groupTally, navbarGroupTally, resourceTitle, TOTAL_GRANTS,
   initialsOf,
 } from './fields';
 
@@ -72,6 +72,31 @@ function toApi(row) {
   return out;
 }
 
+/* Canonical navbar visibility map for a role's screens: only screens with
+   `read` granted can carry a navbar visibility entry, and missing keys on
+   legacy saves preserve visibility by defaulting to true when `read` is held. */
+function fromNavbarApi(savedNavbar, permRow) {
+  const out = {};
+  const hasSaved = savedNavbar && typeof savedNavbar === 'object' && !Array.isArray(savedNavbar);
+  Object.entries(permRow || {}).forEach(([resource, actions]) => {
+    if (!actions?.read) return;
+    out[resource] = hasSaved && Object.prototype.hasOwnProperty.call(savedNavbar, resource)
+      ? Boolean(savedNavbar[resource])
+      : true;
+  });
+  return out;
+}
+
+function toNavbarApi(navRow, permRow) {
+  const out = {};
+  const sortedKeys = Object.keys(permRow || {}).sort();
+  sortedKeys.forEach((resource) => {
+    if (!permRow?.[resource]?.read) return;
+    out[resource] = Boolean(navRow?.[resource]);
+  });
+  return out;
+}
+
 export default function RolesPermissionsPage() {
   const scope = useScope();
 
@@ -80,6 +105,7 @@ export default function RolesPermissionsPage() {
   const [loadingUsers, setLoadingUsers] = useState(false);
 
   const [matrix, setMatrix] = useState(DEFAULT_MATRIX);
+  const [navbarMatrix, setNavbarMatrix] = useState(DEFAULT_NAVBAR);
   const [msFields, setMsFields] = useState(DEFAULT_MASTER_STOCK_FIELDS);
   const [savedRoles, setSavedRoles] = useState([]);
   /* The matrix as the SERVER last confirmed it, per role. Ticking a box only
@@ -87,6 +113,7 @@ export default function RolesPermissionsPage() {
      which is exactly the trap this screen used to set, because an unticked
      box looked identical whether it had been saved or not. */
   const [savedSnapshot, setSavedSnapshot] = useState({});
+  const [savedNavbarSnapshot, setSavedNavbarSnapshot] = useState({});
   const [savedMsSnapshot, setSavedMsSnapshot] = useState({});
   const [loadingPerms, setLoadingPerms] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -200,6 +227,8 @@ export default function RolesPermissionsPage() {
   const sortedMs = (list) => JSON.stringify([...new Set(list || [])].sort());
   const dirty = !locked && (
     (savedSnapshot[role] !== undefined && savedSnapshot[role] !== JSON.stringify(toApi(matrix[role])))
+    || (savedNavbarSnapshot[role] !== undefined
+      && savedNavbarSnapshot[role] !== JSON.stringify(toNavbarApi(navbarMatrix[role], matrix[role])))
     || (savedMsSnapshot[role] !== undefined && savedMsSnapshot[role] !== sortedMs(msFields[role]))
   );
 
@@ -270,6 +299,16 @@ export default function RolesPermissionsPage() {
       Object.entries(d.roles || {}).forEach(([k, saved]) => { merged[k] = fromApi(saved); });
       setMatrix(merged);
 
+      const mergedNav = { ...DEFAULT_NAVBAR };
+      Object.keys(merged).forEach((k) => {
+        if (d.roles && Object.prototype.hasOwnProperty.call(d.roles, k)) {
+          mergedNav[k] = fromNavbarApi(d.navbarVisibility?.[k], merged[k]);
+        } else {
+          mergedNav[k] = { ...(DEFAULT_NAVBAR[k] || {}) };
+        }
+      });
+      setNavbarMatrix(mergedNav);
+
       const mergedMs = { ...DEFAULT_MASTER_STOCK_FIELDS };
       Object.entries(d.masterStockFields || {}).forEach(([k, list]) => {
         mergedMs[k] = Array.isArray(list) ? list : [];
@@ -281,6 +320,12 @@ export default function RolesPermissionsPage() {
       const snap = {};
       Object.keys(merged).forEach((k) => { snap[k] = JSON.stringify(toApi(merged[k])); });
       setSavedSnapshot(snap);
+
+      const navSnap = {};
+      Object.keys(merged).forEach((k) => {
+        navSnap[k] = JSON.stringify(toNavbarApi(mergedNav[k], merged[k]));
+      });
+      setSavedNavbarSnapshot(navSnap);
 
       const msSnap = {};
       Object.keys(mergedMs).forEach((k) => { msSnap[k] = sortedMs(mergedMs[k]); });
@@ -406,6 +451,7 @@ export default function RolesPermissionsPage() {
   }
 
   const held = (resourceKey, actionKey) => Boolean(matrix[role]?.[resourceKey]?.[actionKey]);
+  const navHeld = (resourceKey) => held(resourceKey, 'read') && Boolean(navbarMatrix[role]?.[resourceKey]);
   const heldCount = (resourceKey) => ACTIONS.filter((a) => held(resourceKey, a.k)).length;
 
   /* ------------------------------------------------------------- edit ---- */
@@ -413,6 +459,13 @@ export default function RolesPermissionsPage() {
   function setActions(resourceKey, next) {
     if (locked) return;
     setMatrix((cur) => ({ ...cur, [role]: { ...(cur[role] || {}), [resourceKey]: next } }));
+    /* If READ is disabled for this screen, force navbar visibility off. */
+    if (!next?.read) {
+      setNavbarMatrix((cur) => ({
+        ...cur,
+        [role]: { ...(cur[role] || {}), [resourceKey]: false },
+      }));
+    }
   }
 
   function toggle(resourceKey, actionKey) {
@@ -421,12 +474,24 @@ export default function RolesPermissionsPage() {
     setActions(resourceKey, { ...row, [actionKey]: !row[actionKey] });
   }
 
+  function toggleNavbar(resourceKey) {
+    if (locked || !held(resourceKey, 'read')) return;
+    setNavbarMatrix((cur) => ({
+      ...cur,
+      [role]: { ...(cur[role] || {}), [resourceKey]: !Boolean(cur[role]?.[resourceKey]) },
+    }));
+  }
+
   function toggleResource(resourceKey) {
     if (locked) return;
-    const all = heldCount(resourceKey) === ACTIONS.length;
+    const all = heldCount(resourceKey) === ACTIONS.length && navHeld(resourceKey);
     const next = {};
     if (!all) ACTIONS.forEach((a) => { next[a.k] = true; });
     setActions(resourceKey, next);
+    setNavbarMatrix((cur) => ({
+      ...cur,
+      [role]: { ...(cur[role] || {}), [resourceKey]: !all },
+    }));
   }
 
   function toggleGroup(group) {
@@ -443,6 +508,34 @@ export default function RolesPermissionsPage() {
       });
       return { ...cur, [role]: next };
     });
+    /* Disabling group permissions removes READ and therefore disables navbar visibility;
+       enabling group actions does not auto-enable navbar visibility unless explicitly toggled. */
+    if (!turningOn) {
+      setNavbarMatrix((cur) => {
+        const nextNav = { ...(cur[role] || {}) };
+        resources.forEach((r) => { nextNav[r.k] = false; });
+        return { ...cur, [role]: nextNav };
+      });
+    }
+  }
+
+  function toggleGroupNavbar(group) {
+    if (locked) return;
+    const resources = RESOURCE_GROUPS.find((g) => g.group === group)?.resources || [];
+    const { visible, eligible } = navbarGroupTally(matrix, navbarMatrix, role, group);
+    if (!eligible) return;
+    const turningOn = visible < eligible;
+    setNavbarMatrix((cur) => {
+      const nextNav = { ...(cur[role] || {}) };
+      resources.forEach((r) => {
+        if (matrix[role]?.[r.k]?.read) {
+          nextNav[r.k] = turningOn;
+        } else {
+          nextNav[r.k] = false;
+        }
+      });
+      return { ...cur, [role]: nextNav };
+    });
   }
 
   /* ------------------------------------------------------------- save ---- */
@@ -452,6 +545,7 @@ export default function RolesPermissionsPage() {
     setBusy(true);
     setFlash(null);
     try {
+      const cleanNavPayload = toNavbarApi(navbarMatrix[role], matrix[role]);
       const r = await fetch('/api/role-permission', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -459,6 +553,7 @@ export default function RolesPermissionsPage() {
           business: scope.business,
           role,
           permissions: toApi(matrix[role]),
+          navbarVisibility: cleanNavPayload,
           masterStockFields: msFields[role] || [],
         }),
       });
@@ -469,10 +564,11 @@ export default function RolesPermissionsPage() {
       }
       setSavedRoles((cur) => (cur.includes(role) ? cur : [...cur, role]));
       setSavedSnapshot((cur) => ({ ...cur, [role]: JSON.stringify(toApi(matrix[role])) }));
+      setSavedNavbarSnapshot((cur) => ({ ...cur, [role]: JSON.stringify(cleanNavPayload) }));
       setSavedMsSnapshot((cur) => ({ ...cur, [role]: sortedMs(msFields[role]) }));
       setFlash({
         type: 'ok',
-        msg: `Saved - ${role} now holds ${d.granted} screen permissions and ${d.masterStockGranted ?? (msFields[role] || []).length} Master Stock field permissions.`,
+        msg: `Saved - ${role} now holds ${d.granted} screen permissions (${d.navbarVisibleCount ?? Object.values(cleanNavPayload).filter(Boolean).length} visible in navbar) and ${d.masterStockGranted ?? (msFields[role] || []).length} Master Stock field permissions.`,
       });
       scope.refreshPermissions?.();
     } catch {
@@ -496,12 +592,18 @@ export default function RolesPermissionsPage() {
         setFlash({ type: 'err', msg: d.error || 'Could not reset.' });
         return;
       }
-      setMatrix((cur) => ({ ...cur, [role]: DEFAULT_MATRIX[role] || {} }));
+      const resetMatrix = DEFAULT_MATRIX[role] || {};
+      const resetNav = DEFAULT_NAVBAR[role] || {};
+      setMatrix((cur) => ({ ...cur, [role]: resetMatrix }));
+      setNavbarMatrix((cur) => ({ ...cur, [role]: resetNav }));
       const resetMs = DEFAULT_MASTER_STOCK_FIELDS[role] || [];
       setMsFields((cur) => ({ ...cur, [role]: resetMs }));
       setSavedRoles((cur) => cur.filter((x) => x !== role));
       setSavedSnapshot((cur) => ({
-        ...cur, [role]: JSON.stringify(toApi(DEFAULT_MATRIX[role] || {})),
+        ...cur, [role]: JSON.stringify(toApi(resetMatrix)),
+      }));
+      setSavedNavbarSnapshot((cur) => ({
+        ...cur, [role]: JSON.stringify(toNavbarApi(resetNav, resetMatrix)),
       }));
       setSavedMsSnapshot((cur) => ({
         ...cur, [role]: sortedMs(resetMs),
@@ -1155,7 +1257,14 @@ export default function RolesPermissionsPage() {
           )}
 
           {groups.map((g) => {
-            const { on, total } = groupTally(matrix, role, g.group);
+            const { on, total } = groupTally(matrix, role, g.group, navbarMatrix);
+            const { on: actionOn, total: actionTotal } = groupTally(matrix, role, g.group);
+            const { visible: navVisibleCount, eligible: navEligibleCount } = navbarGroupTally(
+              matrix,
+              navbarMatrix,
+              role,
+              g.group,
+            );
             const shut = collapsed[g.group];
             return (
               <div key={g.group} className="mb-3 rounded border border-line">
@@ -1169,22 +1278,36 @@ export default function RolesPermissionsPage() {
                     {g.group}
                   </button>
                   <span className="pill pill-grey">{g.resources.length} screens</span>
+                  <span className="text-[11px] text-inkmuted">
+                    Navbar: {locked ? g.resources.length : navVisibleCount} / {locked ? g.resources.length : navEligibleCount}
+                  </span>
                   <span className="flex-1" />
                   <span className="text-[12px] text-inkmuted">{locked ? total : on} / {total}</span>
+                  <button
+                    type="button"
+                    className="btn h-7 px-2 text-[11px]"
+                    disabled={locked || navEligibleCount === 0}
+                    title={navEligibleCount === 0 ? 'Enable Read permission on at least one screen in this group first' : 'Toggle sidebar visibility for Read-enabled screens in this group'}
+                    onClick={() => toggleGroupNavbar(g.group)}
+                  >
+                    {navEligibleCount > 0 && navVisibleCount === navEligibleCount ? 'Hide group navbar' : 'Show group navbar'}
+                  </button>
                   <button
                     type="button"
                     className="btn h-7 px-2 text-[11px]"
                     disabled={locked}
                     onClick={() => toggleGroup(g.group)}
                   >
-                    {on === total ? 'Clear group' : 'Select group'}
+                    {actionOn === actionTotal ? 'Clear group' : 'Select group'}
                   </button>
                 </div>
 
                 {!shut && g.resources.map((res) => {
                   const title = resourceTitle(res);
+                  const canRead = locked ? true : held(res.k, 'read');
+                  const navVisible = locked ? true : navHeld(res.k);
                   const n = locked ? ACTIONS.length : heldCount(res.k);
-                  const allOn = n === ACTIONS.length;
+                  const allOn = locked ? true : (n === ACTIONS.length && navVisible);
                   return (
                     <div
                       key={res.k}
@@ -1221,6 +1344,25 @@ export default function RolesPermissionsPage() {
                             {title} {a.label}
                           </label>
                         ))}
+                        <label
+                          className={
+                            'mt-0.5 inline-flex items-center gap-2 border-t border-line/60 pt-1.5 text-[13px] '
+                            + (locked || !canRead ? 'cursor-not-allowed text-inkmuted opacity-60' : 'cursor-pointer font-medium')
+                          }
+                          title={!canRead ? 'Enable Read permission first to control navbar visibility' : 'Control whether this page appears in the left sidebar'}
+                        >
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 cursor-pointer accent-brand disabled:cursor-not-allowed"
+                            checked={navVisible}
+                            disabled={locked || !canRead}
+                            onChange={() => toggleNavbar(res.k)}
+                          />
+                          {title} VIEW IN NAVBAR
+                          {!locked && canRead && !navVisible && (
+                            <span className="pill pill-grey text-[10px]">Hidden from sidebar</span>
+                          )}
+                        </label>
                       </div>
                     </div>
                   );
@@ -1231,7 +1373,8 @@ export default function RolesPermissionsPage() {
 
           <div className="mt-2 text-[12px] text-inkmuted">
             {locked ? TOTAL_GRANTS : grantedCount(matrix, role)} of {TOTAL_GRANTS} permissions
-            held by {role}, across {RESOURCES.length} screens.
+            held by {role}, across {RESOURCES.length} screens
+            {' '}({locked ? RESOURCES.length : RESOURCES.filter((r) => navHeld(r.k)).length} visible in navbar).
             {!locked && !savedRoles.includes(role) && ' Not saved yet - showing the default.'}
           </div>
 

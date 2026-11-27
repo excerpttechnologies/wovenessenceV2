@@ -336,7 +336,7 @@ function labelForHref(items, href) {
 
 export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile }) {
   const pathname = usePathname();
-  const { user, userReady, perms, permsReady, can, business } = useScope();
+  const { user, userReady, perms, permsReady, can, canNavbar, business } = useScope();
   const isSuperAdmin = user?.role === 'Super Admin';
   const isAdminUser = isSuperAdmin || user?.role === 'Admin';
   const navReady = userReady && (isSuperAdmin || permsReady);
@@ -391,8 +391,8 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
   }, [customFilters]);
 
   const visibleNav = useMemo(
-    () => (navReady ? filterNavItems(runtimeNavMain, { can, user, isAdminUser }) : []),
-    [navReady, runtimeNavMain, perms, user, isAdminUser]
+    () => (navReady ? filterNavItems(runtimeNavMain, { can, canNavbar, user, isAdminUser }) : []),
+    [navReady, runtimeNavMain, can, canNavbar, perms, user, isAdminUser]
   );
   const dashboardIdx = useMemo(
     () => visibleNav.findIndex((n) => n.href === '/admin'),
