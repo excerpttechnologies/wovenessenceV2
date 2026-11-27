@@ -635,8 +635,9 @@ import CompanyLocation from '@/models/CompanyLocation';
 import Uom from '@/models/Uom';
 import { Supplier } from '@/lib/contacts';
 import { json, num, r2, requireReportScope, pageOf, barcodeLocationFilter } from '@/lib/reports';
-import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { screenDenial, effectivePermissions, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { imageUrl } from '@/lib/inventory';
+import { MASTER_STOCK_FILTER_PERM, hasMasterStockPerm } from '@/lib/masterStockPermissions';
 
 /* ==========================================================================
    /api/reports/master-stock-report  -  read-only.
@@ -1260,9 +1261,34 @@ export async function GET(req) {
   const { businessId, businessFilter, locationId, locationIds, finYear, access } = scope;
   const { page, perPage } = pageOf(sp);
 
-  /* Roles & Permissions (17-10-2026): Master Stock Report -> Read */
+  /* Roles & Permissions (17-10-2026): Master Stock Report -> Read (+ Download on export=1) */
   const denied = await screenDenial({ session, screen: SCREENS.MASTER_STOCK_REPORT, label: 'the master stock report', action: PERM.READ, businessId });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
+
+  const isExport = sp.get('export') === '1';
+  if (isExport) {
+    const dlDenied = await screenDenial({ session, screen: SCREENS.MASTER_STOCK_REPORT, label: 'export Master Stock Report', action: PERM.DOWNLOAD, businessId });
+    if (dlDenied) return json({ error: dlDenied.message, code: dlDenied.code }, 403);
+  }
+
+  /* Field-level & filter-level authorization for Master Stock Report */
+  const eff = await effectivePermissions({ session, businessId });
+  const msPolicy = eff.masterStock;
+  const allow = (key) => hasMasterStockPerm(msPolicy, key);
+
+  for (const [param, meta] of Object.entries(MASTER_STOCK_FILTER_PERM)) {
+    if (param === 'allLocations') continue;
+    const rawVal = s(sp.get(param));
+    if (!rawVal) continue;
+    if (param === 'locationFilter' && rawVal === 'all') continue;
+    if (!allow(meta.key)) {
+      return json({
+        error: `Your role does not have permission to filter by ${meta.label}.`,
+        code: 'FIELD_FORBIDDEN',
+        field: meta.key,
+      }, 403);
+    }
+  }
 
   const selectedLocId = rawLocationFilter && rawLocationFilter !== 'all' ? rawLocationFilter : '';
   if (selectedLocId || locationId) {
@@ -1310,28 +1336,28 @@ export async function GET(req) {
   const search = s(sp.get('search'));
   if (search) {
     const rx = { $regex: escapeRegex(search), $options: 'i' };
-    /* Supplier Code and Supplier Name are columns on this report, but neither
-       is a field on barcodeLabel - the row carries only the supplier KEY. So
-       the vendors whose code or name matches are resolved first and both
-       spellings of their key (id and code) join the $or, which is what lets
-       "AMEERA" or "G1319" find that vendor's stock. Deliberately unbounded:
-       capping the vendor list would drop stock from the result with nothing
-       on screen to say so. */
-    const vendors = await Supplier.find({
-      $or: [{ contactId: rx }, { businessName: rx },
-        { firstName: rx }, { middleName: rx }, { lastName: rx }],
-    }).select('contactId').lean();
-    const supKeys = [...new Set(
-      vendors.flatMap((v) => [String(v._id), s(v.contactId)]).filter(Boolean)
-    )];
-    ands.push({
-      $or: [
-        { barcodeNo: rx }, { oldBarcode: rx }, { barcodeGenerated: rx },
-        { itemCode: rx }, { itemName: rx },
-        { printDescription: rx }, { supplierDescription: rx }, { hsn: rx },
-        ...(supKeys.length ? [{ supplierId: { $in: supKeys } }] : []),
-      ],
-    });
+    const allowSupSearch = allow('masterStock.columns.supplierName') || allow('masterStock.columns.supplierCode');
+    const allowBarcodeSearch = allow('masterStock.columns.barcodeNumber');
+    const allowItemSearch = allow('masterStock.columns.itemName') || allow('masterStock.filters.itemCode');
+    const allowHsnSearch = allow('masterStock.columns.hsn') || allow('masterStock.filters.hsn');
+
+    let supKeys = [];
+    if (allowSupSearch) {
+      const vendors = await Supplier.find({
+        $or: [{ contactId: rx }, { businessName: rx },
+          { firstName: rx }, { middleName: rx }, { lastName: rx }],
+      }).select('contactId').lean();
+      supKeys = [...new Set(
+        vendors.flatMap((v) => [String(v._id), s(v.contactId)]).filter(Boolean)
+      )];
+    }
+    const searchOrs = [
+      ...(allowBarcodeSearch ? [{ barcodeNo: rx }, { oldBarcode: rx }, { barcodeGenerated: rx }] : []),
+      ...(allowItemSearch ? [{ itemCode: rx }, { itemName: rx }, { printDescription: rx }, { supplierDescription: rx }] : []),
+      ...(allowHsnSearch ? [{ hsn: rx }] : []),
+      ...(allowSupSearch && supKeys.length ? [{ supplierId: { $in: supKeys } }] : []),
+    ];
+    ands.push(searchOrs.length ? { $or: searchOrs } : { _id: null });
   }
   /* SEVERAL VALUES IN ONE BOX. The report's filter panel lets the operator
      name more than one barcode, item or supplier; ReportView sends a list
@@ -1613,7 +1639,6 @@ export async function GET(req) {
   /* ---- SERVER-SIDE pagination: count, then read only this page ----------
      OR, for export mode, fetch ALL matching records in batches to avoid
      memory issues with very large datasets. */
-  const isExport = sp.get('export') === '1';
   const total = await BarcodeLabel.countDocuments(filter);
   
   let rows = [];
@@ -1641,14 +1666,21 @@ export async function GET(req) {
       .lean();
   }
 
-  /* ---- the five batched lookups ---------------------------------------- */
-  const ids = rows.map((r) => r._id);
-  /* itemCode AND the row's own itemName are both used as KEYS into the Item
-     master below - never as a displayed value. */
-  const codes = [...new Set(rows.flatMap((r) => [s(r.itemCode), s(r.itemName)]).filter(Boolean))];
-  const itemIds = [...new Set(rows.map((r) => r.itemId).filter((v) => v && isValidObjectId(String(v))).map(String))];
-  const supKeys = [...new Set(rows.map((r) => s(r.supplierId)).filter(Boolean))];
-  const locKeys = [...new Set(rows.map((r) => s(r.currentLocationId) || s(r.locationId)).filter((v) => v && isValidObjectId(v)))];
+  /* ---- the five batched lookups (skipped when restricted) --------------- */
+  const needItemLookup = allow('masterStock.columns.itemName')
+    || allow('masterStock.columns.groupName')
+    || allow('masterStock.columns.image')
+    || allow('masterStock.drilldowns.itemDetails');
+  const needGroupLookup = allow('masterStock.columns.groupName');
+  const needSupLookup = allow('masterStock.columns.supplierCode')
+    || allow('masterStock.columns.supplierName')
+    || allow('masterStock.drilldowns.supplierDetails');
+  const needLocLookup = allow('masterStock.filters.locationFilter') || msPolicy?.unrestricted;
+
+  const codes = needItemLookup ? [...new Set(rows.flatMap((r) => [s(r.itemCode), s(r.itemName)]).filter(Boolean))] : [];
+  const itemIds = needItemLookup ? [...new Set(rows.map((r) => r.itemId).filter((v) => v && isValidObjectId(String(v))).map(String))] : [];
+  const supKeys = needSupLookup ? [...new Set(rows.map((r) => s(r.supplierId)).filter(Boolean))] : [];
+  const locKeys = needLocLookup ? [...new Set(rows.map((r) => s(r.currentLocationId) || s(r.locationId)).filter((v) => v && isValidObjectId(v)))] : [];
 
   /* ITEM. The Item master is reached three ways, in this order of trust:
        1. itemId          the real reference the save route stamps
@@ -1691,7 +1723,7 @@ export async function GET(req) {
 
   /* GROUP: from the ITEM's own group, never from barcodeLabel.groupId, which
      is not a productGroup reference on this schema. */
-  const groupIds = [...new Set(items.map((i) => i.subGroupId).filter(Boolean).map(String))];
+  const groupIds = needGroupLookup ? [...new Set(items.map((i) => i.subGroupId).filter(Boolean).map(String))] : [];
   const groups = groupIds.length
     ? await ProductGroup.find({ _id: { $in: groupIds } }).select('name').lean()
     : [];
@@ -1732,108 +1764,118 @@ export async function GET(req) {
   /* ---- the mapper: ONE place that turns a barcode row into a report row -- */
   const asOf = Date.now();
   const DAY = 24 * 60 * 60 * 1000;
+  const allowGroup = allow('masterStock.columns.groupName');
+  const allowItemName = allow('masterStock.columns.itemName');
+  const allowItemCode = allow('masterStock.filters.itemCode');
+  const allowItemDetails = allow('masterStock.drilldowns.itemDetails');
+  const allowSupCode = allow('masterStock.columns.supplierCode');
+  const allowSupName = allow('masterStock.columns.supplierName');
+  const allowSupDetails = allow('masterStock.drilldowns.supplierDetails');
+  const allowDate = allow('masterStock.columns.date');
+  const allowAge = allow('masterStock.columns.age');
+  const allowBarcodeNo = allow('masterStock.columns.barcodeNumber');
+  const allowCloseQty = allow('masterStock.columns.closeQty');
+  const allowCloseValue = allow('masterStock.columns.closeValue');
+  const allowCostPrice = allow('masterStock.columns.costPrice');
+  const allowHsn = allow('masterStock.columns.hsn');
+  const allowGst = allow('masterStock.columns.gst');
+  const allowRsp = allow('masterStock.columns.rsp');
+  const allowDiscount = allow('masterStock.columns.discount');
+  const allowRspOffer = allow('masterStock.columns.rspOfferPrice');
+  const allowWsp = allow('masterStock.columns.wsp');
+  const allowEcom = allow('masterStock.columns.ecom');
+  const allowUom = allow('masterStock.columns.uom');
+  const allowImage = allow('masterStock.columns.image');
+  const allowDocNo = allow('masterStock.filters.patternGrcNo');
+
   const mapRow = (r) => {
-    const item = itemOf(r);
-    const sup = supOf(r);
-    /* DATE and AGE are the opening workbook's own fields. Do not substitute
-       StockMovement or createdAt here: those describe when the row was
-       imported, not the stock date printed on the label. If an older row has
-       a stockDate but no stockAge, derive the age from that stockDate. */
+    const item = needItemLookup ? itemOf(r) : null;
+    const sup = needSupLookup ? supOf(r) : null;
     const date = r.stockDate || null;
     const calculatedAge = date ? Math.max(0, Math.floor((asOf - new Date(date).getTime()) / DAY)) : null;
     const age = (r.stockAge !== undefined && r.stockAge !== null) ? r.stockAge : calculatedAge;
-    /* Close Qty: the unit's own current quantity. qtyNum is the number the
-       whole application sums (lib/icStock.js, the IC challan picker), and it
-       already carries the UOM rule - PC+unique 1, PC+batch the received
-       quantity, MTR the metreage (lib/barcodeLabel.js:118-123). It is NOT
-       multiplied again here, so one barcode is counted exactly once. */
     const closeQty = num(r.qtyNum ?? r.qty);
-    /* COST PRICE: the purchase rate AFTER discount, exactly as lib/grcMoney.js
-       rowRate() reads it - never a selling price. */
     const costPrice = num(r.finalNet || r.purRate);
+    const img = allowImage
+      ? (imageUrl(r.imageUrl || r.filePath || '', r.barcodeNo || r.barcodeGenerated, r.oldBarcode) || imageUrl(item?.image || ''))
+      : '';
+
     return {
       _id: String(r._id),
-      locationName: locName.get(s(r.currentLocationId) || s(r.locationId)) || EMPTY,
-      itemId: item ? String(item._id) : '',
-      groupName: (item && groupName.get(String(item.subGroupId))) || EMPTY,
-      /* the Item MASTER's name - never itemCode, printDescription or
-         supplierDescription */
-      itemName: (item && s(item.name)) || EMPTY,
-      itemCode: s(r.itemCode),
-      supplierCode: (sup && s(sup.contactId)) || EMPTY,
-      supplierName: (sup && vendorName(sup)) || EMPTY,
-      supplierId: sup ? String(sup._id) : '',
-      date: date || null,
-      docNo: s(r.grcNo),
-      stockPoint: s(r.stockPoint),
-      age,
-      /* the unit's OWN number, never the composed barcodeGenerated */
-      barcodeNumber: s(r.barcodeNo) || EMPTY,
-      closeQty,
-      /* Close Value = Close Qty x COST PRICE. This is the valuation the
-         source report uses - verified against all 4,603 rows of the reference
-         workbook, where Close Value equals Close Qty x COST PRICE exactly. */
-      closeValue: r2(closeQty * costPrice),
-      costPrice: r2(costPrice),
-      hsn: s(r.hsn) || EMPTY,
-      gst: num(r.gst),
-      rsp: num(r.retailPrice),
-      discount: num(r.disc2),
-      rspOfferPrice: num(r.offerPrice),
-      wsp: num(r.wspPrice),
-      ecom: num(r.dpPrice),
-      uom: s(r.uom) || EMPTY,
-      imageUrl: imageUrl(r.imageUrl || r.filePath || '', r.barcodeNo || r.barcodeGenerated, r.oldBarcode)
-        || imageUrl(item?.image || ''),
-      itemImageUrl: imageUrl(item?.image || ''),
+      ...(needLocLookup ? { locationName: locName.get(s(r.currentLocationId) || s(r.locationId)) || EMPTY } : {}),
+      ...(allowItemDetails ? { itemId: item ? String(item._id) : '' } : {}),
+      ...(allowGroup ? { groupName: (item && groupName.get(String(item.subGroupId))) || EMPTY } : {}),
+      ...(allowItemName ? { itemName: (item && s(item.name)) || EMPTY } : {}),
+      ...((allowItemName || allowItemCode || allowItemDetails) ? { itemCode: s(r.itemCode) } : {}),
+      ...(allowSupCode ? { supplierCode: (sup && s(sup.contactId)) || EMPTY } : {}),
+      ...(allowSupName ? { supplierName: (sup && vendorName(sup)) || EMPTY } : {}),
+      ...(allowSupDetails ? { supplierId: sup ? String(sup._id) : '' } : {}),
+      ...(allowDate ? { date: date || null } : {}),
+      ...(allowAge ? { age } : {}),
+      ...(allowDocNo ? { docNo: s(r.grcNo) } : {}),
+      ...(msPolicy?.unrestricted ? { stockPoint: s(r.stockPoint) } : {}),
+      ...(allowBarcodeNo ? { barcodeNumber: s(r.barcodeNo) || EMPTY } : {}),
+      ...(allowCloseQty ? { closeQty } : {}),
+      ...(allowCloseValue ? { closeValue: r2(closeQty * costPrice) } : {}),
+      ...(allowCostPrice ? { costPrice: r2(costPrice) } : {}),
+      ...(allowHsn ? { hsn: s(r.hsn) || EMPTY } : {}),
+      ...(allowGst ? { gst: num(r.gst) } : {}),
+      ...(allowRsp ? { rsp: num(r.retailPrice) } : {}),
+      ...(allowDiscount ? { discount: num(r.disc2) } : {}),
+      ...(allowRspOffer ? { rspOfferPrice: num(r.offerPrice) } : {}),
+      ...(allowWsp ? { wsp: num(r.wspPrice) } : {}),
+      ...(allowEcom ? { ecom: num(r.dpPrice) } : {}),
+      ...(allowUom ? { uom: s(r.uom) || EMPTY } : {}),
+      ...(allowImage ? { imageUrl: img, itemImageUrl: imageUrl(item?.image || '') } : {}),
     };
   };
   const mapped = rows.map(mapRow);
 
-  /* ---- totals over the WHOLE result set, not the visible page -----------
-     Only the additive columns: a quantity and a valuation sum, a per-unit
-     price does not. */
-  /* $convert with onError/onNull, NOT $toDouble: purRate, finalNet and qty
-     are String paths on this schema (lib/barcodeLabel.js:59-75) and are very
-     often '' - and $toDouble throws ConversionFailure on an empty string,
-     which would abort the whole pipeline. Nor is the failure swallowed: a
-     caught error here would quietly print a total of 0.00, which reads
-     exactly like a warehouse holding nothing. */
-  const toNum = (input) => ({ $convert: { input, to: 'double', onError: 0, onNull: 0 } });
-  /* the quantity the rest of the application sums, with the same fallback */
-  const qtyExpr = { $ifNull: ['$qtyNum', toNum('$qty')] };
-  /* finalNet when it carries a figure, else purRate - lib/grcMoney.js rowRate */
-  const costExpr = {
-    $let: {
-      vars: { fn: toNum('$finalNet'), pr: toNum('$purRate') },
-      in: { $cond: [{ $gt: ['$$fn', 0] }, '$$fn', '$$pr'] },
-    },
-  };
-  const [agg] = await BarcodeLabel.aggregate([
-    { $match: filter },
-    {
-      $group: {
-        _id: null,
-        closeQty: { $sum: qtyExpr },
-        closeValue: { $sum: { $multiply: [qtyExpr, costExpr] } },
+  const allowQtySummary = allow('masterStock.summary.stockQuantity');
+  const allowValueSummary = allow('masterStock.summary.stockValue') && allow('masterStock.summary.costValue');
+  const allowTotalRecords = allow('masterStock.summary.totalRecords');
+  const allowTotalBarcodeCount = allow('masterStock.summary.totalBarcodeCount');
+
+  let agg = null;
+  if (allowQtySummary || allowValueSummary) {
+    const toNum = (input) => ({ $convert: { input, to: 'double', onError: 0, onNull: 0 } });
+    const qtyExpr = { $ifNull: ['$qtyNum', toNum('$qty')] };
+    const costExpr = {
+      $let: {
+        vars: { fn: toNum('$finalNet'), pr: toNum('$purRate') },
+        in: { $cond: [{ $gt: ['$$fn', 0] }, '$$fn', '$$pr'] },
       },
-    },
-  ]);
+    };
+    const [aggRow] = await BarcodeLabel.aggregate([
+      { $match: filter },
+      {
+        $group: {
+          _id: null,
+          ...(allowQtySummary ? { closeQty: { $sum: qtyExpr } } : {}),
+          ...(allowValueSummary ? { closeValue: { $sum: { $multiply: [qtyExpr, costExpr] } } } : {}),
+        },
+      },
+    ]);
+    agg = aggRow || null;
+  }
+
+  const sectionTotals = {
+    ...(allowQtySummary ? { closeQty: r2(agg?.closeQty || 0) } : {}),
+    ...(allowValueSummary ? { closeValue: r2(agg?.closeValue || 0) } : {}),
+  };
 
   return json({
     tiles: {},
     sections: [{
       key: 'stock',
       rows: mapped,
-      count: total,
-      totals: {
-        closeQty: r2(agg?.closeQty || 0),
-        closeValue: r2(agg?.closeValue || 0),
-      },
+      ...(allowTotalRecords ? { count: total } : {}),
+      totals: sectionTotals,
     }],
-    total,
+    ...(allowTotalBarcodeCount ? { total } : {}),
     pages: Math.max(1, Math.ceil(total / perPage)),
     page,
     perPage,
+    permissions: { masterStock: msPolicy },
   });
 }

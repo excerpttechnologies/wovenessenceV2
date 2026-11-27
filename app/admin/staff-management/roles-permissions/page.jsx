@@ -5,6 +5,7 @@ import { useScope } from '@/components/ScopeContext';
 import { useClientTable } from '@/components/NumberedPager';
 import {
   ROLES as BUILT_IN_ROLES, ACTIONS, RESOURCES, RESOURCE_GROUPS, DEFAULT_MATRIX,
+  DEFAULT_MASTER_STOCK_FIELDS, MASTER_STOCK_PERMISSION_GROUPS, MASTER_STOCK_ALL_KEYS,
   isLockedRole, isOwnerRole, grantedCount, groupTally, resourceTitle, TOTAL_GRANTS,
   initialsOf,
 } from './fields';
@@ -79,12 +80,14 @@ export default function RolesPermissionsPage() {
   const [loadingUsers, setLoadingUsers] = useState(false);
 
   const [matrix, setMatrix] = useState(DEFAULT_MATRIX);
+  const [msFields, setMsFields] = useState(DEFAULT_MASTER_STOCK_FIELDS);
   const [savedRoles, setSavedRoles] = useState([]);
   /* The matrix as the SERVER last confirmed it, per role. Ticking a box only
      changes `matrix`; until Save is pressed the database still holds this -
      which is exactly the trap this screen used to set, because an unticked
      box looked identical whether it had been saved or not. */
   const [savedSnapshot, setSavedSnapshot] = useState({});
+  const [savedMsSnapshot, setSavedMsSnapshot] = useState({});
   const [loadingPerms, setLoadingPerms] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -92,6 +95,8 @@ export default function RolesPermissionsPage() {
   const [search, setSearch] = useState('');
   const [permSearch, setPermSearch] = useState('');
   const [collapsed, setCollapsed] = useState({});
+  const [msSearch, setMsSearch] = useState('');
+  const [msCollapsed, setMsCollapsed] = useState({});
   const [flash, setFlash] = useState(null);
 
   const [showAllBusinesses, setShowAllBusinesses] = useState(true);
@@ -192,9 +197,11 @@ export default function RolesPermissionsPage() {
 
   /* Ticked something and not pressed Save yet? Compared against what the
      server last confirmed, so it is true only when the two really differ. */
-  const dirty = !locked
-    && savedSnapshot[role] !== undefined
-    && savedSnapshot[role] !== JSON.stringify(toApi(matrix[role]));
+  const sortedMs = (list) => JSON.stringify([...new Set(list || [])].sort());
+  const dirty = !locked && (
+    (savedSnapshot[role] !== undefined && savedSnapshot[role] !== JSON.stringify(toApi(matrix[role])))
+    || (savedMsSnapshot[role] !== undefined && savedMsSnapshot[role] !== sortedMs(msFields[role]))
+  );
 
   /* The five from the code plus whatever this business has created. The join
      happens here because this is the only screen that needs it - see
@@ -262,12 +269,22 @@ export default function RolesPermissionsPage() {
       const merged = { ...DEFAULT_MATRIX };
       Object.entries(d.roles || {}).forEach(([k, saved]) => { merged[k] = fromApi(saved); });
       setMatrix(merged);
+
+      const mergedMs = { ...DEFAULT_MASTER_STOCK_FIELDS };
+      Object.entries(d.masterStockFields || {}).forEach(([k, list]) => {
+        mergedMs[k] = Array.isArray(list) ? list : [];
+      });
+      setMsFields(mergedMs);
       setSavedRoles(Array.isArray(d.saved) ? d.saved : []);
 
       /* What the server just told us, frozen for comparison. */
       const snap = {};
       Object.keys(merged).forEach((k) => { snap[k] = JSON.stringify(toApi(merged[k])); });
       setSavedSnapshot(snap);
+
+      const msSnap = {};
+      Object.keys(mergedMs).forEach((k) => { msSnap[k] = sortedMs(mergedMs[k]); });
+      setSavedMsSnapshot(msSnap);
     } catch {
       setFlash({ type: 'err', msg: 'Could not load the saved permissions.' });
     } finally {
@@ -340,6 +357,54 @@ export default function RolesPermissionsPage() {
       .filter((g) => g.resources.length);
   }, [permSearch]);
 
+  const msHeldSet = useMemo(
+    () => new Set(locked ? MASTER_STOCK_ALL_KEYS : (msFields[role] || [])),
+    [locked, msFields, role],
+  );
+
+  const msGroups = useMemo(() => {
+    const q = msSearch.trim().toLowerCase();
+    if (!q) return MASTER_STOCK_PERMISSION_GROUPS;
+    return MASTER_STOCK_PERMISSION_GROUPS
+      .map((g) => ({
+        ...g,
+        items: g.items.filter((item) => (
+          item.label + ' ' + g.title + ' ' + item.key
+        ).toLowerCase().includes(q)),
+      }))
+      .filter((g) => g.items.length > 0);
+  }, [msSearch]);
+
+  function toggleMsKey(key) {
+    if (locked) return;
+    setMsFields((cur) => {
+      const next = new Set(cur[role] || []);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return { ...cur, [role]: [...next] };
+    });
+  }
+
+  function setMsGroup(groupItems, enabled) {
+    if (locked) return;
+    setMsFields((cur) => {
+      const next = new Set(cur[role] || []);
+      groupItems.forEach((item) => {
+        if (enabled) next.add(item.key);
+        else next.delete(item.key);
+      });
+      return { ...cur, [role]: [...next] };
+    });
+  }
+
+  function setAllMsFields(enabled) {
+    if (locked) return;
+    setMsFields((cur) => ({
+      ...cur,
+      [role]: enabled ? [...MASTER_STOCK_ALL_KEYS] : [],
+    }));
+  }
+
   const held = (resourceKey, actionKey) => Boolean(matrix[role]?.[resourceKey]?.[actionKey]);
   const heldCount = (resourceKey) => ACTIONS.filter((a) => held(resourceKey, a.k)).length;
 
@@ -394,6 +459,7 @@ export default function RolesPermissionsPage() {
           business: scope.business,
           role,
           permissions: toApi(matrix[role]),
+          masterStockFields: msFields[role] || [],
         }),
       });
       const d = await r.json();
@@ -403,7 +469,11 @@ export default function RolesPermissionsPage() {
       }
       setSavedRoles((cur) => (cur.includes(role) ? cur : [...cur, role]));
       setSavedSnapshot((cur) => ({ ...cur, [role]: JSON.stringify(toApi(matrix[role])) }));
-      setFlash({ type: 'ok', msg: 'Saved - ' + role + ' now holds ' + d.granted + ' permissions.' });
+      setSavedMsSnapshot((cur) => ({ ...cur, [role]: sortedMs(msFields[role]) }));
+      setFlash({
+        type: 'ok',
+        msg: `Saved - ${role} now holds ${d.granted} screen permissions and ${d.masterStockGranted ?? (msFields[role] || []).length} Master Stock field permissions.`,
+      });
       scope.refreshPermissions?.();
     } catch {
       setFlash({ type: 'err', msg: 'Could not save.' });
@@ -427,9 +497,14 @@ export default function RolesPermissionsPage() {
         return;
       }
       setMatrix((cur) => ({ ...cur, [role]: DEFAULT_MATRIX[role] || {} }));
+      const resetMs = DEFAULT_MASTER_STOCK_FIELDS[role] || [];
+      setMsFields((cur) => ({ ...cur, [role]: resetMs }));
       setSavedRoles((cur) => cur.filter((x) => x !== role));
       setSavedSnapshot((cur) => ({
         ...cur, [role]: JSON.stringify(toApi(DEFAULT_MATRIX[role] || {})),
+      }));
+      setSavedMsSnapshot((cur) => ({
+        ...cur, [role]: sortedMs(resetMs),
       }));
       setFlash({ type: 'ok', msg: role + ' is back to its default permissions.' });
       scope.refreshPermissions?.();
@@ -1158,6 +1233,128 @@ export default function RolesPermissionsPage() {
             {locked ? TOTAL_GRANTS : grantedCount(matrix, role)} of {TOTAL_GRANTS} permissions
             held by {role}, across {RESOURCES.length} screens.
             {!locked && !savedRoles.includes(role) && ' Not saved yet - showing the default.'}
+          </div>
+
+          {/* ======================== MASTER STOCK FIELD & FILTER PERMISSIONS == */}
+          <div className="mt-6 border-t border-line pt-5">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <div className="mr-2">
+                <div className="text-[15px] font-bold">MASTER STOCK REPORT — FIELD &amp; FILTER PERMISSIONS</div>
+                <div className="text-[12px] text-inkmuted">
+                  Granular visibility and query access for every filter, table column, summary metric, and drill-down on{' '}
+                  <span className="font-mono">/admin/report/master-stock-report</span> ({msHeldSet.size} / {MASTER_STOCK_ALL_KEYS.length} enabled for {role}).
+                </div>
+              </div>
+              <span className="flex-1" />
+              <input
+                className="f-input h-8 w-full max-w-[240px]"
+                placeholder="Search field, filter or key"
+                value={msSearch}
+                onChange={(e) => setMsSearch(e.target.value)}
+              />
+              <button
+                type="button"
+                className="btn h-8 px-3 text-[12px]"
+                disabled={locked}
+                onClick={() => setAllMsFields(true)}
+              >
+                <Icon name="check" size={12} /> Enable All Fields &amp; Filters
+              </button>
+              <button
+                type="button"
+                className="btn h-8 px-3 text-[12px]"
+                disabled={locked}
+                onClick={() => setAllMsFields(false)}
+              >
+                <Icon name="x" size={12} /> Disable All Fields &amp; Filters
+              </button>
+              <button
+                type="button"
+                className="btn h-8 px-3 text-[12px]"
+                onClick={() => setMsCollapsed(
+                  Object.keys(msCollapsed).length
+                    ? {}
+                    : Object.fromEntries(MASTER_STOCK_PERMISSION_GROUPS.map((g) => [g.key, true]))
+                )}
+              >
+                <Icon name="cols" size={12} /> {Object.keys(msCollapsed).length ? 'Expand all' : 'Collapse all'}
+              </button>
+            </div>
+
+            {!msGroups.length && (
+              <div className="dt-empty py-6 text-center">No Master Stock field or filter matches that search.</div>
+            )}
+
+            {msGroups.map((g) => {
+              const on = g.items.filter((item) => msHeldSet.has(item.key)).length;
+              const total = g.items.length;
+              const shut = Boolean(msCollapsed[g.key]);
+              return (
+                <div key={g.key} className="mb-3 rounded border border-line">
+                  <div className="flex flex-wrap items-center gap-2 border-b border-line bg-thead px-3 py-2">
+                    <button
+                      type="button"
+                      className="flex items-center gap-1.5 border-0 bg-transparent p-0 text-[13px] font-bold text-ink"
+                      onClick={() => setMsCollapsed((c) => ({ ...c, [g.key]: !c[g.key] }))}
+                    >
+                      <Icon name={shut ? 'chevR' : 'chevD'} size={12} />
+                      {g.title}
+                    </button>
+                    <span className="pill pill-grey">{on} / {total} enabled</span>
+                    <span className="flex-1" />
+                    <button
+                      type="button"
+                      className="btn h-7 px-2 text-[11px]"
+                      disabled={locked || on === total}
+                      onClick={() => setMsGroup(g.items, true)}
+                    >
+                      Select All
+                    </button>
+                    <button
+                      type="button"
+                      className="btn h-7 px-2 text-[11px]"
+                      disabled={locked || on === 0}
+                      onClick={() => setMsGroup(g.items, false)}
+                    >
+                      Clear All
+                    </button>
+                  </div>
+
+                  {!shut && (
+                    <div className="grid grid-cols-1 gap-2 p-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                      {g.items.map((item) => {
+                        const enabled = msHeldSet.has(item.key);
+                        return (
+                          <label
+                            key={item.key}
+                            className={'flex cursor-pointer items-center justify-between gap-2 rounded border px-3 py-2 text-[12.5px] transition-colors '
+                              + (enabled ? 'border-[#b7e1c4] bg-[#f3fbf6]' : 'border-line bg-white')}
+                          >
+                            <span className="flex min-w-0 items-center gap-2">
+                              <input
+                                type="checkbox"
+                                className="h-4 w-4 shrink-0 cursor-pointer accent-brand disabled:cursor-not-allowed"
+                                checked={enabled}
+                                disabled={locked}
+                                onChange={() => toggleMsKey(item.key)}
+                              />
+                              <span className="min-w-0">
+                                <span className="block truncate font-semibold text-ink">{item.label}</span>
+                                <span className="block truncate font-mono text-[10px] text-inkmuted">{item.key}</span>
+                              </span>
+                            </span>
+                            <span className={'shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase '
+                              + (enabled ? 'bg-[#d8f3df] text-[#146c2e]' : 'bg-[#fdeeed] text-[#b42318]')}>
+                              {enabled ? 'Allowed' : 'Restricted'}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </>
       )}

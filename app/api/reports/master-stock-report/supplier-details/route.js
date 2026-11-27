@@ -5,7 +5,8 @@ import Grc from '@/models/Grc';
 import CompanyLocation from '@/models/CompanyLocation';
 import StockPoint from '@/models/StockPoint';
 import { requireSession } from '@/lib/session';
-import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { screenDenial, effectivePermissions, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { hasMasterStockPerm } from '@/lib/masterStockPermissions';
 import { resolveAuthorizedScope } from '@/lib/locationAccess';
 
 const json = (data, status = 200) => Response.json(data, { status });
@@ -39,9 +40,17 @@ export async function GET(req) {
   });
   if (!scope.ok) return json({ error: scope.error, code: scope.code }, scope.status || 403);
 
-  /* Roles & Permissions (17-10-2026): Master Stock Report -> Read */
+  /* Roles & Permissions (17-10-2026): Master Stock Report -> Read + Supplier Drill-down permission */
   const denied = await screenDenial({ session, screen: SCREENS.MASTER_STOCK_REPORT, label: 'the master stock report', action: PERM.READ, businessId: scope.businessId || business });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
+
+  const eff = await effectivePermissions({ session, businessId: scope.businessId || business });
+  if (!hasMasterStockPerm(eff.masterStock, 'masterStock.drilldowns.supplierDetails')) {
+    return json({
+      error: 'Your role does not have permission to view Supplier Details on the Master Stock Report.',
+      code: 'FIELD_FORBIDDEN',
+    }, 403);
+  }
 
   /* Supplier codes are globally unique, and a placeholder vendor can appear
      on stock rows in another business. Only the GRC list below is scoped to

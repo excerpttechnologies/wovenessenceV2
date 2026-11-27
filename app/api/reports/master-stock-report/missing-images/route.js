@@ -2,7 +2,8 @@ import * as XLSX from 'xlsx';
 import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
 import { json, requireReportScope } from '@/lib/reports';
-import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { screenDenial, effectivePermissions, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { hasMasterStockPerm } from '@/lib/masterStockPermissions';
 import { findMissingImages, SHEET_HEADERS, sheetRows } from '@/lib/missingImages';
 
 /* ==========================================================================
@@ -34,9 +35,20 @@ export async function GET(req) {
   const scope = await requireReportScope(session, sp);
   if (!scope.ok) return scope.response;
 
-  /* Roles & Permissions (17-10-2026): Master Stock Report -> Read */
+  /* Roles & Permissions (17-10-2026): Master Stock Report -> Read (+ Download for xlsx + Drill-down field permission) */
   const denied = await screenDenial({ session, screen: SCREENS.MASTER_STOCK_REPORT, label: 'the master stock report', action: PERM.READ, businessId: scope.businessId });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
+  if (sp.get('format') === 'xlsx') {
+    const dlDenied = await screenDenial({ session, screen: SCREENS.MASTER_STOCK_REPORT, label: 'export Master Stock Report', action: PERM.DOWNLOAD, businessId: scope.businessId });
+    if (dlDenied) return json({ error: dlDenied.message, code: dlDenied.code }, 403);
+  }
+  const eff = await effectivePermissions({ session, businessId: scope.businessId });
+  if (!hasMasterStockPerm(eff.masterStock, 'masterStock.drilldowns.missingImages')) {
+    return json({
+      error: 'Your role does not have permission to access Missing Images on the Master Stock Report.',
+      code: 'FIELD_FORBIDDEN',
+    }, 403);
+  }
 
   const { rows, counts, scanned } = await findMissingImages(scope);
 

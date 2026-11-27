@@ -124,7 +124,7 @@ export function ScopeProvider({ children }) {
      means show everything - the pre-permissions behaviour. The server checks
      every request regardless, so a stale or missing answer here is a cosmetic
      problem, never a security one. */
-  const [perms, setPerms] = useState({ governed: false, screens: {} });
+  const [perms, setPerms] = useState({ governed: false, screens: {}, masterStock: null });
 
   /* `userReady` and `permsReady` let a consumer wait for the answer instead of
      treating "not loaded yet" as "nothing to show". The quick actions and the
@@ -316,13 +316,27 @@ export function ScopeProvider({ children }) {
     return Array.isArray(held) && held.includes(action);
   };
 
+  const canMasterStock = (fieldKey) => {
+    if (user?.role === 'Super Admin') return true;
+    const ms = perms?.masterStock;
+    if (ms) {
+      if (ms.unrestricted) return true;
+      return Array.isArray(ms.fields) && ms.fields.includes(fieldKey);
+    }
+    /* Wait conservatively for non-Super-Admin until loaded if governed */
+    if (!perms.governed) {
+      return user?.role === 'Admin' || user?.role === 'Location Manager';
+    }
+    return false;
+  };
+
   const value = {
     user, userReady,
     businesses, locations, business, location, finYear,
     businessReady, locationReady, permsReady,
     isRestricted, needsAssignment, isLocationLocked, isCompanyLocked,
     setBusiness, setLocation, setFinYear,
-    perms, can, refreshPermissions, refreshScope: fetchMe,
+    perms, can, canMasterStock, refreshPermissions, refreshScope: fetchMe,
     // appended to every list/save request
     query: () => new URLSearchParams({ business, location, finYear }).toString(),
   };

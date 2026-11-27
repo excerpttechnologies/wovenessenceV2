@@ -6,6 +6,7 @@ import Role from '@/models/Role';
 import { handler, json } from '@/lib/apiError';
 import { requirePermission, PERMISSIONS } from '@/lib/rbac';
 import { ACTIONS, RESOURCES } from '@/app/admin/staff-management/roles-permissions/fields';
+import { cleanMasterStockFields, MASTER_STOCK_ALL_KEYS } from '@/lib/masterStockPermissions';
 
 /* /api/role-permission - what each role may do, per business.
 
@@ -102,10 +103,19 @@ export const GET = handler(async (req) => {
   const rows = await RolePermission.find(filter).lean();
 
   const roles = {};
-  rows.forEach((r) => { roles[r.role] = cleanPermissions(r.permissions); });
+  const masterStockFields = {};
+  rows.forEach((r) => {
+    roles[r.role] = cleanPermissions(r.permissions);
+    if (Array.isArray(r.masterStockFields)) {
+      masterStockFields[r.role] = cleanMasterStockFields(r.masterStockFields);
+    } else {
+      masterStockFields[r.role] = r.role === 'Admin' ? [...MASTER_STOCK_ALL_KEYS] : [];
+    }
+  });
 
   return json({
     roles,
+    masterStockFields,
     /* which roles carry an override - the caller uses its own defaults for
        every role NOT in this list */
     saved: rows.map((r) => r.role),
@@ -137,22 +147,26 @@ export const POST = handler(async (req) => {
   }
 
   const permissions = cleanPermissions(body.permissions);
+  const hasMsFields = Array.isArray(body.masterStockFields);
+  const updateSet = {
+    businessId: business,
+    role,
+    permissions,
+    updatedBy: session?.name || session?.email || '',
+  };
+  if (hasMsFields) {
+    updateSet.masterStockFields = cleanMasterStockFields(body.masterStockFields);
+  }
 
-  await RolePermission.findOneAndUpdate(
+  const updatedDoc = await RolePermission.findOneAndUpdate(
     { businessId: business, role },
-    {
-      $set: {
-        businessId: business,
-        role,
-        permissions,
-        updatedBy: session?.name || session?.email || '',
-      },
-    },
+    { $set: updateSet },
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );
 
   const granted = Object.values(permissions).reduce((n, list) => n + list.length, 0);
-  return json({ ok: true, role, granted });
+  const msGranted = Array.isArray(updatedDoc?.masterStockFields) ? updatedDoc.masterStockFields.length : 0;
+  return json({ ok: true, role, granted, masterStockGranted: msGranted });
 });
 
 /* Reset. Deletes the override rather than saving an empty one, because an

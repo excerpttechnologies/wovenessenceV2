@@ -5718,6 +5718,7 @@ import { getSessionLocationAccess, resolveAuthorizedScope } from '@/lib/location
 import { contactTypeDisplayName } from '@/lib/contactTypeLabels';
 import {
   screenDenialAnyAction,
+  effectivePermissions,
   SCREENS,
   ACTIONS as PERM,
   ITEM_LOOKUP_SCREENS,
@@ -5725,6 +5726,7 @@ import {
   HSN_LOOKUP_SCREENS,
   TAX_LOOKUP_SCREENS,
 } from '@/lib/screenPermission';
+import { MASTER_STOCK_OPTION_REF_PERM, hasMasterStockPerm } from '@/lib/masterStockPermissions';
 
 const TRANSFER_DEST_SCREENS = [
   SCREENS.TRANSFER_PACKET,
@@ -6207,6 +6209,28 @@ export async function GET(req) {
       label: gateSpec.label,
     });
     if (refDenied) return json({ error: refDenied.message, code: refDenied.code }, 403);
+    const msFilterKey = MASTER_STOCK_OPTION_REF_PERM[ref];
+    if (msFilterKey && gateSpec.screens.includes(SCREENS.MASTER_STOCK_REPORT)) {
+      const nonMsScreens = gateSpec.screens.filter((s) => s !== SCREENS.MASTER_STOCK_REPORT);
+      const nonMsDenied = nonMsScreens.length
+        ? await screenDenialAnyAction({
+            session,
+            screens: nonMsScreens,
+            actions: gateSpec.actions,
+            businessId: gateBiz,
+            label: gateSpec.label,
+          })
+        : { denied: true };
+      if (nonMsDenied) {
+        const eff = await effectivePermissions({ session, businessId: gateBiz });
+        if (!hasMasterStockPerm(eff.masterStock, msFilterKey)) {
+          return json({
+            error: `Your role does not have permission to access ${gateSpec.label} via Master Stock Report filters.`,
+            code: 'FIELD_FORBIDDEN',
+          }, 403);
+        }
+      }
+    }
   }
 
   if (ref === 'supplier-code') {

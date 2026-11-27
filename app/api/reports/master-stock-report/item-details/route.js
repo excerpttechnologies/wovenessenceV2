@@ -1,7 +1,8 @@
 import { isValidObjectId } from 'mongoose';
 import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
-import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { screenDenial, effectivePermissions, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { hasMasterStockPerm } from '@/lib/masterStockPermissions';
 import { resolveAuthorizedScope } from '@/lib/locationAccess';
 import { BarcodeLabel } from '@/lib/barcodeLabel';
 import Item from '@/models/Item';
@@ -36,9 +37,18 @@ export async function GET(req) {
   });
   if (!scope.ok) return json({ error: scope.error, code: scope.code }, scope.status || 403);
 
-  /* Roles & Permissions (17-10-2026): Master Stock Report -> Read */
+  /* Roles & Permissions (17-10-2026): Master Stock Report -> Read + Drill-down permission */
   const denied = await screenDenial({ session, screen: SCREENS.MASTER_STOCK_REPORT, label: 'the master stock report', action: PERM.READ, businessId: scope.businessId || business });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
+
+  const eff = await effectivePermissions({ session, businessId: scope.businessId || business });
+  const msPolicy = eff.masterStock;
+  if (!hasMasterStockPerm(msPolicy, 'masterStock.drilldowns.itemDetails')) {
+    return json({
+      error: 'Your role does not have permission to view Item Details on the Master Stock Report.',
+      code: 'FIELD_FORBIDDEN',
+    }, 403);
+  }
 
   const identity = itemId && isValidObjectId(itemId)
     ? { _id: itemId, businessId: business }
@@ -107,11 +117,13 @@ export async function GET(req) {
 
   return json({
     item: {
-      name: str(item.name),
-      group: str(group?.name),
-      uom: str(uom?.shortName) || str(uom?.name),
-      hsnCode: str(hsn?.code),
-      hsnDescription: str(hsn?.description),
+      ...(hasMasterStockPerm(msPolicy, 'masterStock.columns.itemName') ? { name: str(item.name) } : {}),
+      ...(hasMasterStockPerm(msPolicy, 'masterStock.columns.groupName') ? { group: str(group?.name) } : {}),
+      ...(hasMasterStockPerm(msPolicy, 'masterStock.columns.uom') ? { uom: str(uom?.shortName) || str(uom?.name) } : {}),
+      ...(hasMasterStockPerm(msPolicy, 'masterStock.columns.hsn') ? {
+        hsnCode: str(hsn?.code),
+        hsnDescription: str(hsn?.description),
+      } : {}),
       itemType: str(item.itemType) || 'Simple',
       uniqueBarcode: str(item.uniqueBarcode) || 'No',
     },

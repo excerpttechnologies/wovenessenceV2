@@ -53,6 +53,11 @@ const RolePermissionSchema = new mongoose.Schema(
     /* { '<sidebar href>': ['create', 'read', ...] } */
     permissions: { type: mongoose.Schema.Types.Mixed, default: {} },
 
+    /* Master Stock Report granular field/filter/summary/drilldown keys granted
+       to this role on this business. Undefined on legacy docs (fails closed for
+       non-Admin roles; any newly registered keys stay restricted until saved). */
+    masterStockFields: { type: [String], default: undefined },
+
     /* Who last changed it, for the audit trail. A string rather than a ref so
        a deleted account does not break the record - the same call
        models/attachmentSchema.js made for uploadedBy. */

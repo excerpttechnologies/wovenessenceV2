@@ -3187,6 +3187,11 @@ import { useScope } from './ScopeContext';
 import NumberedPager from './NumberedPager';
 import { useOptions } from './useOptions';
 import { fmt, toCsv, toXlsHtml, download, printTable, XLSX_MIME } from '@/lib/format';
+import {
+  allowedMasterStockColumnKey,
+  allowedMasterStockFilterKey,
+  hasMasterStockPerm,
+} from '@/lib/masterStockPermissions';
 import * as XLSX from 'xlsx';
 
 /* ==========================================================================
@@ -3998,10 +4003,18 @@ function ItemDetailsModal({ row, business, onClose }) {
 
 
 
-function Section({ section, data, tone, onSupplierSelect, onItemSelect, filters }) {
+function Section({ section, data, tone, onSupplierSelect, onItemSelect, filters, drilldowns }) {
   const columns = section.columns || [];
   const rows = data?.rows || [];
   const totals = data?.totals || {};
+  const allowItemModal = drilldowns ? drilldowns.item !== false : true;
+  const allowSupplierModal = drilldowns ? drilldowns.supplier !== false : true;
+  const allowBarcodeLink = drilldowns ? drilldowns.barcode !== false : true;
+  const allowCount = drilldowns ? drilldowns.showCount !== false : true;
+  const hasVisibleTotals = Boolean(
+    section.totalsRow
+      && columns.some((c) => c.total && totals[c.k] !== undefined && totals[c.k] !== null),
+  );
 
   return (
     <div className="card">
@@ -4016,7 +4029,7 @@ function Section({ section, data, tone, onSupplierSelect, onItemSelect, filters 
             {tone === 'green' && <Icon name="chart" size={15} />}
             {section.title}
           </span>
-          {data?.count !== undefined && tone !== 'green' && (
+          {allowCount && data?.count !== undefined && tone !== 'green' && (
             <span className="pill pill-blue">{data.count} records</span>
           )}
         </div>
@@ -4032,19 +4045,23 @@ function Section({ section, data, tone, onSupplierSelect, onItemSelect, filters 
               </tr>
             </thead>
             <tbody>
-              {rows.length === 0 && (
+              {columns.length === 0 ? (
+                <tr>
+                  <td colSpan={1} className="dt-empty">No report columns are permitted for this role</td>
+                </tr>
+              ) : rows.length === 0 && (
                 <tr>
                   <td colSpan={columns.length} className="dt-empty">No data found</td>
                 </tr>
               )}
-              {rows.map((row, i) => (
+              {columns.length > 0 && rows.map((row, i) => (
                 <tr key={row._id || i}>
                   {columns.map((c) => (
                     <td key={c.t} className={isNumeric(c) ? 'text-right' : ''}>
                       {c.f === 'image'
                         ? <HoverImage src={row[c.k]} alt={row.barcodeNo || row.itemCode} fallbackSrc={c.fallback ? row[c.fallback] : ''} />
                         : c.modal === 'supplier'
-                          ? (cellOf(row, c) && row.supplierId
+                          ? (allowSupplierModal && cellOf(row, c) && row.supplierId
                             ? <button
                                 type="button"
                                 className="text-brand underline hover:opacity-80"
@@ -4054,7 +4071,7 @@ function Section({ section, data, tone, onSupplierSelect, onItemSelect, filters 
                               </button>
                             : cellOf(row, c))
                         : c.modal === 'item'
-                          ? (cellOf(row, c)
+                          ? (allowItemModal && cellOf(row, c)
                             ? <button
                                 type="button"
                                 className="text-brand underline hover:opacity-80"
@@ -4062,16 +4079,18 @@ function Section({ section, data, tone, onSupplierSelect, onItemSelect, filters 
                               >
                                 {cellOf(row, c)}
                               </button>
-                            : '')
+                            : cellOf(row, c))
                         : c.linkStyle
-                          ? <button type="button" className="text-brand underline">{cellOf(row, c)}</button>
+                          ? (allowSupplierModal
+                            ? <button type="button" className="text-brand underline">{cellOf(row, c)}</button>
+                            : cellOf(row, c))
                         : c.link
                           /* a column that names a destination renders as a
                              link - used by Master Stock Report to open one
                              barcode's own report. Blank cells stay plain, so
                              a row with nothing to point at has nothing to
                              click. */
-                          ? (cellOf(row, c) && c.link(row, filters)
+                          ? (allowBarcodeLink && cellOf(row, c) && c.link(row, filters)
                             ? <a className="text-brand underline hover:opacity-80" href={c.link(row, filters)}>{cellOf(row, c)}</a>
                             : cellOf(row, c))
                           : cellOf(row, c)}
@@ -4080,12 +4099,14 @@ function Section({ section, data, tone, onSupplierSelect, onItemSelect, filters 
                 </tr>
               ))}
             </tbody>
-            {section.totalsRow && (
+            {hasVisibleTotals && (
               <tfoot>
                 <tr className="font-bold">
                   {columns.map((c, i) => (
                     <td key={c.t} className={isNumeric(c) ? 'text-right' : ''}>
-                      {i === 0 ? 'Total' : (c.total ? fmt('amount', totals[c.k] ?? 0) : '')}
+                      {c.total && totals[c.k] !== undefined && totals[c.k] !== null
+                        ? fmt('amount', totals[c.k])
+                        : (i === 0 ? 'Total' : '')}
                     </td>
                   ))}
                 </tr>
@@ -4168,6 +4189,9 @@ export default function ReportView({ spec, toolbar = null }) {
     businessReady,
     userReady,
     isLocationLocked,
+    perms,
+    permsReady,
+    can,
   } = useScope();
 
   const [draft, setDraft] = useState(() => blankFilters(spec));
@@ -4359,24 +4383,135 @@ export default function ReportView({ spec, toolbar = null }) {
 
   /* tabs carry their own tiles and columns; a report without tabs uses the
      spec's own */
+  const isMasterStock = spec.slug === 'master-stock-report';
   const activeTab = spec.tabs?.find((t) => t.k === tab) || null;
-  const sections = activeTab?.sections || spec.sections || [];
+  const rawSections = activeTab?.sections || spec.sections || [];
   const tiles = activeTab?.tiles || spec.tiles || [];
 
   const activeBusiness = useLocalScope ? localCompany : business;
+  const [localMsState, setLocalMsState] = useState({ biz: '', policy: null, ready: false });
+
+  useEffect(() => {
+    if (!isMasterStock) return undefined;
+    const targetBiz = String(activeBusiness || '');
+    if (!targetBiz || targetBiz === String(business || '')) {
+      setLocalMsState({ biz: targetBiz, policy: null, ready: true });
+      return undefined;
+    }
+    let alive = true;
+    setLocalMsState((s) => (s.biz === targetBiz && s.ready ? s : { biz: targetBiz, policy: null, ready: false }));
+    fetch('/api/my-permissions?business=' + encodeURIComponent(targetBiz), { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!alive) return;
+        setLocalMsState({
+          biz: targetBiz,
+          policy: d?.masterStock || { unrestricted: false, fields: [] },
+          ready: true,
+        });
+      })
+      .catch(() => {
+        if (alive) setLocalMsState({ biz: targetBiz, policy: { unrestricted: false, fields: [] }, ready: true });
+      });
+    return () => { alive = false; };
+  }, [isMasterStock, activeBusiness, business]);
+
+  const usingOtherLocalBiz = Boolean(isMasterStock && activeBusiness && String(activeBusiness) !== String(business || ''));
+  const msPolicyReady = !isMasterStock || (permsReady && (!usingOtherLocalBiz || (localMsState.ready && localMsState.biz === String(activeBusiness))));
+  const msPolicy = useMemo(() => {
+    if (!isMasterStock) return { unrestricted: true, fields: [] };
+    if (!msPolicyReady) return { unrestricted: false, fields: [] };
+    if (usingOtherLocalBiz && localMsState.policy) return localMsState.policy;
+    return perms?.masterStock || { unrestricted: false, fields: [] };
+  }, [isMasterStock, msPolicyReady, usingOtherLocalBiz, localMsState.policy, perms?.masterStock]);
+
+  const effectiveFilters = useMemo(() => {
+    const base = spec.filters || [];
+    if (!isMasterStock) return base;
+    return base.filter((f) => {
+      const key = allowedMasterStockFilterKey(f.k);
+      return !key || hasMasterStockPerm(msPolicy, key);
+    });
+  }, [spec.filters, isMasterStock, msPolicy]);
+
+  const effectiveFilterKeySet = useMemo(
+    () => new Set(effectiveFilters.map((f) => f.k)),
+    [effectiveFilters],
+  );
+
+  const effectiveHeaderDates = useMemo(() => {
+    const base = spec.headerDates || [];
+    if (!isMasterStock) return base;
+    return base.map((k) => {
+      const key = allowedMasterStockFilterKey(k);
+      return (!key || hasMasterStockPerm(msPolicy, key)) ? k : '';
+    });
+  }, [spec.headerDates, isMasterStock, msPolicy]);
+
+  const effectiveFilterGroups = useMemo(() => {
+    const groups = spec.filterGroups || [];
+    if (!isMasterStock) return groups;
+    return groups
+      .map((g) => {
+        const kept = (g.fields || []).filter((entry) => {
+          if (typeof entry === 'string') return effectiveFilterKeySet.has(entry);
+          if (entry?.range) {
+            return effectiveFilterKeySet.has(entry.range[0]) || effectiveFilterKeySet.has(entry.range[1]);
+          }
+          if (entry?.k) return effectiveFilterKeySet.has(entry.k);
+          return false;
+        });
+        return kept.length ? { ...g, fields: kept } : null;
+      })
+      .filter(Boolean);
+  }, [spec.filterGroups, isMasterStock, effectiveFilterKeySet]);
+
+  const sections = useMemo(() => {
+    if (!isMasterStock) return rawSections;
+    return rawSections.map((s) => ({
+      ...s,
+      columns: (s.columns || []).filter((c) => {
+        const key = allowedMasterStockColumnKey(c.k);
+        return !key || hasMasterStockPerm(msPolicy, key);
+      }),
+    }));
+  }, [rawSections, isMasterStock, msPolicy]);
+
+  const effectiveApplied = useMemo(() => {
+    if (!isMasterStock) return applied;
+    const out = {};
+    Object.entries(applied || {}).forEach(([k, v]) => {
+      const permKey = allowedMasterStockFilterKey(k);
+      if (!permKey || hasMasterStockPerm(msPolicy, permKey)) out[k] = v;
+    });
+    return out;
+  }, [isMasterStock, applied, msPolicy]);
+
+  const canExportReport = !isMasterStock || can('/admin/report/master-stock-report', 'download');
+  const drilldownFlags = useMemo(() => {
+    if (!isMasterStock) return { item: true, supplier: true, barcode: true, showCount: true };
+    return {
+      item: hasMasterStockPerm(msPolicy, 'masterStock.drilldowns.itemDetails'),
+      supplier: hasMasterStockPerm(msPolicy, 'masterStock.drilldowns.supplierDetails'),
+      barcode: hasMasterStockPerm(msPolicy, 'masterStock.drilldowns.barcodeReport')
+        && can('/admin/reports/barcode-report', 'read'),
+      showCount: hasMasterStockPerm(msPolicy, 'masterStock.summary.totalRecords'),
+    };
+  }, [isMasterStock, msPolicy, can]);
+
   const activeLocation = useLocalScope
     ? (isLocationLocked
-        ? String((locFieldKey && applied[locFieldKey]) || companyLocations[0]?.value || location || '')
-        : String((locFieldKey && applied[locFieldKey]) || ''))
+        ? String((locFieldKey && effectiveApplied[locFieldKey]) || companyLocations[0]?.value || location || '')
+        : String((locFieldKey && effectiveApplied[locFieldKey]) || ''))
     : location;
-  const scopeReadyForReport = useLocalScope
+  const scopeReadyForReport = (useLocalScope
     ? (companySeeded && (!isLocationLocked || Boolean(activeLocation)))
-    : Boolean(business);
+    : Boolean(business)) && msPolicyReady;
   const allLocationsFlag = isLocationLocked
     ? ''
     : (useLocalScope
         ? (!activeLocation ? '1' : '')
-        : (spec.locationAll && !applied.location && !applied.locationFilter ? '1' : ''));
+        : (spec.locationAll && !effectiveApplied.location && !effectiveApplied.locationFilter ? '1' : ''));
 
   const handleFieldChange = (k, v) => {
     set(k, v);
@@ -4429,7 +4564,7 @@ export default function ReportView({ spec, toolbar = null }) {
       location: activeLocation,
       finYear,
       tab,
-      applied,
+      applied: effectiveApplied,
       allLocations: allLocationsFlag,
     });
 
@@ -4446,7 +4581,7 @@ export default function ReportView({ spec, toolbar = null }) {
     } finally {
       if (latest()) setLoading(false);
     }
-  }, [spec.slug, spec.perPage, perPageSel, page, applied, tab, activeBusiness, activeLocation, finYear, searched, scopeReadyForReport, allLocationsFlag]);
+  }, [spec.slug, spec.perPage, perPageSel, page, effectiveApplied, tab, activeBusiness, activeLocation, finYear, searched, scopeReadyForReport, allLocationsFlag]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setPage(1); }, [applied, tab, activeBusiness, activeLocation, finYear]);
@@ -4518,7 +4653,7 @@ export default function ReportView({ spec, toolbar = null }) {
         location: activeLocation,
         finYear,
         tab,
-        applied,
+        applied: effectiveApplied,
         allLocations: allLocationsFlag,
       }, { export: '1' });
       const r = await fetch('/api/reports/' + spec.slug + '?' + qs, { cache: 'no-store' });
@@ -4650,9 +4785,9 @@ export default function ReportView({ spec, toolbar = null }) {
       {spec.filterLayout === 'groups' ? (
         <StockFilterCard
           title={spec.filterTitle || 'Filter'}
-          filters={spec.filters || []}
-          groups={spec.filterGroups || []}
-          headerDates={spec.headerDates || []}
+          filters={effectiveFilters}
+          groups={effectiveFilterGroups}
+          headerDates={effectiveHeaderDates}
           draft={draft}
           onChange={useLocalScope ? handleFieldChange : set}
           onClear={clearGroup}
@@ -4676,7 +4811,7 @@ export default function ReportView({ spec, toolbar = null }) {
             </>
           )}
           hint={spec.hint || ''}
-          toolbar={toolbar ? toolbar({ searchFor, filters: applied, searched }) : null}
+          toolbar={toolbar ? toolbar({ searchFor, filters: effectiveApplied, searched }) : null}
         />
       ) : (
         <div className="card">
@@ -4816,22 +4951,26 @@ export default function ReportView({ spec, toolbar = null }) {
 
           {/* ------------------------------------------------- exports --- */}
           <div className="mb-3 flex flex-wrap items-center gap-2.5">
-            {data?.total !== undefined && (
+            {data?.total !== undefined && (!isMasterStock || hasMasterStockPerm(msPolicy, 'masterStock.summary.totalBarcodeCount')) && (
               <span className="text-[13.5px] font-semibold">
                 {spec.countLabel || 'Total Records'} {data.total}
               </span>
             )}
             {data?.note && <span className="text-[12.5px] text-inkmuted" role="status">{data.note}</span>}
             <span className="flex-1" />
-            <button type="button" className="btn" onClick={() => runExport('csv')} disabled={Boolean(exporting)}>
-              {exporting === 'csv' ? <span className="spin" /> : <Icon name="file" size={14} />} Export CSV
-            </button>
-            <button type="button" className="btn" onClick={() => runExport('xls')} disabled={Boolean(exporting)}>
-              {exporting === 'xls' ? <span className="spin" /> : <Icon name="file" size={14} />} Export to Excel
-            </button>
-            <button type="button" className="btn" onClick={() => runExport('print')} disabled={Boolean(exporting)}>
-              {exporting === 'print' ? <span className="spin" /> : <Icon name="printer" size={14} />} Print
-            </button>
+            {canExportReport && exportCols.length > 0 && (
+              <>
+                <button type="button" className="btn" onClick={() => runExport('csv')} disabled={Boolean(exporting)}>
+                  {exporting === 'csv' ? <span className="spin" /> : <Icon name="file" size={14} />} Export CSV
+                </button>
+                <button type="button" className="btn" onClick={() => runExport('xls')} disabled={Boolean(exporting)}>
+                  {exporting === 'xls' ? <span className="spin" /> : <Icon name="file" size={14} />} Export to Excel
+                </button>
+                <button type="button" className="btn" onClick={() => runExport('print')} disabled={Boolean(exporting)}>
+                  {exporting === 'print' ? <span className="spin" /> : <Icon name="printer" size={14} />} Print
+                </button>
+              </>
+            )}
           </div>
 
           {loading && (
@@ -4852,7 +4991,8 @@ export default function ReportView({ spec, toolbar = null }) {
               onItemSelect={setSelectedItemRow}
               /* the applied filters, so a link column can carry the chosen
                  supplier and dates into the next report */
-              filters={applied}
+              filters={effectiveApplied}
+              drilldowns={drilldownFlags}
             />
           ))}
 
@@ -4873,17 +5013,17 @@ export default function ReportView({ spec, toolbar = null }) {
           )}
         </>
       )}
-      {selectedSupplierRow && (
+      {drilldownFlags.supplier && selectedSupplierRow && (
         <SupplierDetailsModal
           row={selectedSupplierRow}
-          business={business}
+          business={activeBusiness || business}
           onClose={() => setSelectedSupplierRow(null)}
         />
       )}
-      {selectedItemRow && (
+      {drilldownFlags.item && selectedItemRow && (
         <ItemDetailsModal
           row={selectedItemRow}
-          business={business}
+          business={activeBusiness || business}
           onClose={() => setSelectedItemRow(null)}
         />
       )}

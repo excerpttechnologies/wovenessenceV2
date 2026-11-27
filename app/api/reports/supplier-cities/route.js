@@ -5,7 +5,8 @@ import { escapeRegex } from '@/lib/validate';
 import { Supplier } from '@/lib/contacts';
 import { isSplitContactStorage } from '@/lib/contactStorage';
 import { resolveAuthorizedScope } from '@/lib/locationAccess';
-import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { screenDenial, effectivePermissions, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { hasMasterStockPerm } from '@/lib/masterStockPermissions';
 
 /* /api/reports/supplier-cities?q=<part>&business=<id>
 
@@ -48,6 +49,10 @@ export async function GET(req) {
     businessId: scope.businessId || sp.get('business') || '',
   });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
+  const eff = await effectivePermissions({ session, businessId: scope.businessId || sp.get('business') || '' });
+  if (!hasMasterStockPerm(eff.masterStock, 'masterStock.filters.city')) {
+    return json({ error: 'Your role cannot use the City filter.', code: 'FIELD_FORBIDDEN' }, 403);
+  }
   const business = scope.businessId;
 
   const match = {};

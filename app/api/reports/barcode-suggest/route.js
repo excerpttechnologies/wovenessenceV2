@@ -3,7 +3,8 @@ import dbConnect from '@/lib/db';
 import { BarcodeLabel } from '@/lib/barcodeLabel';
 import { requireSession } from '@/lib/session';
 import { escapeRegex } from '@/lib/validate';
-import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { screenDenial, effectivePermissions, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
+import { hasMasterStockPerm } from '@/lib/masterStockPermissions';
 import { resolveAuthorizedScope } from '@/lib/locationAccess';
 import { barcodeLocationFilter } from '@/lib/reports';
 
@@ -51,9 +52,15 @@ export async function GET(req) {
   const business = scope.businessId;
 
   /* Roles & Permissions (17-10-2026): the Master Stock Report's Barcode
-     filter - that report's Read */
+     filter - that report's Read + field-level barcodeNumber filter permission */
   const denied = await screenDenial({ session, screen: SCREENS.MASTER_STOCK_REPORT, label: 'the master stock report', action: PERM.READ, businessId: business });
   if (denied) return json({ error: denied.message, code: denied.code }, 403);
+  const eff = await effectivePermissions({ session, businessId: business });
+  if (!hasMasterStockPerm(eff.masterStock, 'masterStock.filters.barcodeNumber')) {
+    return json({ error: 'Your role cannot use the Barcode Number filter.', code: 'FIELD_FORBIDDEN' }, 403);
+  }
+  const showItemName = hasMasterStockPerm(eff.masterStock, 'masterStock.columns.itemName')
+    || hasMasterStockPerm(eff.masterStock, 'masterStock.filters.itemCode');
 
   const rx = { $regex: escapeRegex(q), $options: 'i' };
   const ands = [
@@ -85,7 +92,7 @@ export async function GET(req) {
     const value = String(row.barcodeNo || '').trim();
     if (!value || seen.has(value)) continue;
     seen.add(value);
-    const name = String(row.itemName || row.itemCode || '').trim();
+    const name = showItemName ? String(row.itemName || row.itemCode || '').trim() : '';
     options.push({ value, label: name ? value + '  -  ' + name : value });
   }
 

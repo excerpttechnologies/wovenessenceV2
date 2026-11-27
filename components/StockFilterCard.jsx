@@ -322,7 +322,9 @@ export default function StockFilterCard({
   const byKey = useMemo(() => new Map(filters.map((f) => [f.k, f])), [filters]);
   const locationField = filters.find((f) => f.type === 'location');
   const [fromK, toK] = headerDates || [];
-  const hasScopeRow = Boolean(locationField || fromK);
+  const dateEntries = [[fromK, 'From Date'], [toK, 'To Date']].filter(([k]) => Boolean(k));
+  const showCompany = Boolean(locationField || companyValue !== undefined);
+  const hasScopeRow = Boolean(showCompany || locationField || dateEntries.length);
 
   /* The Location choices come either from an explicit override (page-scoped
      Master Stock Report / E-commerce Product) or the top bar's list. */
@@ -430,7 +432,7 @@ export default function StockFilterCard({
 
         {hasScopeRow && (
           <div className="stock-filter-scope">
-            {locationField && (
+            {showCompany && (
               <div className="stock-filter-scope-company">
                 <label className={GROUP_LABEL}>Company</label>
                 <MultiSelect
@@ -452,9 +454,9 @@ export default function StockFilterCard({
               </div>
             )}
 
-            {fromK && (
+            {dateEntries.length > 0 && (
               <div className="stock-filter-scope-dates">
-                {[[fromK, 'From Date'], [toK, 'To Date']].filter(([k]) => k).map(([k, label]) => (
+                {dateEntries.map(([k, label]) => (
                   <div key={k} className="stock-filter-date">
                     <label className={GROUP_LABEL}>{label}</label>
                     <input
@@ -558,36 +560,43 @@ export default function StockFilterCard({
                       );
                     }
                     const [lo, hi] = entry.range;
+                    const hasLo = byKey.has(lo);
+                    const hasHi = byKey.has(hi);
+                    if (!hasLo && !hasHi) return null;
                     return (
                       <div key={lo} className="stock-filter-field stock-filter-field-range">
                         <label className={GROUP_LABEL}>{entry.label}</label>
                         <div className="flex gap-2">
-                          <input
-                            type="text"
-                            className="f-input min-w-0 flex-1"
-                            placeholder="Start"
-                            value={draft[lo] || ''}
-                            onChange={(e) => onChange?.(lo, e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' && onEnter) {
-                                e.preventDefault();
-                                onEnter();
-                              }
-                            }}
-                          />
-                          <input
-                            type="text"
-                            className="f-input min-w-0 flex-1"
-                            placeholder="End"
-                            value={draft[hi] || ''}
-                            onChange={(e) => onChange?.(hi, e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' && onEnter) {
-                                e.preventDefault();
-                                onEnter();
-                              }
-                            }}
-                          />
+                          {hasLo && (
+                            <input
+                              type="text"
+                              className="f-input min-w-0 flex-1"
+                              placeholder="Start"
+                              value={draft[lo] || ''}
+                              onChange={(e) => onChange?.(lo, e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && onEnter) {
+                                  e.preventDefault();
+                                  onEnter();
+                                }
+                              }}
+                            />
+                          )}
+                          {hasHi && (
+                            <input
+                              type="text"
+                              className="f-input min-w-0 flex-1"
+                              placeholder="End"
+                              value={draft[hi] || ''}
+                              onChange={(e) => onChange?.(hi, e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && onEnter) {
+                                  e.preventDefault();
+                                  onEnter();
+                                }
+                              }}
+                            />
+                          )}
                         </div>
                       </div>
                     );

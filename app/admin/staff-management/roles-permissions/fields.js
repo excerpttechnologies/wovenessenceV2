@@ -1,4 +1,11 @@
 import { NAV } from '@/config/nav';
+import {
+  MASTER_STOCK_PERMISSION_GROUPS,
+  MASTER_STOCK_ALL_KEYS,
+  defaultMasterStockFieldsForRole,
+} from '@/lib/masterStockPermissions';
+
+export { MASTER_STOCK_PERMISSION_GROUPS, MASTER_STOCK_ALL_KEYS };
 
 /* Roles & Permissions - the data behind the screen.
 
@@ -276,6 +283,11 @@ function buildMatrix() {
 }
 
 export const DEFAULT_MATRIX = buildMatrix();
+
+export const DEFAULT_MASTER_STOCK_FIELDS = ROLES.reduce(
+  (acc, r) => ({ ...acc, [r.k]: defaultMasterStockFieldsForRole(r.k) }),
+  {},
+);
 
 /* How many boxes a role holds - the "reach" figure on the Roles tab. */
 export function grantedCount(matrix, role) {
