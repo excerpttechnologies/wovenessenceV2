@@ -6,6 +6,7 @@ import SalesPerson from '@/models/SalesPerson';
 import { requireSession } from '@/lib/session';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
+import { roundRupee } from '@/lib/posRounding';
 
 /* A PARKED BILL IS PART OF MAKING A SALE, not a document of its own, so it
    answers to the POS screen rather than to one of its own. Parking needs
@@ -169,7 +170,7 @@ export async function POST(req) {
 
     items,
     shipping: Number(data.shipping || 0),
-    totalAmount: Number(data.totalAmount || 0),
+    totalAmount: roundRupee(data.totalAmount || 0),
     totalQty: Number(data.totalQty || 0),
     createdBy: session?.name || session?.email || '',
   };

@@ -35,6 +35,7 @@ const PosInvoiceSchema = new mongoose.Schema(
     /* Shipping charge entered on the till. Part of totalAmount, but kept
        separately too so a bill can say WHY its total exceeds the goods. */
     shipping: { type: Number, default: 0 },
+    roundOff: { type: Number, default: 0 },
     totalAmount: { type: Number, default: 0 },
     paid: { type: Number, default: 0 },
     sellDue: { type: Number, default: 0 },

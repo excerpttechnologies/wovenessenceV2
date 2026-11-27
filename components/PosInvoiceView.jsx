@@ -4,6 +4,7 @@ import ProductImage from '@/components/ProductImage';
 import BarcodeSvg from '@/components/BarcodeSvg';
 import Icon from '@/components/Icon';
 import { shareEmail } from '@/lib/shareRoutes';
+import { round2, roundRupee } from '@/lib/posRounding';
 
 /* View POS - the body of one POS invoice.
 
@@ -22,10 +23,6 @@ import { shareEmail } from '@/lib/shareRoutes';
    `onBack` is the Back / Close button: router.back() on the page, closing the
    popup on the list. */
 
-const round2 = (value) => {
-  const n = Math.round(((Number(value) || 0) + Number.EPSILON) * 100) / 100;
-  return Object.is(n, -0) ? 0 : n;
-};
 const money = (value) => {
   const n = round2(value);
   return Number.isInteger(n) ? String(n) : n.toFixed(2);
@@ -80,7 +77,7 @@ export default function PosInvoiceView({ id, onBack, backLabel = 'Back', endpoin
   const displayedPayments = payments.length ? payments : (doc.paid > 0 ? [{ amount: doc.paid, method: doc.billingType || 'Cash', note: '' }] : []);
   /* what went back to the customer - paid over the bill, same figure as
      the printed invoice and the Payments popup */
-  const changeReturn = Math.max(0, Number(doc.paid || 0) - Number(doc.totalAmount || 0));
+  const changeReturn = Math.max(0, round2(Number(doc.paid || 0) - netAmount));
 
   /* ADDITIONAL DETAILS (user, 26-10-2026): item count / total qty / net
      badges, per-line tax and price incl. tax, payment total, and a Tax &
@@ -100,12 +97,13 @@ export default function PosInvoiceView({ id, onBack, backLabel = 'Back', endpoin
   const taxTotal = billItems.reduce((sum, item) => sum + lineTaxOf(item), 0);
   const taxableAmount = itemsSubTotal - taxTotal;
   const shippingAmount = Number(doc.shipping || 0);
-  const roundOff = Number(doc.totalAmount || 0) - itemsSubTotal - shippingAmount;
+  const netAmount = roundRupee(doc.totalAmount != null ? doc.totalAmount : (itemsSubTotal + shippingAmount));
+  const roundOff = round2(netAmount - itemsSubTotal - shippingAmount);
   const paymentsTotal = displayedPayments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
 
-  /* THE MESSAGE the share routes send - built from this bill only. Whole
+  /* THE SHARE MESSAGE the share routes send - built from this bill only. Whole
      rupees, as on the till. */
-  const rupees = (v) => 'Rs ' + Math.trunc(Number(v || 0));
+  const rupees = (v) => 'Rs ' + roundRupee(v);
   const shareLines = [
     'Invoice No: ' + (doc.invoiceNo || '-'),
     'Date: ' + (doc.date ? new Date(doc.date).toLocaleDateString('en-GB') : '-'),
@@ -262,7 +260,7 @@ export default function PosInvoiceView({ id, onBack, backLabel = 'Back', endpoin
       return;
     }
     const text = shareSubject + '\n'
-      + 'Amount: Rs ' + Math.trunc(Number(doc.totalAmount || 0)) + '\n\n'
+      + 'Amount: Rs ' + roundRupee(doc.totalAmount || 0) + '\n\n'
       + 'Download your invoice: ' + link + '\n\n'
       + 'Thank you for shopping with wovenessence by TEMPLE FABRICS.';
     if (target === 'whatsapp-app') {
@@ -350,10 +348,10 @@ export default function PosInvoiceView({ id, onBack, backLabel = 'Back', endpoin
       <div className="mt-4 flex flex-wrap items-center justify-end gap-2 text-[12px]">
         <span className="rounded border border-line bg-[#eef1f7] px-2 py-1 font-semibold">{billItems.length} Item{billItems.length === 1 ? '' : 's'}</span>
         <span className="rounded border border-line bg-[#eef1f7] px-2 py-1">Total Qty: <b>{totalQty}</b></span>
-        <span className="rounded border border-line bg-[#eef1f7] px-2 py-1">Net Amount: <b>₹{money2(doc.totalAmount)}</b></span>
+        <span className="rounded border border-line bg-[#eef1f7] px-2 py-1">Net Amount: <b>₹{money(netAmount)}</b></span>
       </div>
-      <div className="mt-4 overflow-x-auto"><table className="dt"><thead><tr>{['Image', 'Barcode No / Item Name', 'Item Code', 'HSN', 'GST (%)', 'Quantity', 'RSP', 'Discount', 'Tax', 'Tax Amount', 'Price (Inc. Tax)', 'Subtotal'].map((x) => <th key={x}>{x === 'Barcode No / Item Name' ? <>Barcode No<br />/ Item Name</> : x}</th>)}</tr></thead><tbody>{(doc.items || []).map((item, i) => <tr key={i}><td onMouseEnter={() => item.image && setPreviewImage({ src: item.image, alt: item.itemName || item.name || item.itemCode, hover: true })} onMouseLeave={() => setPreviewImage((p) => (p && p.hover ? null : p))}><ProductImage src={item.image} alt={item.itemName || item.name || item.itemCode} size={52} onOpen={item.image ? () => setPreviewImage({ src: item.image, alt: item.itemName || item.name || item.itemCode, hover: false }) : undefined} /></td>{/* Barcode No and Item Name in ONE column, the name under the barcode (user, 27-10-2026); Item Name = the item's own name, not its print description */}<td><div className="font-mono text-[12px]">{item.barcodeNo || item.barcode || '-'}</div><div className="text-[12px] text-inkmuted">{item.itemName || item.name || item.description || '-'}</div></td><td>{item.code || item.itemCode || '-'}</td><td>{item.hsn || '-'}</td><td>{gstPct(item.gst)}</td><td>{item.qty || 0}</td><td>{money(item.rsp)}</td><td>{money(item.discountAmount || Number(item.rsp || 0) * Number(item.qty || 0) * Number(item.discountPct || 0) / 100)}</td><td>{money(Number(item.lineTotal || 0) * Number(item.gst || 0) / 100)}</td><td>{money2(lineTaxOf(item))}</td><td>{money2(lineNetOf(item))}</td><td>{money(item.lineTotal)}</td></tr>)}</tbody><tfoot><tr><td colSpan="11" className="text-right font-bold">Total Payable</td><td className="font-bold">{money(doc.totalAmount)}</td></tr><tr><td colSpan="11" className="text-right font-bold">Total Paid</td><td>{money(doc.paid)}</td></tr><tr><td colSpan="11" className="text-right font-bold">Cash Return</td><td>{money(changeReturn)}</td></tr><tr><td colSpan="11" className="text-right font-bold">Total Remaining</td><td>{money(doc.sellDue)}</td></tr></tfoot></table></div>
-      <div className="mt-5 grid gap-4 lg:grid-cols-2"><div className="overflow-x-auto"><h2 className="mb-2 flex items-center justify-between font-semibold">Payment Methods<span className="rounded border border-line bg-[#eef1f7] px-2 py-0.5 text-[11px] font-semibold">{displayedPayments.length} Entr{displayedPayments.length === 1 ? 'y' : 'ies'}</span></h2><table className="dt"><thead><tr>{['Date', 'Amount', 'Payment Method', 'Payment Note'].map((x) => <th key={x}>{x}</th>)}</tr></thead><tbody>{displayedPayments.length ? displayedPayments.map((payment, i) => <tr key={i}><td>{doc.date ? new Date(doc.date).toLocaleDateString('en-GB') : '-'}</td><td>{money(payment.amount)}</td><td>{payment.method || '-'}</td><td>{payment.note || '-'}</td></tr>) : <tr><td colSpan="4" className="dt-empty">No payments recorded.</td></tr>}</tbody>{displayedPayments.length > 0 && <tfoot><tr><td className="text-right font-bold">Total Paid</td><td className="font-bold">{money2(paymentsTotal)}</td><td colSpan="2" /></tr></tfoot>}</table></div>{/* Tax & Amount Summary (26-10-2026) */}<div><h2 className="mb-2 flex items-center justify-between font-semibold">Tax &amp; Amount Summary<span className="rounded border border-line bg-[#eef1f7] px-2 py-0.5 text-[11px] font-semibold">{doc.invoiceNo || '-'}</span></h2><table className="dt"><tbody><tr><td>Sub Total</td><td className="text-right">₹{money2(itemsSubTotal)}</td></tr>{shippingAmount > 0 && <tr><td>Shipping</td><td className="text-right">₹{money2(shippingAmount)}</td></tr>}<tr><td>Taxable Amount</td><td className="text-right">₹{money2(taxableAmount)}</td></tr><tr><td>Tax (CGST + SGST)</td><td className="text-right">₹{money2(taxTotal)}</td></tr><tr><td>Round Off</td><td className="text-right">₹{money2(roundOff)}</td></tr><tr><td>Total Paid</td><td className="text-right">₹{money2(doc.paid)}</td></tr><tr className="bg-[#e7f6ec]"><td className="font-bold">Net Amount</td><td className="text-right font-bold">₹{money2(doc.totalAmount)}</td></tr></tbody></table></div></div>
+      <div className="mt-4 overflow-x-auto"><table className="dt"><thead><tr>{['Image', 'Barcode No / Item Name', 'Item Code', 'HSN', 'GST (%)', 'Quantity', 'RSP', 'Discount', 'Tax', 'Tax Amount', 'Price (Inc. Tax)', 'Subtotal'].map((x) => <th key={x}>{x === 'Barcode No / Item Name' ? <>Barcode No<br />/ Item Name</> : x}</th>)}</tr></thead><tbody>{(doc.items || []).map((item, i) => <tr key={i}><td onMouseEnter={() => item.image && setPreviewImage({ src: item.image, alt: item.itemName || item.name || item.itemCode, hover: true })} onMouseLeave={() => setPreviewImage((p) => (p && p.hover ? null : p))}><ProductImage src={item.image} alt={item.itemName || item.name || item.itemCode} size={52} onOpen={item.image ? () => setPreviewImage({ src: item.image, alt: item.itemName || item.name || item.itemCode, hover: false }) : undefined} /></td>{/* Barcode No and Item Name in ONE column, the name under the barcode (user, 27-10-2026); Item Name = the item's own name, not its print description */}<td><div className="font-mono text-[12px]">{item.barcodeNo || item.barcode || '-'}</div><div className="text-[12px] text-inkmuted">{item.itemName || item.name || item.description || '-'}</div></td><td>{item.code || item.itemCode || '-'}</td><td>{item.hsn || '-'}</td><td>{gstPct(item.gst)}</td><td>{item.qty || 0}</td><td>{money(item.rsp)}</td><td>{money(item.discountAmount || Number(item.rsp || 0) * Number(item.qty || 0) * Number(item.discountPct || 0) / 100)}</td><td>{money(Number(item.lineTotal || 0) * Number(item.gst || 0) / 100)}</td><td>{money2(lineTaxOf(item))}</td><td>{money2(lineNetOf(item))}</td><td>{money(item.lineTotal)}</td></tr>)}</tbody><tfoot><tr><td colSpan="11" className="text-right font-bold">Total Payable</td><td className="font-bold">{money(netAmount)}</td></tr><tr><td colSpan="11" className="text-right font-bold">Total Paid</td><td>{money(doc.paid)}</td></tr><tr><td colSpan="11" className="text-right font-bold">Cash Return</td><td>{money(changeReturn)}</td></tr><tr><td colSpan="11" className="text-right font-bold">Total Remaining</td><td>{money(doc.sellDue)}</td></tr></tfoot></table></div>
+      <div className="mt-5 grid gap-4 lg:grid-cols-2"><div className="overflow-x-auto"><h2 className="mb-2 flex items-center justify-between font-semibold">Payment Methods<span className="rounded border border-line bg-[#eef1f7] px-2 py-0.5 text-[11px] font-semibold">{displayedPayments.length} Entr{displayedPayments.length === 1 ? 'y' : 'ies'}</span></h2><table className="dt"><thead><tr>{['Date', 'Amount', 'Payment Method', 'Payment Note'].map((x) => <th key={x}>{x}</th>)}</tr></thead><tbody>{displayedPayments.length ? displayedPayments.map((payment, i) => <tr key={i}><td>{doc.date ? new Date(doc.date).toLocaleDateString('en-GB') : '-'}</td><td>{money(payment.amount)}</td><td>{payment.method || '-'}</td><td>{payment.note || '-'}</td></tr>) : <tr><td colSpan="4" className="dt-empty">No payments recorded.</td></tr>}</tbody>{displayedPayments.length > 0 && <tfoot><tr><td className="text-right font-bold">Total Paid</td><td className="font-bold">{money2(paymentsTotal)}</td><td colSpan="2" /></tr></tfoot>}</table></div>{/* Tax & Amount Summary (26-10-2026) */}<div><h2 className="mb-2 flex items-center justify-between font-semibold">Tax &amp; Amount Summary<span className="rounded border border-line bg-[#eef1f7] px-2 py-0.5 text-[11px] font-semibold">{doc.invoiceNo || '-'}</span></h2><table className="dt"><tbody><tr><td>Sub Total</td><td className="text-right">₹{money2(itemsSubTotal)}</td></tr>{shippingAmount > 0 && <tr><td>Shipping</td><td className="text-right">₹{money2(shippingAmount)}</td></tr>}<tr><td>Taxable Amount</td><td className="text-right">₹{money2(taxableAmount)}</td></tr><tr><td>Tax (CGST + SGST)</td><td className="text-right">₹{money2(taxTotal)}</td></tr><tr><td>Round Off</td><td className="text-right">₹{money2(roundOff)}</td></tr><tr><td>Total Paid</td><td className="text-right">₹{money2(doc.paid)}</td></tr><tr className="bg-[#e7f6ec]"><td className="font-bold">Net Amount</td><td className="text-right font-bold">₹{money(netAmount)}</td></tr></tbody></table></div></div>
       {/* on screen only - not in the shared PDF (user, 23-10-2026) */}
       <div className="mt-4 grid gap-2 text-[13px] md:grid-cols-2" data-html2canvas-ignore="true"><div><b>Sell note:</b> {doc.sellNote || '-'}</div><div><b>Staff note:</b> {doc.staffNote || '-'}</div></div>
       {/* DIRECT WHATSAPP BOX (27-10-2026) - never part of the PDF */}

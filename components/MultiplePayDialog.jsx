@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import Icon from '@/components/Icon';
+import { round2 } from '@/lib/posRounding';
 
 /* The MULTIPLE PAYMENT dialog.
 
@@ -18,10 +19,6 @@ import Icon from '@/components/Icon';
 const UPI_METHOD = 'UPI/Card';
 const MULTI_PAYMENT_METHODS = ['Cash', UPI_METHOD, 'Bank Deposit'];
 
-const round2 = (value) => {
-  const n = Math.round(((Number(value) || 0) + Number.EPSILON) * 100) / 100;
-  return Object.is(n, -0) ? 0 : n;
-};
 const money = (value) => {
   const n = round2(value);
   return Number.isInteger(n) ? String(n) : n.toFixed(2);

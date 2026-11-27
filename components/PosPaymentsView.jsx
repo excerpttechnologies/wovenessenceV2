@@ -1,6 +1,7 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
 import MultiplePayDialog from '@/components/MultiplePayDialog';
+import { round2, roundRupee } from '@/lib/posRounding';
 
 /* POS Payments - the payments of one POS invoice, with Edit Payment.
 
@@ -13,10 +14,6 @@ import MultiplePayDialog from '@/components/MultiplePayDialog';
    `onSaved` called after an edited split is saved, so the list behind the
              popup can refresh its Paid / Sell Due figures. */
 
-const round2 = (value) => {
-  const n = Math.round(((Number(value) || 0) + Number.EPSILON) * 100) / 100;
-  return Object.is(n, -0) ? 0 : n;
-};
 const money = (value) => {
   const n = round2(value);
   return Number.isInteger(n) ? String(n) : n.toFixed(2);
@@ -62,7 +59,8 @@ export default function PosPaymentsView({ id, onBack, backLabel = 'Back', onSave
      on the printed invoice. It belongs to the bill, not to one method, so it
      is shown against the row it was handed back from - the Cash row when
      there is one, else the first row - and the other rows read 0. */
-  const changeReturn = Math.max(0, Number(doc.paid || 0) - Number(doc.totalAmount || 0));
+  const netAmount = roundRupee(doc.totalAmount || 0);
+  const changeReturn = Math.max(0, round2(Number(doc.paid || 0) - netAmount));
   const cashRow = displayedPayments.findIndex((p) => String(p.method || '').trim().toLowerCase() === 'cash');
   const changeRow = cashRow === -1 ? 0 : cashRow;
   return (
@@ -74,13 +72,13 @@ export default function PosPaymentsView({ id, onBack, backLabel = 'Back', onSave
           {onBack && <button type="button" className="btn" onClick={onBack}>{backLabel}</button>}
         </div>
       </div>
-      <div className="grid gap-4 md:grid-cols-3"><section className="card p-4"><h2 className="border-b border-line pb-3 font-semibold">Invoice Info</h2><div className="space-y-1 pt-3 text-[13px]"><div><b>Business:</b> {doc.businessName || '-'}</div><div><b>Location:</b> {doc.locationName || '-'}</div><div><b>Invoice:</b> {doc.invoiceNo || '-'}</div><div><b>Billing Type:</b> {doc.billingType || '-'}</div><div><b>Sales Channel:</b> {doc.salesChannel === 'instagram' ? 'Instagram' : 'Offline Store'}</div><div><b>Counter:</b> {doc.counterName || '-'}</div></div></section><section className="card p-4"><h2 className="border-b border-line pb-3 font-semibold">Payment Info</h2><div className="space-y-1 pt-3 text-[13px]"><div><b>Net Amount:</b> {money(doc.totalAmount)}</div><div><b>Paid:</b> {money(doc.paid)}</div><div><b>Cash Return:</b> {money(changeReturn)}</div><div className="text-danger"><b>Due:</b> {money(doc.sellDue)}</div><div><b>Status:</b> {doc.paymentStatus || '-'}</div></div></section><section className="card p-4"><h2 className="border-b border-line pb-3 font-semibold">Customer Info</h2><div className="space-y-1 pt-3 text-[13px]"><div><b>Name:</b> {doc.customerName || 'Walk-in Customer'}</div><div><b>Contact:</b> {doc.customerContact || '-'}</div><div><b>Email:</b> {doc.customerEmail || '-'}</div><div><b>Address:</b> {doc.customerAddress || '-'}</div></div></section></div>
+      <div className="grid gap-4 md:grid-cols-3"><section className="card p-4"><h2 className="border-b border-line pb-3 font-semibold">Invoice Info</h2><div className="space-y-1 pt-3 text-[13px]"><div><b>Business:</b> {doc.businessName || '-'}</div><div><b>Location:</b> {doc.locationName || '-'}</div><div><b>Invoice:</b> {doc.invoiceNo || '-'}</div><div><b>Billing Type:</b> {doc.billingType || '-'}</div><div><b>Sales Channel:</b> {doc.salesChannel === 'instagram' ? 'Instagram' : 'Offline Store'}</div><div><b>Counter:</b> {doc.counterName || '-'}</div></div></section><section className="card p-4"><h2 className="border-b border-line pb-3 font-semibold">Payment Info</h2><div className="space-y-1 pt-3 text-[13px]"><div><b>Net Amount:</b> {money(netAmount)}</div><div><b>Paid:</b> {money(doc.paid)}</div><div><b>Cash Return:</b> {money(changeReturn)}</div><div className="text-danger"><b>Due:</b> {money(doc.sellDue)}</div><div><b>Status:</b> {doc.paymentStatus || '-'}</div></div></section><section className="card p-4"><h2 className="border-b border-line pb-3 font-semibold">Customer Info</h2><div className="space-y-1 pt-3 text-[13px]"><div><b>Name:</b> {doc.customerName || 'Walk-in Customer'}</div><div><b>Contact:</b> {doc.customerContact || '-'}</div><div><b>Email:</b> {doc.customerEmail || '-'}</div><div><b>Address:</b> {doc.customerAddress || '-'}</div></div></section></div>
       <div className="card mt-5 overflow-x-auto p-0"><table className="dt"><thead><tr>{['Sl No', 'Date', 'Reference', 'Amount', 'Cash Return', 'Payment Method', 'Payment Note', 'File'].map((x) => <th key={x}>{x}</th>)}</tr></thead><tbody>{displayedPayments.length ? displayedPayments.map((p, i) => <tr key={i}><td>{i + 1}</td><td>{doc.date ? new Date(doc.date).toLocaleDateString('en-GB') : '-'}</td><td>{doc.invoiceNo || '-'}</td><td>{money(p.amount)}</td><td>{money(i === changeRow ? changeReturn : 0)}</td><td>{p.method || '-'}</td><td>{p.note || '-'}</td><td>-</td></tr>) : <tr><td colSpan="8" className="dt-empty">No payments recorded.</td></tr>}</tbody></table></div>
 
       {editing && (
         <MultiplePayDialog
           totalItems={(doc.items || []).length}
-          totalPayable={Number(doc.totalAmount || 0)}
+          totalPayable={netAmount}
           initialPayments={displayedPayments}
           initialSellNote={doc.sellNote || ''}
           initialStaffNote={doc.staffNote || ''}

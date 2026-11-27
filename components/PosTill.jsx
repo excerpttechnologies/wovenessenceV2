@@ -12,6 +12,7 @@ import { useScope } from '@/components/ScopeContext';
 import MultiplePayDialog from '@/components/MultiplePayDialog';
 import SupplierImportPanel from '@/components/SupplierImportPanel';
 import { uomTypeOf } from '@/lib/barcodeUnits';
+import { round2, roundRupee } from '@/lib/posRounding';
 
 const PAYMENT_MODES = ['Cash', 'Credit', 'Export', 'COD'];
 /* Kept in step with the same list in components/MultiplePayDialog.jsx,
@@ -50,10 +51,6 @@ const retailFirst = (types) => (
   (types.find((t) => /^\s*(retail|e-comm)\s*$/i.test(String(t.label || ''))) || types[0] || {}).value || ''
 );
 
-const round2 = (value) => {
-  const n = Math.round(((Number(value) || 0) + Number.EPSILON) * 100) / 100;
-  return Object.is(n, -0) ? 0 : n;
-};
 const money = (value) => {
   const n = round2(value);
   return Number.isInteger(n) ? String(n) : n.toFixed(2);
@@ -1470,8 +1467,10 @@ export default function PosTill() {
     return sum + (row.lineTotal - row.lineTotal / (1 + rate / 100));
   }, 0));
   const taxableAmount = round2(billValue - tax);
-  /* Net amount = goods + shipping, preserving decimal precision. */
-  const netAmount = round2(billValue + Number(shipping || 0));
+  /* Final Net Amount rounds once to the nearest whole rupee (>= 0.50 up, < 0.50 down)
+     without altering GST, taxable amount, discounts, or line totals. */
+  const rawNetAmount = round2(billValue + Number(shipping || 0));
+  const netAmount = roundRupee(rawNetAmount);
 
 
 

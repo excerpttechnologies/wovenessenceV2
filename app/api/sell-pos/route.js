@@ -27,6 +27,7 @@ import {
   resolveCustomerLoyalty, pointsBalance, allowedRedemption, redemptionValue, saleLedgerRows,
 } from '@/lib/loyalty';
 import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
+import { round2, roundRupee } from '@/lib/posRounding';
 
 /* Permission gate for this screen.
 
@@ -49,10 +50,6 @@ const FIELDS = [];
 
 const json = (d, s = 200) => Response.json(d, { status: s });
 const PER_PAGE = 10;
-const round2 = (v) => {
-  const n = Math.round(((Number(v) || 0) + Number.EPSILON) * 100) / 100;
-  return Object.is(n, -0) ? 0 : n;
-};
 
 export async function GET(req) {
   const session = await requireSession();
@@ -486,7 +483,15 @@ export const POST = handler(async (req) => {
   if (body.data?.sellNote !== undefined) doc.sellNote = body.data.sellNote;
   if (body.data?.staffNote !== undefined) doc.staffNote = body.data.staffNote;
   doc.shipping = round2(body.data?.shipping || 0);
-  doc.totalAmount = round2(body.data?.totalAmount || 0);
+  const itemsSubTotal = round2((doc.items || []).reduce(
+    (sum, l) => sum + (l.isReturn ? -1 : 1) * Number(l.netAmount || 0),
+    0,
+  ));
+  const rawNetTotal = (doc.items?.length && (itemsSubTotal !== 0 || body.data?.totalAmount === undefined))
+    ? round2(itemsSubTotal + doc.shipping)
+    : round2(body.data?.totalAmount || 0);
+  doc.totalAmount = roundRupee(rawNetTotal);
+  doc.roundOff = round2(doc.totalAmount - rawNetTotal);
   const forgedLoyaltyPaid = rawPayments
     .filter((p) => p && p.loyalty === true)
     .reduce((sum, p) => sum + Number(p?.amount || 0), 0);

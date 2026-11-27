@@ -90,6 +90,7 @@ import Icon from '@/components/Icon';
 import BarcodeSvg from '@/components/BarcodeSvg';
 import { uomTypeOf } from '@/lib/barcodeUnits';
 import { shareWhatsApp, shareEmail, shareInstagram } from '@/lib/shareRoutes';
+import { round2 as r2, roundRupee } from '@/lib/posRounding';
 /* the logo is read straight from bill-template/ at the project root - an
    import, so Next bundles it; nothing is copied into public/ */
 import logoFile from '@/bill-template/posinvoice-temp.png';
@@ -126,8 +127,7 @@ const SHOW_WHATSAPP_SEND = false;
 const inr = (v) => Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 /* whole rupees, Indian grouping - 18,485. Payment modes, MRP and Net Amt
    print without paise (user, 12-10-2026); the tax figures keep inr() */
-const inr0 = (v) => Math.round(Number(v || 0)).toLocaleString('en-IN', { maximumFractionDigits: 0 });
-const r2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
+const inr0 = (v) => roundRupee(v).toLocaleString('en-IN', { maximumFractionDigits: 0 });
 const qtyText = (v) => String(r2(v));
 
 /* what a stored line is worth - netAmount is written on save, lineTotal is
@@ -296,12 +296,12 @@ export default function PrintPosPage() {
   const cgst = r2(taxSum / 2);
   const sgst = r2(taxSum - cgst);
   const shipping = Number(doc.shipping || 0);
-  const netAmount = Number(doc.totalAmount || 0);
+  const netAmount = doc.totalAmount != null ? roundRupee(doc.totalAmount) : roundRupee(netSum + shipping);
 
   /* THE SHARE MESSAGE - built exactly as on the View POS screen
      (components/PosInvoiceView.jsx). Whole rupees, as on the till. */
-  const shareRupees = (v) => 'Rs ' + Math.trunc(Number(v || 0));
-  const shareChange = Math.max(0, Number(doc.paid || 0) - Number(doc.totalAmount || 0));
+  const shareRupees = (v) => 'Rs ' + roundRupee(v);
+  const shareChange = Math.max(0, r2(Number(doc.paid || 0) - netAmount));
   const shareLines = [
     'Invoice No: ' + (doc.invoiceNo || '-'),
     'Date: ' + (doc.date ? new Date(doc.date).toLocaleDateString('en-GB') : '-'),
@@ -466,7 +466,7 @@ export default function PrintPosPage() {
         return;
       }
       const text = shareSubject + '\n'
-        + 'Amount: Rs ' + Math.trunc(Number(doc.totalAmount || 0)) + '\n\n'
+        + 'Amount: Rs ' + roundRupee(doc.totalAmount || 0) + '\n\n'
         + 'Download your invoice: ' + link + '\n\n'
         + 'Thank you for shopping with wovenessence by TEMPLE FABRICS.';
       if (target === 'whatsapp-app') {
