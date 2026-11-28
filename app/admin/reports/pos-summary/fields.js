@@ -68,11 +68,11 @@ export const REPORT = {
       k: 'locationId', label: 'Business Location', type: 'ref',
       ref: 'companylocations', all: 'All Locations',
     },
-    { k: 'fromDate', label: 'Date From', type: 'date', req: true, def: '-1month' },
+    { k: 'fromDate', label: 'Date From', type: 'date', req: true, def: 'today' },
     { k: 'toDate', label: 'Date To', type: 'date', req: true, def: 'today' },
     {
-      k: 'counterId', label: 'Casher', type: 'ref', ref: 'poscounter',
-      multi: true, all: 'Select...',
+      k: 'counterId', label: 'Cashier', type: 'ref', ref: 'poscounter',
+      all: 'All Cashiers',
     },
   ],
 

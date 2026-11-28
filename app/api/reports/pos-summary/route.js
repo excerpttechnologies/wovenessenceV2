@@ -162,9 +162,9 @@ export async function GET(req) {
   if (locationId && isValidObjectId(locationId)) filter.locationId = locationId;
 
   const bills = await PosInvoice.find(filter).limit(5000).lean();
-  /* the Casher filter is a multi-select of counters, comma-joined */
-  const wanted = String(sp.get('counterId') || '')
-    .split(',').map((s) => s.trim()).filter((s) => isValidObjectId(s));
+  /* the Cashier filter - single counter selection */
+  const counterId = sp.get('counterId');
+  const wanted = counterId && isValidObjectId(counterId) ? counterId : null;
 
   const counterIds = [...new Set(bills.map((b) => b.counterId).filter(Boolean).map(String))];
   const counters = counterIds.length
@@ -172,13 +172,32 @@ export async function GET(req) {
     : [];
   const counterName = new Map(counters.map((c) => [String(c._id), c.counterName || '']));
 
+  /* Collect all unique payment modes from all bills */
+  const paymentModesSet = new Set();
+  bills.forEach((b) => {
+    const payments = b.payments || [];
+    payments.forEach((p) => {
+      const method = String(p.method || '').trim();
+      if (method) paymentModesSet.add(method);
+    });
+    /* Handle legacy bills with billingType but no payments array */
+    if (payments.length === 0 && b.paid > 0 && b.billingType) {
+      paymentModesSet.add(String(b.billingType).trim());
+    }
+  });
+  const paymentModes = [...paymentModesSet].sort();
+
   const acc = new Map();
 
   bills.forEach((b) => {
     const key = String(b.counterId || '');
-    if (wanted.length && !wanted.includes(key)) return;
+    if (wanted && key !== wanted) return;
 
-    if (!acc.has(key)) acc.set(key, { key, subTotal: 0, taxable: 0, net: 0 });
+    if (!acc.has(key)) {
+      const paymentTotals = {};
+      paymentModes.forEach((mode) => { paymentTotals[mode] = 0; });
+      acc.set(key, { key, subTotal: 0, taxable: 0, net: 0, payments: paymentTotals });
+    }
     const row = acc.get(key);
 
     const net = r2(b.totalAmount);
@@ -188,24 +207,78 @@ export async function GET(req) {
     /* Sub Total is the net of tax figure the deployed screen prints under
        "Sub Total (Net Sales)" - the bill before its tax component */
     row.subTotal += taxable || net;
+
+    /* Accumulate payment mode amounts */
+    const payments = b.payments || [];
+    if (payments.length > 0) {
+      payments.forEach((p) => {
+        const method = String(p.method || '').trim();
+        const amount = r2(Number(p.amount || 0));
+        if (method && row.payments[method] !== undefined) {
+          row.payments[method] += amount;
+        }
+      });
+    } else if (b.paid > 0 && b.billingType) {
+      /* Legacy bills */
+      const method = String(b.billingType).trim();
+      const amount = r2(b.paid);
+      if (method && row.payments[method] !== undefined) {
+        row.payments[method] += amount;
+      }
+    }
   });
 
-  const rows = [...acc.values()].map((r) => ({
-    _id: r.key || '(no counter)',
-    cashierName: counterName.get(r.key) || '(unassigned)',
-    subTotal: r2(r.subTotal),
-    taxable: r2(r.taxable),
-    net: r2(r.net),
-  })).sort((a, b) => b.net - a.net);
+  const rows = [...acc.values()].map((r) => {
+    const baseRow = {
+      _id: r.key || '(no counter)',
+      cashierName: counterName.get(r.key) || '(unassigned)',
+      subTotal: r2(r.subTotal),
+      taxable: r2(r.taxable),
+      net: r2(r.net),
+    };
+    /* Add payment mode columns */
+    paymentModes.forEach((mode) => {
+      baseRow[`payment_${mode}`] = r2(r.payments[mode] || 0);
+    });
+    return baseRow;
+  }).sort((a, b) => b.net - a.net);
 
-  const sum = (k) => r2(rows.reduce((a, r) => a + r[k], 0));
+  const sum = (k) => r2(rows.reduce((a, r) => a + (r[k] || 0), 0));
+
+  const totals = { 
+    subTotal: sum('subTotal'), 
+    taxable: sum('taxable'), 
+    net: sum('net') 
+  };
+  /* Add payment mode totals */
+  paymentModes.forEach((mode) => {
+    totals[`payment_${mode}`] = sum(`payment_${mode}`);
+  });
+
+  /* Build dynamic columns including payment modes */
+  const columns = [
+    { k: 'cashierName', t: 'Cashier Name' },
+    { k: 'subTotal', t: 'Sub Total (Net Sales)', f: 'amount', total: true },
+    { k: 'taxable', t: 'Taxable Amount', f: 'amount', total: true },
+    { k: 'net', t: 'Net Amount (Grand Total)', f: 'amount', total: true },
+  ];
+  /* Add payment mode columns dynamically */
+  paymentModes.forEach((mode) => {
+    columns.push({
+      k: `payment_${mode}`,
+      t: mode,
+      f: 'amount',
+      total: true,
+    });
+  });
 
   return json({
     tiles: {},
     sections: [{
       rows,
       count: rows.length,
-      totals: { subTotal: sum('subTotal'), taxable: sum('taxable'), net: sum('net') },
+      totals,
+      columns, // Include dynamic columns in response
     }],
     total: rows.length,
     pages: 1,
