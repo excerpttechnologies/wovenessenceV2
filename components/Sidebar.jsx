@@ -343,10 +343,12 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
   const [open, setOpen] = useState(null);
   const [openNested, setOpenNested] = useState(null);
   const [customFilters, setCustomFilters] = useState([]);
+  const [activeFilterSlugs, setActiveFilterSlugs] = useState(null);
 
   useEffect(() => {
     if (!navReady || !business) {
       setCustomFilters([]);
+      setActiveFilterSlugs(null);
       return undefined;
     }
     let cancelled = false;
@@ -356,9 +358,10 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
         .then((d) => {
           if (cancelled) return;
           const list = Array.isArray(d.filters) ? d.filters : [];
+          setActiveFilterSlugs(new Set(list.filter((f) => f && f.isActive !== false && f.slug).map((f) => String(f.slug).toLowerCase())));
           setCustomFilters(list.filter((f) => f && !f.isBuiltIn && f.isActive !== false && f.slug));
         })
-        .catch(() => { if (!cancelled) setCustomFilters([]); });
+        .catch(() => { if (!cancelled) { setCustomFilters([]); setActiveFilterSlugs(null); } });
     };
     loadFilters();
     const onUpdated = () => loadFilters();
@@ -374,8 +377,16 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
     };
   }, [navReady, business]);
 
+  const BUILT_IN_FILTER_HREFS = useMemo(() => new Set([
+    '/admin/ecommerce/by-weave',
+    '/admin/ecommerce/by-fabric',
+    '/admin/ecommerce/by-craft',
+    '/admin/ecommerce/by-occasion',
+    '/admin/ecommerce/by-colour',
+  ]), []);
+
   const runtimeNavMain = useMemo(() => {
-    if (!customFilters.length) return NAV_MAIN;
+    if (!customFilters.length && !activeFilterSlugs) return NAV_MAIN;
     return NAV_MAIN.map((section) => {
       if (section.label !== 'E-commerce' || !Array.isArray(section.children)) return section;
       const dynamicEntries = customFilters.map((f) => ({
@@ -384,16 +395,22 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
         icon: resolveFilterIconComponent(f.icon, f.key),
         permissionHref: '/admin/ecommerce/product-type',
       }));
-      const children = [...section.children];
+      const children = section.children.filter((c) => {
+        if (!activeFilterSlugs || !BUILT_IN_FILTER_HREFS.has(c.href)) return true;
+        const slug = String(c.href || '').split('/').pop()?.toLowerCase() || '';
+        return activeFilterSlugs.has(slug);
+      });
       const byColourIdx = children.findIndex((c) => c.href === '/admin/ecommerce/by-colour');
       if (byColourIdx >= 0) {
         children.splice(byColourIdx + 1, 0, ...dynamicEntries);
       } else {
-        children.push(...dynamicEntries);
+        const ptIdx = children.findIndex((c) => c.href === '/admin/ecommerce/product-type');
+        if (ptIdx >= 0) children.splice(ptIdx + 1, 0, ...dynamicEntries);
+        else children.push(...dynamicEntries);
       }
       return { ...section, children };
     });
-  }, [customFilters]);
+  }, [customFilters, activeFilterSlugs, BUILT_IN_FILTER_HREFS]);
 
   const visibleNav = useMemo(
     () => (navReady ? filterNavItems(runtimeNavMain, { can, canNavbar, user, isAdminUser }) : []),

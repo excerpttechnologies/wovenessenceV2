@@ -1,8 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import Icon from '@/components/Icon';
 import { useScope } from '@/components/ScopeContext';
+import { useToast } from '@/components/ToastContext';
 import { CLASSIFICATION_GROUPS, classificationGroupsFor } from '@/lib/productClassificationConstants';
 import NumberedPager from '@/components/NumberedPager';
 import ConfirmDialog from '@/components/ConfirmDialog';
@@ -24,7 +26,10 @@ import ConfirmDialog from '@/components/ConfirmDialog';
    Delete removes the name and unticks it on the e-commerce products. */
 
 export default function ClassificationOptionsPage({ type, label, isCustom = false }) {
-  const { business } = useScope();
+  const router = useRouter();
+  const { business, user, can } = useScope();
+  const { showToast } = useToast();
+  const canDeleteFilter = user?.role === 'Super Admin' || (can ? can('/admin/ecommerce/product-type', 'delete') : true);
   const baseGroups = useMemo(
     () => (isCustom ? CLASSIFICATION_GROUPS : classificationGroupsFor(type)),
     [isCustom, type]
@@ -53,6 +58,14 @@ export default function ClassificationOptionsPage({ type, label, isCustom = fals
   const [deleting, setDeleting] = useState(false);
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(10);
+
+  /* Whole-filter delete modal state */
+  const [showDeleteFilter, setShowDeleteFilter] = useState(false);
+  const [impactLoading, setImpactLoading] = useState(false);
+  const [impact, setImpact] = useState(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deletingWholeFilter, setDeletingWholeFilter] = useState(false);
+  const [deleteFilterError, setDeleteFilterError] = useState('');
 
   const load = useCallback(async () => {
     if (!business || !group) { setRows([]); return; }
@@ -190,6 +203,56 @@ export default function ClassificationOptionsPage({ type, label, isCustom = fals
     }
   }
 
+  async function openDeleteFilterModal() {
+    if (!business || !type || !canDeleteFilter) return;
+    setShowDeleteFilter(true);
+    setImpactLoading(true);
+    setImpact(null);
+    setDeleteConfirmText('');
+    setDeleteFilterError('');
+    try {
+      const r = await fetch(
+        '/api/v1/admin/ecommerce-filters/by-key/' + encodeURIComponent(type) + '?business=' + encodeURIComponent(business),
+        { cache: 'no-store' },
+      );
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || 'Could not load filter impact.');
+      setImpact(d.impact || { valuesCount: 0, productTypesCount: 0, productsCount: 0 });
+    } catch (err) {
+      setDeleteFilterError(err.message || 'Could not load filter impact.');
+    } finally {
+      setImpactLoading(false);
+    }
+  }
+
+  async function confirmDeleteWholeFilter(e) {
+    e.preventDefault();
+    if (!business || !type || deletingWholeFilter || !canDeleteFilter) return;
+    if (deleteConfirmText.trim().toLowerCase() !== String(label || '').trim().toLowerCase()) {
+      setDeleteFilterError('Type "' + label + '" exactly to confirm.');
+      return;
+    }
+    setDeletingWholeFilter(true);
+    setDeleteFilterError('');
+    try {
+      const r = await fetch(
+        '/api/v1/admin/ecommerce-filters/by-key/' + encodeURIComponent(type) + '?business=' + encodeURIComponent(business),
+        { method: 'DELETE' },
+      );
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || 'Could not delete filter.');
+      setShowDeleteFilter(false);
+      showToast('"' + label + '" filter deleted.', 'success');
+      window.dispatchEvent(new Event('ecommerce-filters-updated'));
+      window.dispatchEvent(new Event('ecommerce-product-types-updated'));
+      router.push('/admin/ecommerce/product-type');
+    } catch (err) {
+      setDeleteFilterError(err.message || 'Could not delete filter.');
+    } finally {
+      setDeletingWholeFilter(false);
+    }
+  }
+
   const needle = search.trim().toLowerCase();
   const filtered = needle ? rows.filter((row) => String(row.name || '').toLowerCase().includes(needle)) : rows;
   const pages = Math.max(1, Math.ceil(filtered.length / perPage));
@@ -282,7 +345,7 @@ export default function ClassificationOptionsPage({ type, label, isCustom = fals
         {flash && <div className="flash flash-ok">{flash}</div>}
         {error && <div className="flash flash-err">{error}</div>}
 
-        <div className="flex flex-wrap gap-4">
+        <div className="flex flex-wrap items-end gap-4">
           <div className="w-full max-w-[220px]">
             <label className="f-label">Group</label>
             <select className="f-input w-full" value={group} onChange={(e) => { setGroup(e.target.value); setFlash(''); setError(''); }}>
@@ -293,6 +356,18 @@ export default function ClassificationOptionsPage({ type, label, isCustom = fals
             <label className="f-label">Search</label>
             <input className="f-input w-full" placeholder="Search..." value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
+          {business && canDeleteFilter && (
+            <button
+              type="button"
+              title={'Delete ' + label + ' filter'}
+              aria-label={'Delete ' + label + ' filter'}
+              onClick={openDeleteFilterModal}
+              className="inline-flex h-[34px] items-center gap-1.5 rounded border border-[#e0342c] bg-white px-3 text-[12px] font-semibold uppercase tracking-wide text-[#e0342c] transition hover:bg-[#e0342c] hover:text-white"
+            >
+              <Icon name="trash" size={13} />
+              Delete
+            </button>
+          )}
         </div>
 
         <div className="mt-4 overflow-x-auto">
@@ -347,6 +422,107 @@ export default function ClassificationOptionsPage({ type, label, isCustom = fals
         onCancel={() => setPendingDelete(null)}
         onConfirm={confirmDelete}
       />
+
+      {showDeleteFilter && (
+        <div
+          className="fixed inset-0 z-[90] flex items-center justify-center overflow-y-auto bg-black/50 p-4"
+          onMouseDown={() => { if (!deletingWholeFilter) setShowDeleteFilter(false); }}
+        >
+          <form
+            className="w-full max-w-[460px] rounded-lg bg-white shadow-pop"
+            onMouseDown={(e) => e.stopPropagation()}
+            onSubmit={confirmDeleteWholeFilter}
+          >
+            <div className="flex items-center border-b border-line px-4 py-3">
+              <span className="text-[15px] font-bold uppercase text-[#e0342c]">
+                Delete {label}?
+              </span>
+              <span className="flex-1" />
+              <button
+                type="button"
+                aria-label="Close"
+                disabled={deletingWholeFilter}
+                onClick={() => setShowDeleteFilter(false)}
+                className="flex h-6 w-6 items-center justify-center rounded-full bg-[#e0342c] text-white"
+              >
+                <Icon name="x" size={12} />
+              </button>
+            </div>
+            <div className="space-y-3 px-4 py-4 text-[13px]">
+              <p className="text-ink">
+                This will permanently delete the entire <b>{String(label || '').toUpperCase()}</b> filter:
+              </p>
+              <ul className="list-disc space-y-1 pl-5 text-[12.5px] text-inkmuted">
+                <li>Removed from the E-commerce sidebar menu</li>
+                <li>Removed from all Product Types, modal icons, and Ecommerce Preview</li>
+                <li>Removed from the Woven Essence storefront sidebar and filter panel</li>
+                <li>Products themselves remain intact (tagged filter references are cleaned)</li>
+              </ul>
+
+              <div className="rounded border border-line bg-[#f8fafc] p-3 text-[12.5px]">
+                <div className="mb-1 font-semibold uppercase tracking-wide text-ink">Impact Summary</div>
+                {impactLoading ? (
+                  <div className="text-inkmuted">Calculating impact...</div>
+                ) : impact ? (
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div className="rounded border border-line bg-white p-2">
+                      <div className="text-[16px] font-bold text-ink">{impact.valuesCount}</div>
+                      <div className="text-[11px] text-inkmuted">Values</div>
+                    </div>
+                    <div className="rounded border border-line bg-white p-2">
+                      <div className="text-[16px] font-bold text-ink">{impact.productTypesCount}</div>
+                      <div className="text-[11px] text-inkmuted">Product Types</div>
+                    </div>
+                    <div className="rounded border border-line bg-white p-2">
+                      <div className="text-[16px] font-bold text-ink">{impact.productsCount}</div>
+                      <div className="text-[11px] text-inkmuted">Products</div>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
+              <div>
+                <label className="f-label">
+                  Type <span className="font-bold text-ink">{label}</span> to confirm
+                </label>
+                <input
+                  className="f-input w-full"
+                  autoFocus
+                  placeholder={label}
+                  value={deleteConfirmText}
+                  disabled={deletingWholeFilter}
+                  onChange={(e) => { setDeleteConfirmText(e.target.value); setDeleteFilterError(''); }}
+                />
+              </div>
+
+              {deleteFilterError && <div className="f-err">{deleteFilterError}</div>}
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={deletingWholeFilter}
+                  onClick={() => setShowDeleteFilter(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={
+                    deletingWholeFilter ||
+                    impactLoading ||
+                    deleteConfirmText.trim().toLowerCase() !== String(label || '').trim().toLowerCase()
+                  }
+                  className="inline-flex items-center gap-1.5 rounded bg-[#e0342c] px-3.5 py-2 text-[12.5px] font-semibold text-white transition hover:bg-[#c52821] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Icon name="trash" size={13} />
+                  {deletingWholeFilter ? 'Deleting...' : 'Delete filter'}
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }

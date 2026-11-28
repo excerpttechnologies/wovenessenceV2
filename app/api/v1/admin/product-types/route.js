@@ -117,7 +117,7 @@ import {
   normalizeGroupConfig,
   resolveGroupFilters,
 } from '@/lib/ecommerceFilterConfig';
-import { getValidFilterKeys } from '@/lib/ecommerceFilterMaster';
+import { getDeletedFilterKeys, getValidFilterKeys } from '@/lib/ecommerceFilterMaster';
 
 const json = (data, status = 200, headers = {}) => Response.json(data, { status, headers });
 /* These two lists drive the E-Commerce sidebar and the Product Type screen,
@@ -145,8 +145,11 @@ export async function GET(req) {
   const collection = connection.connection.db.collection(TYPE_COLLECTION);
   const bScope = businessMatch(businessId);
 
-  const validFilterKeys = await getValidFilterKeys(businessId, { includeInactive: true });
-  const validKeySet = [...new Set([...BUILT_IN_FILTERS, ...validFilterKeys])];
+  const [validFilterKeys, deletedFilterKeys] = await Promise.all([
+    getValidFilterKeys(businessId, { includeInactive: true }),
+    getDeletedFilterKeys(businessId),
+  ]);
+  const validKeySet = [...new Set([...BUILT_IN_FILTERS, ...validFilterKeys])].filter((k) => !deletedFilterKeys.has(k));
 
   const types = await collection.find(all ? { businessId: bScope } : { businessId: bScope, isActive: { $ne: false } })
     .sort({ displayOrder: 1, label: 1 })
@@ -156,11 +159,14 @@ export async function GET(req) {
       description: 1, isActive: 1, _id: 1,
     })
     .toArray();
+  const validKeyLookup = new Set(validKeySet);
   const groups = types
     .map((type) => {
       const resolvedConfig = resolveGroupFilters(type, { validKeys: validKeySet });
       const normalizedFilters = Array.isArray(type.filters)
-        ? type.filters.map((f) => (f && typeof f === 'object' ? String(f.key || f.field || f.filterId || '').trim() : String(f || '').trim())).filter(Boolean)
+        ? type.filters
+          .map((f) => (f && typeof f === 'object' ? String(f.key || f.field || f.filterId || '').trim() : String(f || '').trim()))
+          .filter((k) => k && validKeyLookup.has(k))
         : [];
       return {
         ...type,
@@ -289,8 +295,13 @@ export async function PUT(req) {
   if (!current) return json({ error: 'Product type not found.' }, 404);
 
   /* Unknown filter keys are a client bug, not something to drop silently. */
-  const validFilterKeys = await getValidFilterKeys(businessId, { includeInactive: true });
-  const validSet = new Set([...BUILT_IN_FILTERS, ...validFilterKeys]);
+  const [validFilterKeys, deletedFilterKeys] = await Promise.all([
+    getValidFilterKeys(businessId, { includeInactive: true }),
+    getDeletedFilterKeys(businessId),
+  ]);
+  const validSet = new Set(
+    [...BUILT_IN_FILTERS, ...validFilterKeys].filter((k) => !deletedFilterKeys.has(k)),
+  );
   const filterInput = body.filterConfig !== undefined ? body.filterConfig : body.filters;
   const placementError = validateFilterPlacements(filterInput);
   if (placementError) return json({ error: placementError }, 422);
@@ -299,7 +310,7 @@ export async function PUT(req) {
     : filterInput && typeof filterInput === 'object'
       ? Object.keys(filterInput)
       : [];
-  const unknown = suppliedKeys.filter((key) => key && !validSet.has(key));
+  const unknown = suppliedKeys.filter((key) => key && !validSet.has(key) && !deletedFilterKeys.has(key));
   if (unknown.length) {
     return json({ error: `Unknown filter "${unknown[0]}".` }, 422);
   }
