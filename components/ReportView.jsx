@@ -4004,7 +4004,7 @@ function ItemDetailsModal({ row, business, onClose }) {
 
 
 function Section({ section, data, tone, onSupplierSelect, onItemSelect, filters, drilldowns }) {
-  const columns = section.columns || [];
+  const columns = data?.columns || section.columns || [];
   const rows = data?.rows || [];
   const totals = data?.totals || {};
   const allowItemModal = drilldowns ? drilldowns.item !== false : true;
@@ -4637,7 +4637,7 @@ export default function ReportView({ spec, toolbar = null }) {
      result: the search on screen asked again with export=1 (its API answers
      every row, in the order its pages show them). Multi-table reports export
      the first table. */
-  const exportCols = sections[0]?.columns || [];
+  const exportCols = data?.sections?.[0]?.columns || sections[0]?.columns || [];
   const exportHeaders = () => exportCols.map((c) => c.t);
   /* -> { rows, short } - `short`: the whole result is bigger than what came
      back (an API's export cap), said out loud rather than a file that only
