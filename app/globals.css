@@ -80,10 +80,6 @@ select {
   .sb-brand-name {
     @apply block truncate text-[16px] font-extrabold leading-tight text-white;
   }
-  .sb-brand-sub {
-    @apply block truncate text-[9.5px] font-semibold leading-tight text-sidebar-muted;
-    letter-spacing: 0.14em;
-  }
 
   /* Anything that disappears on the mini rail carries this, so one rule
      fades the lot and nothing has to be unmounted and remounted. */

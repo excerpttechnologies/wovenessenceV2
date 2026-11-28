@@ -593,7 +593,6 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
 
         <span className="sb-label min-w-0 flex-1">
           <span className="sb-brand-name">RETAIL ERP</span>
-          <span className="sb-brand-sub">ABISHEK</span>
         </span>
 
         {/* The drawer's own dismiss. Tapping the backdrop does the same, but
