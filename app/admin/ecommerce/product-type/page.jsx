@@ -488,10 +488,28 @@ export default function ProductTypePage() {
       const r = await fetch('/api/v1/admin/product-types?' + q.toString(), { method: 'DELETE' });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || 'Could not delete product type.');
+
+      /* The database row is gone (the API confirmed it). Drop it from the
+         table straight away rather than waiting for the reload, then re-read
+         the list so the serial numbers and counts match the database. */
+      setRows((cur) => cur.filter((type) => (
+        row._id ? String(type._id) !== String(row._id) : String(type.value) !== String(row.value)
+      )));
       setPendingDelete(null);
       setFlash('"' + (row.label || row.value) + '" deleted.');
+
+      /* The E-Commerce sidebar reads its entries from the database on every
+         load. These events tell an already-mounted sidebar (and any open
+         filter screen) to re-read now instead of showing the deleted record
+         until the next full page load. The listeners use cache: 'no-store',
+         so a refresh or a new login can never resurrect it from a cache. */
+      window.dispatchEvent(new Event('ecommerce-product-types-updated'));
+      window.dispatchEvent(new Event('ecommerce-filters-updated'));
+
       await load();
     } catch (err) {
+      /* The API refused the delete (for example, products still use the
+         type). Keep the row on screen and report why - never hide it. */
       setPendingDelete(null);
       setError(err.message || 'Could not delete product type.');
     } finally {
@@ -557,9 +575,50 @@ export default function ProductTypePage() {
       }
 
       applyLocalRemoval(d.filters, d.filterConfig);
+
+      /* A CUSTOM filter is a master record, and that master is what the
+         E-Commerce sidebar lists. Removing only the association (above) left
+         the deleted entry sitting in the rail forever. When no other Product
+         Type still uses it, delete the master too through the existing
+         ecommerce-filters API - the same source the sidebar reads - so the
+         menu and the database agree. Built-in filters are shared code, and a
+         filter another group still uses must stay, so both are left alone. */
+      const def = filterMap[filterKey];
+      const isCustomMaster = Boolean(def && def.isBuiltIn === false && def._id);
+      const usedByAnotherType = rows.some((type) => (
+        String(type._id) !== String(row._id)
+        && (
+          (Array.isArray(type.filters) && type.filters.map(String).includes(filterKey))
+          || (Array.isArray(type.filterConfig)
+            && type.filterConfig.some((entry) => String(entry?.key || entry?.field || '') === filterKey))
+        )
+      ));
+
+      let menuNote = '';
+      if (isCustomMaster && !usedByAnotherType) {
+        const mr = await fetch('/api/v1/admin/ecommerce-filters/' + encodeURIComponent(def._id), {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ business }),
+        });
+        const md = await mr.json().catch(() => ({}));
+        if (!mr.ok) {
+          /* The group no longer uses it, but the menu entry could not be
+             removed. Say so instead of pretending the two are in sync. */
+          menuNote = ' It was removed from this Product Type, but the E-commerce menu entry could not be deleted: '
+            + (md.error || 'unknown error') + '.';
+        } else {
+          menuNote = ' It was also removed from the E-commerce menu.';
+        }
+      } else if (isCustomMaster && usedByAnotherType) {
+        menuNote = ' It stays in the E-commerce menu because another Product Type still uses it.';
+      }
+
       setPendingFilterDelete(null);
-      setFlash(`Filter "${label}" deleted from "${row.label || row.value}".`);
+      setFlash(`Filter "${label}" deleted from "${row.label || row.value}".` + menuNote);
+      if (menuNote.includes('could not be deleted')) setFilterDeleteError(menuNote.trim());
       window.dispatchEvent(new Event('ecommerce-filters-updated'));
+      window.dispatchEvent(new Event('ecommerce-product-types-updated'));
       await load();
     } catch (err) {
       setFilterDeleteError(err.message || 'Could not delete filter.');
@@ -1447,7 +1506,7 @@ export default function ProductTypePage() {
         backdropClassName="z-[95]"
         title="Delete Filter"
         recordName={pendingFilterDelete?.label}
-        message="Are you sure you want to delete this filter? It will be permanently removed from this Product Type and the E-commerce storefront side panel."
+        message="Delete this filter from the Product Type? If no other Product Type uses it, it is also removed from the E-commerce menu and storefront filters."
         error={filterDeleteError}
         confirmLabel="Delete"
         onCancel={() => {

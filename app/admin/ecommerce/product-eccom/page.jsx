@@ -817,6 +817,10 @@ export default function ProductEccomPage() {
       pager: 'numbered',
       sortable: true,
       actionVariant: 'buttons',
+      /* One compact button under another, not a horizontal row: the Action
+         column gives its width back to the product data. Each entry keeps the
+         icon, colour and tooltip it already declares in actionMenu. */
+      actionLayout: 'vertical',
       nowrapHead: true,
       compact: true,
       actionMenu: [

@@ -21,7 +21,10 @@ import {
   toFilterSlug,
 } from '@/lib/ecommerceFilterMaster';
 
-const json = (data, status = 200) => Response.json(data, { status });
+const json = (data, status = 200, headers = {}) => Response.json(data, { status, headers });
+/* The sidebar re-reads this list after every Product Type / filter change.
+   A cached answer would put a deleted entry back into the rail. */
+const NO_STORE = { 'Cache-Control': 'no-store, max-age=0' };
 const ALLOWED_ICONS = new Set(FILTER_ICON_CHOICES.map((c) => c.key));
 
 export async function GET(req) {
@@ -47,7 +50,7 @@ export async function GET(req) {
 
   await dbConnect();
   const filters = await listFilterDefinitions(businessId, { includeInactive });
-  return json({ filters });
+  return json({ filters }, 200, NO_STORE);
 }
 
 export async function POST(req) {

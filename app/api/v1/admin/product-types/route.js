@@ -103,6 +103,7 @@
 import { isValidObjectId, Types } from 'mongoose';
 import dbConnect from '@/lib/db';
 import { requireSession } from '@/lib/session';
+import { escapeRegex } from '@/lib/validate';
 import { CLASSIFICATION_TYPES, PRODUCT_TYPES } from '@/lib/productClassificationConstants';
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { businessMatch } from '@/lib/classificationCollections';
@@ -110,7 +111,11 @@ import { bumpCatalogVersion } from '@/lib/ecommerceCatalog';
 import { normalizeFilterConfig, normalizeGroupConfig, resolveGroupFilters } from '@/lib/ecommerceFilterConfig';
 import { getValidFilterKeys } from '@/lib/ecommerceFilterMaster';
 
-const json = (data, status = 200) => Response.json(data, { status });
+const json = (data, status = 200, headers = {}) => Response.json(data, { status, headers });
+/* These two lists drive the E-Commerce sidebar and the Product Type screen,
+   so a browser or proxy must never answer a later load with a stale copy of
+   a record that has since been deleted. */
+const NO_STORE = { 'Cache-Control': 'no-store, max-age=0' };
 const TYPE_COLLECTION = 'producttypes';
 const BUILT_IN_FILTERS = new Set(Object.values(CLASSIFICATION_TYPES));
 
@@ -149,7 +154,7 @@ export async function GET(req) {
 
   return json({
     types: all ? groups : [{ value: '', label: 'Not Specified' }, ...groups],
-  });
+  }, 200, NO_STORE);
 }
 
 /* E-commerce -> Product Type page (29-10-2026): a type added here shows in the
@@ -416,10 +421,13 @@ export async function DELETE(req) {
   }
 
   const targetValue = String(existing.value || '').trim();
+  /* Referential integrity: an e-commerce product still pointing at this type
+     would be orphaned by the delete. Match the value case-insensitively so a
+     legacy "Sarees" row is found too, not only the stored uppercase value. */
   const usedCount = targetValue
     ? await db.collection('ecommerceproduct').countDocuments({
         businessId: bScope,
-        productType: targetValue,
+        productType: { $regex: `^${escapeRegex(targetValue)}$`, $options: 'i' },
       })
     : 0;
   if (usedCount > 0) {
@@ -428,8 +436,13 @@ export async function DELETE(req) {
     }, 409);
   }
 
-  await collection.deleteOne({ _id: existing._id });
+  /* Remove every row carrying this value for the business, not just the one
+     document that was read: a duplicate left behind would bring the deleted
+     type straight back on the next refresh or login. */
+  await collection.deleteMany(targetValue
+    ? { businessId: bScope, value: targetValue }
+    : { _id: existing._id });
   await bumpCatalogVersion(businessId);
 
-  return json({ ok: true, deletedValue: targetValue });
+  return json({ ok: true, deletedValue: targetValue }, 200, NO_STORE);
 }

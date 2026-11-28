@@ -4917,9 +4917,13 @@ export default function ListView({ cfg, slug, reloadKey = 0 }) {
                           />
                         ) : actionVariant === "buttons" ? (
                           /* The same entries the dropdown would list, laid out
-                             either horizontally or in a compact vertical stack. */
+                             either horizontally or in a compact vertical stack.
+                             Vertical is opt-in (cfg.actionLayout = "vertical"):
+                             one button per line, each as wide as the widest
+                             label, so the column stays narrow and nothing
+                             overlaps or wraps. */
                           <span className={verticalActions
-                            ? "inline-flex w-max flex-col items-stretch gap-[2px]"
+                            ? "inline-flex w-max flex-col items-stretch gap-[3px]"
                             : ("inline-flex flex-nowrap items-center whitespace-nowrap " + (cfg.compact ? "gap-1" : "gap-1.5"))
                           }>
                             {rowActions(row).length === 0 ? (

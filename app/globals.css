@@ -688,7 +688,7 @@ select {
   }
   .eccom-act-btn {
     @apply inline-flex w-full items-center justify-center gap-1 rounded border
-           border-line bg-pillgrey px-1.5 py-[2px] text-[10.5px] font-semibold
+           border-line bg-pillgrey px-2 py-[3px] text-[10.5px] font-semibold
            leading-[1.2] text-cell cursor-pointer whitespace-nowrap
            transition-colors focus:outline-none focus-visible:ring-2
            focus-visible:ring-brand/40 disabled:opacity-50;

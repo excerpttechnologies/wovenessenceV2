@@ -363,9 +363,14 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
     loadFilters();
     const onUpdated = () => loadFilters();
     window.addEventListener('ecommerce-filters-updated', onUpdated);
+    /* Product Type create/update/delete changes the database-driven
+       E-Commerce menu. Re-read it immediately instead of leaving the old
+       entry in the rail until the next full page load. */
+    window.addEventListener('ecommerce-product-types-updated', onUpdated);
     return () => {
       cancelled = true;
       window.removeEventListener('ecommerce-filters-updated', onUpdated);
+      window.removeEventListener('ecommerce-product-types-updated', onUpdated);
     };
   }, [navReady, business]);
 
