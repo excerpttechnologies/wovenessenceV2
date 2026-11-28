@@ -2994,6 +2994,25 @@ html {
   z-index: 40;
 }
 
+/* An OPEN picker menu must stay above every later section no matter where
+   focus is. The :focus-within rules above only hold while an input inside
+   keeps focus - a multi-select keeps its menu open after a pick while focus
+   has already moved on, and the section then drops back to z-index 1 where
+   the NEXT section (same z, later in the DOM) paints over the menu. :has()
+   keys off the menu element itself, which exists exactly while it is open,
+   so the layering no longer depends on focus at all. */
+.stock-filter-group:has(.ms-menu) {
+  z-index: 60;
+}
+
+.stock-filter-field:has(.ms-menu) {
+  z-index: 70;
+}
+
+.stock-filter-scope:has(.ms-menu) {
+  z-index: 80;
+}
+
 .stock-filter-group-head {
   display: flex;
   align-items: center;
