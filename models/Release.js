@@ -58,6 +58,11 @@ const ReleaseSchema = new mongoose.Schema(
 
     isLatest: { type: Boolean, default: false, index: true },
 
+    /* The commit `npm run releases:sync` walked up to when it wrote this row.
+       The next run reads `<gitHead>..HEAD`, so a change is listed exactly once.
+       Empty on a release typed by hand. Never sent to the browser. */
+    gitHead: { type: String, default: '', trim: true },
+
     features: { type: [ReleaseEntrySchema], default: [] },
     fixes: { type: [ReleaseEntrySchema], default: [] },
     security: { type: [ReleaseEntrySchema], default: [] },
