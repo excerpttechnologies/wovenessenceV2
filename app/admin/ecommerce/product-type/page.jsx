@@ -381,19 +381,27 @@ export default function ProductTypePage() {
           return [...filtered, created];
         });
         if (editing) {
-          setEditFilters((cur) => (cur.includes(created.key) ? cur : [...cur, created.key]));
-          setFilterMeta(created.key, {
-            displayLabel: created.name || created.label,
-            displayOrder: editFilters.length,
-            isActive: created.isActive !== false,
-            isVisible: created.ecommerceVisible !== false,
-          });
+          const alreadyLinked = editFilters.includes(created.key);
+          if (!alreadyLinked) {
+            setEditFilters((cur) => (cur.includes(created.key) ? cur : [...cur, created.key]));
+            setFilterMeta(created.key, {
+              displayLabel: created.name || created.label,
+              displayOrder: editFilters.length,
+              isActive: created.isActive !== false,
+              isVisible: created.ecommerceVisible !== false,
+              placement: editFilterMeta[created.key]?.placement || 'both',
+            });
+          }
         }
         if (showAdd) {
           setNewFilters((cur) => (cur.includes(created.key) ? cur : [...cur, created.key]));
         }
         window.dispatchEvent(new Event('ecommerce-filters-updated'));
-        setFlash(`Filter "${created.name}" created.`);
+        setFlash(
+          data.reused
+            ? `Filter "${created.name}" already exists in E-commerce navigation and was linked.`
+            : `Filter "${created.name}" created.`,
+        );
       }
       setShowAddFilter(false);
     } catch (err) {

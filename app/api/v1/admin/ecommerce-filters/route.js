@@ -6,16 +6,16 @@ import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { bumpCatalogVersion } from '@/lib/ecommerceCatalog';
 import {
   BUILT_IN_FILTER_DEFS,
-  BUILT_IN_FILTER_KEY_SET,
-  BUILT_IN_FILTER_SLUG_SET,
   FILTER_ICON_CHOICES,
 } from '@/lib/ecommerceFilterIcons';
 import {
   ECOMMERCE_FILTERS_COLLECTION,
   businessOrFilter,
+  classifyExistingCustomMatch,
   isValidFilterKey,
   isValidFilterSlug,
   listFilterDefinitions,
+  resolveBuiltInFilterMatch,
   shapeFilterDefinition,
   toFilterKey,
   toFilterSlug,
@@ -83,18 +83,50 @@ export async function POST(req) {
 
   const key = toFilterKey(body.key || rawLabel);
   const slug = toFilterSlug(body.slug || rawLabel);
+  const icon = ALLOWED_ICONS.has(String(body.icon || '')) ? String(body.icon) : 'tag';
+  const isActive = body.isActive !== false;
+  const ecommerceVisible = body.ecommerceVisible !== false;
 
-  if (BUILT_IN_FILTER_KEY_SET.has(key)) {
-    return json({ error: `Filter key "${key}" is reserved by a built-in filter.` }, 409);
+  const builtInMatch = resolveBuiltInFilterMatch({
+    name: rawName,
+    label: rawLabel,
+    key,
+    slug,
+  });
+  if (builtInMatch.kind === 'conflict') {
+    return json({ error: builtInMatch.error }, 409);
   }
-  if (BUILT_IN_FILTER_SLUG_SET.has(slug)) {
-    return json({ error: `Slug "${slug}" is reserved by a built-in filter.` }, 409);
-  }
-  const builtInNameMatch = BUILT_IN_FILTER_DEFS.find(
-    (b) => b.name.toLowerCase() === rawName.toLowerCase() || b.label.toLowerCase() === rawLabel.toLowerCase(),
-  );
-  if (builtInNameMatch) {
-    return json({ error: `"${builtInNameMatch.name}" already exists as a built-in filter.` }, 409);
+  if (builtInMatch.kind === 'reuse') {
+    const builtIn = builtInMatch.builtIn;
+    await dbConnect();
+    const db = mongoose.connection.db;
+    const col = db.collection(ECOMMERCE_FILTERS_COLLECTION);
+    const bScope = businessOrFilter(businessId);
+    const tombstone = await col.findOne({ businessId: bScope, key: builtIn.key });
+    const now = new Date();
+    let reactivated = false;
+    if (tombstone && (tombstone.deletedAt != null || tombstone.isActive === false)) {
+      await col.updateOne(
+        { _id: tombstone._id },
+        {
+          $set: { isActive: true, ecommerceVisible, updatedAt: now },
+          $unset: { deletedAt: '' },
+        },
+      );
+      await bumpCatalogVersion(businessId);
+      reactivated = true;
+    }
+    return json({
+      ok: true,
+      reused: true,
+      reactivated,
+      filter: {
+        ...builtIn,
+        _id: builtIn.key,
+        isActive: true,
+        ecommerceVisible: builtIn.ecommerceVisible !== false,
+      },
+    }, 200, NO_STORE);
   }
 
   if (!isValidFilterKey(key)) {
@@ -103,10 +135,6 @@ export async function POST(req) {
   if (!isValidFilterSlug(slug)) {
     return json({ error: 'Slug must use lowercase letters, numbers, and hyphens only (2-64 chars).' }, 422);
   }
-
-  const icon = ALLOWED_ICONS.has(String(body.icon || '')) ? String(body.icon) : 'tag';
-  const isActive = body.isActive !== false;
-  const ecommerceVisible = body.ecommerceVisible !== false;
 
   await dbConnect();
   const db = mongoose.connection.db;
@@ -117,32 +145,40 @@ export async function POST(req) {
   const keyRegex = { $regex: `^${escapeRegex(key)}$`, $options: 'i' };
   const slugRegex = { $regex: `^${escapeRegex(slug)}$`, $options: 'i' };
 
-  const duplicate = await col.findOne({
+  const candidates = await col.find({
     businessId: bScope,
-    isActive: { $ne: false },
     $or: [
       { key: keyRegex },
       { slug: slugRegex },
       { name: nameRegex },
       { label: labelRegex },
     ],
+  }).toArray();
+
+  const activeMatches = candidates.filter((c) => c.deletedAt == null && c.isActive !== false);
+  const customMatch = classifyExistingCustomMatch(activeMatches, {
+    name: rawName,
+    label: rawLabel,
+    key,
+    slug,
   });
-  if (duplicate) {
-    if (String(duplicate.key || '').toLowerCase() === key.toLowerCase()) {
-      return json({ error: `Filter key "${key}" already exists.` }, 409);
-    }
-    if (String(duplicate.slug || '').toLowerCase() === slug.toLowerCase()) {
-      return json({ error: `Filter slug "${slug}" already exists.` }, 409);
-    }
-    return json({ error: `Filter "${rawName}" already exists.` }, 409);
+  if (customMatch.kind === 'conflict') {
+    return json({ error: customMatch.error }, 409);
+  }
+  if (customMatch.kind === 'reuse') {
+    return json({
+      ok: true,
+      reused: true,
+      filter: shapeFilterDefinition(customMatch.existing),
+    }, 200, NO_STORE);
   }
 
-  const existingByKeyOrSlug = await col.findOne({
-    businessId: bScope,
-    $or: [{ key: keyRegex }, { slug: slugRegex }],
-  });
+  const existingByKeyOrSlug = candidates.find(
+    (c) => String(c.key || '').toLowerCase() === key.toLowerCase()
+      || String(c.slug || '').toLowerCase() === slug.toLowerCase(),
+  ) || candidates[0];
   const now = new Date();
-  if (existingByKeyOrSlug && existingByKeyOrSlug.isActive === false) {
+  if (existingByKeyOrSlug && (existingByKeyOrSlug.isActive === false || existingByKeyOrSlug.deletedAt != null)) {
     const reactivated = {
       ...existingByKeyOrSlug,
       name: rawName,

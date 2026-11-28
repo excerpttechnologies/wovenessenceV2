@@ -81,6 +81,7 @@ export async function PUT(req, { params }) {
   const conflict = await col.findOne({
     _id: { $ne: _id },
     businessId: bScope,
+    deletedAt: null,
     isActive: { $ne: false },
     $or: [
       { slug: { $regex: `^${escapeRegex(nextSlug)}$`, $options: 'i' } },
