@@ -34,6 +34,21 @@ export async function GET(req) {
 
   const groups = catalog.groups.map((group) => {
     const groupOptions = facetData?.options.get(group.key) || {};
+    const shapeFilter = (filter) => ({
+      key: filter.key,
+      field: filter.field,
+      label: filter.displayLabel || filter.label,
+      displayLabel: filter.displayLabel || filter.label,
+      displayOrder: filter.displayOrder,
+      isActive: filter.isActive,
+      isVisible: filter.isVisible,
+      isFilterable: filter.isFilterable,
+      selectionMode: filter.selectionMode,
+      placement: filter.placement,
+      type: filter.type,
+      ...(includeValues ? { options: groupOptions[filter.key] || [] } : {}),
+    });
+    const filters = group.filters.map(shapeFilter);
     return {
       key: group.key,
       name: group.name,
@@ -42,19 +57,9 @@ export async function GET(req) {
       description: group.description,
       displayOrder: group.displayOrder,
       productTypes: group.productTypes,
-      filters: group.filters.map((filter) => ({
-        key: filter.key,
-        field: filter.field,
-        label: filter.displayLabel || filter.label,
-        displayLabel: filter.displayLabel || filter.label,
-        displayOrder: filter.displayOrder,
-        isActive: filter.isActive,
-        isVisible: filter.isVisible,
-        isFilterable: filter.isFilterable,
-        selectionMode: filter.selectionMode,
-        type: filter.type,
-        ...(includeValues ? { options: groupOptions[filter.key] || [] } : {}),
-      })),
+      filters,
+      sidebarFilters: filters.filter((f) => f.placement === 'sidebar' || f.placement === 'both'),
+      listingFilters: filters.filter((f) => f.placement === 'filter' || f.placement === 'both'),
     };
   });
 

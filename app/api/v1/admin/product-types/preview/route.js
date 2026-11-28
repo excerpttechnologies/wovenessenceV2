@@ -38,12 +38,16 @@ export async function GET(req) {
   const { options, counts } = await getGroupFacetData(businessId, [group]);
   const groupOptions = options.get(group.key) || {};
 
+  const filters = group.filters.map((filter) => ({
+    ...filter,
+    options: groupOptions[filter.key] || [],
+  }));
+
   return json({
     ...group,
     productCount: counts.get(group.key) || 0,
-    filters: group.filters.map((filter) => ({
-      ...filter,
-      options: groupOptions[filter.key] || [],
-    })),
+    filters,
+    sidebarFilters: filters.filter((f) => f.placement === 'sidebar' || f.placement === 'both'),
+    listingFilters: filters.filter((f) => f.placement === 'filter' || f.placement === 'both'),
   });
 }

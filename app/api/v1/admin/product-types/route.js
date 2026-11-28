@@ -108,7 +108,15 @@ import { CLASSIFICATION_TYPES, PRODUCT_TYPES } from '@/lib/productClassification
 import { screenDenial, SCREENS, ACTIONS as PERM } from '@/lib/screenPermission';
 import { businessMatch } from '@/lib/classificationCollections';
 import { bumpCatalogVersion } from '@/lib/ecommerceCatalog';
-import { normalizeFilterConfig, normalizeGroupConfig, resolveGroupFilters } from '@/lib/ecommerceFilterConfig';
+import {
+  FILTER_PLACEMENTS,
+  LEGACY_DEFAULT_PLACEMENT,
+  NEW_DEFAULT_PLACEMENT,
+  isValidPlacement,
+  normalizeFilterConfig,
+  normalizeGroupConfig,
+  resolveGroupFilters,
+} from '@/lib/ecommerceFilterConfig';
 import { getValidFilterKeys } from '@/lib/ecommerceFilterMaster';
 
 const json = (data, status = 200, headers = {}) => Response.json(data, { status, headers });
@@ -137,6 +145,9 @@ export async function GET(req) {
   const collection = connection.connection.db.collection(TYPE_COLLECTION);
   const bScope = businessMatch(businessId);
 
+  const validFilterKeys = await getValidFilterKeys(businessId, { includeInactive: true });
+  const validKeySet = [...new Set([...BUILT_IN_FILTERS, ...validFilterKeys])];
+
   const types = await collection.find(all ? { businessId: bScope } : { businessId: bScope, isActive: { $ne: false } })
     .sort({ displayOrder: 1, label: 1 })
     .project({
@@ -146,7 +157,18 @@ export async function GET(req) {
     })
     .toArray();
   const groups = types
-    .map((type) => ({ ...type, _id: String(type._id) }))
+    .map((type) => {
+      const resolvedConfig = resolveGroupFilters(type, { validKeys: validKeySet });
+      const normalizedFilters = Array.isArray(type.filters)
+        ? type.filters.map((f) => (f && typeof f === 'object' ? String(f.key || f.field || f.filterId || '').trim() : String(f || '').trim())).filter(Boolean)
+        : [];
+      return {
+        ...type,
+        _id: String(type._id),
+        filters: normalizedFilters.length ? normalizedFilters : resolvedConfig.map((entry) => entry.key),
+        filterConfig: resolvedConfig,
+      };
+    })
     .filter((type) => {
       const value = String(type.value || '').trim();
       return value && value.toUpperCase() !== 'SIMPLE';
@@ -155,6 +177,21 @@ export async function GET(req) {
   return json({
     types: all ? groups : [{ value: '', label: 'Not Specified' }, ...groups],
   }, 200, NO_STORE);
+}
+
+function validateFilterPlacements(filterInput) {
+  const entries = Array.isArray(filterInput)
+    ? filterInput
+    : filterInput && typeof filterInput === 'object'
+      ? Object.values(filterInput)
+      : [];
+  for (const entry of entries) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+    if (entry.placement !== undefined && entry.placement !== null && entry.placement !== '' && !isValidPlacement(entry.placement)) {
+      return `Invalid filter placement "${entry.placement}". Allowed: ${FILTER_PLACEMENTS.join(', ')}.`;
+    }
+  }
+  return null;
 }
 
 /* E-commerce -> Product Type page (29-10-2026): a type added here shows in the
@@ -180,8 +217,10 @@ export async function POST(req) {
   const validSet = new Set([...BUILT_IN_FILTERS, ...validFilterKeys]);
 
   const filterInput = body.filterConfig !== undefined ? body.filterConfig : body.filters;
+  const placementError = validateFilterPlacements(filterInput);
+  if (placementError) return json({ error: placementError }, 422);
   const suppliedKeys = Array.isArray(filterInput)
-    ? filterInput.map((entry) => String(entry?.key || entry?.field || entry || '').trim())
+    ? filterInput.map((entry) => String(entry?.key || entry?.field || entry?.filterId || entry || '').trim())
     : filterInput && typeof filterInput === 'object'
       ? Object.keys(filterInput)
       : [];
@@ -192,13 +231,12 @@ export async function POST(req) {
 
   let initialFilterPatch = {};
   if (body.filterConfig !== undefined) {
-    const config = normalizeFilterConfig(body.filterConfig, { validKeys: [...validSet] });
+    const config = normalizeFilterConfig(body.filterConfig, { validKeys: [...validSet], defaultPlacement: NEW_DEFAULT_PLACEMENT });
     initialFilterPatch = { filterConfig: config, filters: config.map((entry) => entry.key) };
   } else if (Array.isArray(body.filters)) {
     const config = normalizeFilterConfig(
-      [...new Set(body.filters.map((f) => String(f || '').trim()).filter((f) => validSet.has(f)))]
-        .map((key, index) => ({ key, displayOrder: index })),
-      { validKeys: [...validSet] },
+      body.filters.map((f, index) => (f && typeof f === 'object' ? { ...f, displayOrder: f.displayOrder ?? index } : { key: String(f || '').trim(), displayOrder: index })),
+      { validKeys: [...validSet], defaultPlacement: NEW_DEFAULT_PLACEMENT },
     );
     initialFilterPatch = { filterConfig: config, filters: config.map((entry) => entry.key) };
   }
@@ -254,8 +292,10 @@ export async function PUT(req) {
   const validFilterKeys = await getValidFilterKeys(businessId, { includeInactive: true });
   const validSet = new Set([...BUILT_IN_FILTERS, ...validFilterKeys]);
   const filterInput = body.filterConfig !== undefined ? body.filterConfig : body.filters;
+  const placementError = validateFilterPlacements(filterInput);
+  if (placementError) return json({ error: placementError }, 422);
   const suppliedKeys = Array.isArray(filterInput)
-    ? filterInput.map((entry) => String(entry?.key || entry?.field || entry || '').trim())
+    ? filterInput.map((entry) => String(entry?.key || entry?.field || entry?.filterId || entry || '').trim())
     : filterInput && typeof filterInput === 'object'
       ? Object.keys(filterInput)
       : [];
@@ -265,8 +305,10 @@ export async function PUT(req) {
   }
 
   const filterConfig = body.filterConfig !== undefined
-    ? normalizeFilterConfig(body.filterConfig, { validKeys: [...validSet] })
-    : null;
+    ? normalizeFilterConfig(body.filterConfig, { validKeys: [...validSet], defaultPlacement: LEGACY_DEFAULT_PLACEMENT })
+    : Array.isArray(body.filters) && body.filters.some((f) => f && typeof f === 'object')
+      ? normalizeFilterConfig(body.filters, { validKeys: [...validSet], defaultPlacement: LEGACY_DEFAULT_PLACEMENT })
+      : null;
   const filters = filterConfig
     ? filterConfig.map((entry) => entry.key)
     : Array.isArray(body.filters)

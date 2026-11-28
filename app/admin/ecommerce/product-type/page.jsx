@@ -37,15 +37,32 @@ const suggestFilterSlug = (input) =>
     .replace(/^-+|-+$/g, '')
     .slice(0, 64);
 
+const PLACEMENT_OPTIONS = [
+  { value: 'filter', label: 'Filter', badge: 'F' },
+  { value: 'sidebar', label: 'Sidebar', badge: 'S' },
+  { value: 'both', label: 'Both', badge: 'F+S' },
+];
+
+const normalizePlacementValue = (value, fallback = 'sidebar') => {
+  const v = String(value ?? '').trim().toLowerCase();
+  return v === 'filter' || v === 'sidebar' || v === 'both' ? v : fallback;
+};
+
+const placementBadge = (value) => {
+  const p = normalizePlacementValue(value, 'sidebar');
+  return p === 'filter' ? 'F' : p === 'both' ? 'F+S' : 'S';
+};
+
 /* defaults mirror the stored filterConfig entry shape in
    lib/ecommerceFilterConfig.js - the server re-validates anyway. */
-const defaultFilterMeta = (key, index) => ({
+const defaultFilterMeta = (key, index, placement = 'both') => ({
   displayLabel: '',
   displayOrder: index,
   isActive: true,
   isVisible: true,
   isFilterable: true,
   selectionMode: 'multiple',
+  placement,
 });
 
 const defaultGroupConfig = (row) => ({
@@ -245,11 +262,21 @@ export default function ProductTypePage() {
     setEditFilters(filters);
     const meta = {};
     filters.forEach((key, index) => {
-      meta[key] = { ...defaultFilterMeta(key, index), ...(stored[key] || {}) };
+      const storedEntry = stored[key] || {};
+      meta[key] = {
+        ...defaultFilterMeta(key, index, 'sidebar'),
+        ...storedEntry,
+        placement: normalizePlacementValue(storedEntry.placement, 'sidebar'),
+      };
     });
     Object.keys(stored).forEach((key) => {
       if (!meta[key] && filterMap[key]) {
-        meta[key] = { ...defaultFilterMeta(key, filters.length), ...stored[key] };
+        const storedEntry = stored[key] || {};
+        meta[key] = {
+          ...defaultFilterMeta(key, filters.length, 'sidebar'),
+          ...storedEntry,
+          placement: normalizePlacementValue(storedEntry.placement, 'sidebar'),
+        };
       }
     });
     setEditFilterMeta(meta);
@@ -397,6 +424,23 @@ export default function ProductTypePage() {
     }
   }
 
+  const setAllPlacements = (placement) => {
+    setEditFilterMeta((current) => {
+      const next = { ...current };
+      editFilters.forEach((key, idx) => {
+        next[key] = {
+          ...(next[key] || defaultFilterMeta(key, idx, placement)),
+          placement,
+        };
+      });
+      return next;
+    });
+  };
+
+  const removeFilterFromGroup = (key) => {
+    setEditFilters((current) => current.filter((item) => item !== key));
+  };
+
   async function saveEdit(e) {
     e.preventDefault();
     const name = editName.trim().replace(/\s+/g, ' ');
@@ -406,6 +450,14 @@ export default function ProductTypePage() {
       return;
     }
     if (!business || !editing || editSaving) return;
+
+    for (const key of editFilters) {
+      const p = editFilterMeta[key]?.placement;
+      if (p !== 'filter' && p !== 'sidebar' && p !== 'both') {
+        setEditError(`Select a valid placement (Filter, Sidebar, or Both) for "${filterMap[key]?.name || key}".`);
+        return;
+      }
+    }
 
     setEditSaving(true);
     setEditError('');
@@ -900,10 +952,27 @@ export default function ProductTypePage() {
               </div>
 
               <div className="mt-4">
-                <div className="mb-1.5 flex items-center justify-between gap-2">
-                  <div className="f-label mb-0">Filters for this group</div>
-                  <span className="text-[11px] text-inkmuted">{editFilters.length} selected</span>
-                </div>
+                {(() => {
+                  const filterCount = editFilters.filter((k) => {
+                    const p = editFilterMeta[k]?.placement || 'sidebar';
+                    return p === 'filter' || p === 'both';
+                  }).length;
+                  const sidebarCount = editFilters.filter((k) => {
+                    const p = editFilterMeta[k]?.placement || 'sidebar';
+                    return p === 'sidebar' || p === 'both';
+                  }).length;
+                  return (
+                    <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+                      <div className="f-label mb-0">Filters for this group</div>
+                      <div className="flex flex-wrap items-center gap-2 text-[11px] text-inkmuted">
+                        <span className="font-semibold text-ink">{editFilters.length} selected</span>
+                        {editFilters.length > 0 && (
+                          <span>· {filterCount} in Filter · {sidebarCount} in Sidebar</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Icon-only filter toggle bar + Add Filter (+) button */}
                 <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-line bg-[#f8fafc] p-2.5">
@@ -919,14 +988,19 @@ export default function ProductTypePage() {
                         aria-label={tooltip}
                         aria-pressed={included}
                         disabled={editSaving}
-                        onClick={() => {
-                          setEditFilters((current) =>
-                            included
-                              ? current.filter((filter) => filter !== def.key)
-                              : [...current, def.key]
-                          );
-                          if (!included) setFilterMeta(def.key, {});
-                        }}
+                          onClick={() => {
+                            setEditFilters((current) =>
+                              included
+                                ? current.filter((filter) => filter !== def.key)
+                                : [...current, def.key]
+                            );
+                            if (!included) {
+                              setFilterMeta(def.key, {
+                                displayOrder: editFilters.length,
+                                placement: editFilterMeta[def.key]?.placement || 'both',
+                              });
+                            }
+                          }}
                         className={
                           'inline-flex h-9 w-9 items-center justify-center rounded-md border transition ' +
                           (included
@@ -952,6 +1026,24 @@ export default function ProductTypePage() {
 
                 {/* Per-filter display configuration for enabled filters */}
                 <div className="space-y-2">
+                  {editFilters.length > 0 && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-line bg-[#f8fafc] px-3 py-1.5 text-[11px]">
+                      <span className="font-semibold uppercase tracking-wide text-inkmuted">Set all to:</span>
+                      <div className="inline-flex rounded border border-line bg-white p-0.5" role="group" aria-label="Set placement for all filters">
+                        {PLACEMENT_OPTIONS.map((opt) => (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            disabled={editSaving}
+                            onClick={() => setAllPlacements(opt.value)}
+                            className="rounded px-2 py-0.5 text-[11px] font-medium text-inkmuted transition hover:bg-slate-100 hover:text-ink"
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   {editFilters.length === 0 && (
                     <div className="rounded border border-dashed border-line px-3 py-2 text-[12px] text-inkmuted">
                       No filters enabled for this group. Click filter icons above to enable them.
@@ -961,20 +1053,47 @@ export default function ProductTypePage() {
                     const def = filterMap[type];
                     const label = def?.name || def?.label || type;
                     const FilterIcon = resolveFilterIconComponent(def?.icon, type);
-                    const meta = editFilterMeta[type] || defaultFilterMeta(type, idx);
+                    const meta = editFilterMeta[type] || defaultFilterMeta(type, idx, 'both');
+                    const currentPlacement = normalizePlacementValue(meta.placement, 'both');
                     return (
                       <div key={type} className="rounded border border-line">
-                        <div className="flex items-center gap-2 px-3 py-2 text-[13px]">
+                        <div className="flex flex-wrap items-center gap-2 px-3 py-2 text-[13px]">
                           <span className="inline-flex h-6 w-6 items-center justify-center rounded bg-slate-100 text-primary">
                             <FilterIcon size={14} />
                           </span>
-                          <span className="font-medium">{label}</span>
+                          <span className="font-medium uppercase">{label}</span>
                           {def?.isActive === false && (
                             <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
                               Filter inactive
                             </span>
                           )}
                           <span className="flex-1" />
+                          <div
+                            className="inline-flex rounded-md border border-line bg-[#f8fafc] p-0.5"
+                            role="group"
+                            aria-label={'Placement for ' + label}
+                          >
+                            {PLACEMENT_OPTIONS.map((opt) => {
+                              const active = currentPlacement === opt.value;
+                              return (
+                                <button
+                                  key={opt.value}
+                                  type="button"
+                                  aria-pressed={active}
+                                  disabled={editSaving}
+                                  onClick={() => setFilterMeta(type, { placement: opt.value })}
+                                  className={
+                                    'rounded px-2 py-0.5 text-[11px] font-semibold transition focus:outline-none focus:ring-1 focus:ring-primary ' +
+                                    (active
+                                      ? 'bg-primary text-white shadow-sm'
+                                      : 'text-inkmuted hover:bg-white hover:text-ink')
+                                  }
+                                >
+                                  {opt.label}
+                                </button>
+                              );
+                            })}
+                          </div>
                           <button
                             type="button"
                             title="Move up"
@@ -997,10 +1116,20 @@ export default function ProductTypePage() {
                           </button>
                           <button
                             type="button"
+                            title={'Remove ' + label + ' from this group'}
+                            aria-label={'Remove ' + label + ' from this group'}
+                            disabled={editSaving}
+                            onClick={() => removeFilterFromGroup(type)}
+                            className="inline-flex h-6 w-6 items-center justify-center rounded border border-line bg-white text-inkmuted transition hover:border-slate-300 hover:bg-slate-100 hover:text-ink"
+                          >
+                            <Icon name="x" size={12} />
+                          </button>
+                          <button
+                            type="button"
                             title={'Delete ' + label}
                             aria-label={'Delete ' + label}
                             disabled={editSaving || deletingFilter}
-                            className="act-btn act-red ml-1"
+                            className="act-btn act-red"
                             onClick={() => {
                               if (deletingFilter) return;
                               setFilterDeleteError('');
@@ -1094,24 +1223,47 @@ export default function ProductTypePage() {
                   </button>
                 </div>
                 {previewError && <div className="f-err mt-1">{previewError}</div>}
-                {preview && (
-                  <div className="mt-2 text-[13px]">
-                    <div className="text-inkmuted">
-                      {preview.productCount} eligible product(s) - {preview.filters.length} active filter(s)
+                {preview && (() => {
+                  const previewWithPlacement = (preview.filters || []).map((filter) => {
+                    const livePlacement = editFilters.includes(filter.key)
+                      ? normalizePlacementValue(editFilterMeta[filter.key]?.placement, filter.placement || 'sidebar')
+                      : normalizePlacementValue(filter.placement, 'sidebar');
+                    return { ...filter, placement: livePlacement };
+                  });
+                  const sidebarPreview = previewWithPlacement.filter((f) => f.placement === 'sidebar' || f.placement === 'both');
+                  const filterPreview = previewWithPlacement.filter((f) => f.placement === 'filter' || f.placement === 'both');
+                  const renderPreviewGroup = (title, list) => (
+                    <div className="mt-2 rounded border border-line/70 bg-[#f8fafc] p-2">
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-ink">{title}</div>
+                      {list.length === 0 ? (
+                        <div className="mt-1 text-[12px] text-inkmuted">None</div>
+                      ) : (
+                        list.map((filter) => (
+                          <div key={filter.key} className="mt-1">
+                            <span className="font-medium">{filter.displayLabel || filter.label}</span>
+                            <span className="text-inkmuted"> ({filter.selectionMode})</span>
+                            <div className="text-[12px] text-inkmuted">
+                              {filter.options.length
+                                ? filter.options.map((option) => option.name + ' (' + option.count + ')').join(', ')
+                                : 'No live values for this filter.'}
+                            </div>
+                          </div>
+                        ))
+                      )}
                     </div>
-                    {preview.filters.map((filter) => (
-                      <div key={filter.key} className="mt-1">
-                        <span className="font-medium">{filter.displayLabel || filter.label}</span>
-                        <span className="text-inkmuted"> ({filter.selectionMode})</span>
-                        <div className="text-[12px] text-inkmuted">
-                          {filter.options.length
-                            ? filter.options.map((option) => option.name + ' (' + option.count + ')').join(', ')
-                            : 'No live values for this filter.'}
-                        </div>
+                  );
+                  return (
+                    <div className="mt-2 text-[13px]">
+                      <div className="text-inkmuted">
+                        {preview.productCount} eligible product(s) - {previewWithPlacement.length} active filter(s)
                       </div>
-                    ))}
-                  </div>
-                )}
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {renderPreviewGroup('Sidebar will show:', sidebarPreview)}
+                        {renderPreviewGroup('Filter panel will show:', filterPreview)}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
 
               {editError && <div className="f-err mt-2">{editError}</div>}
@@ -1284,13 +1436,28 @@ export default function ProductTypePage() {
                               const entry = (Array.isArray(row.filterConfig) ? row.filterConfig : [])
                                 .find((f) => String(f?.key || f?.field || '') === type);
                               const text = entry?.displayLabel || entry?.label || def?.name || def?.label || type;
+                              const badge = placementBadge(entry?.placement);
+                              const placementTitle = badge === 'F' ? 'Filter panel only' : badge === 'F+S' ? 'Filter panel & Sidebar' : 'Sidebar only';
                               return (
                                 <span
                                   key={type}
                                   className="inline-flex items-center gap-1.5 rounded border border-line bg-white px-2 py-1 text-[12px]"
                                 >
                                   <FilterIcon size={12} className="text-primary" />
-                                  {text}
+                                  <span>{text}</span>
+                                  <span
+                                    title={placementTitle}
+                                    className={
+                                      'rounded px-1 py-0.5 text-[10px] font-bold leading-none ' +
+                                      (badge === 'F+S'
+                                        ? 'bg-emerald-100 text-emerald-800'
+                                        : badge === 'F'
+                                          ? 'bg-sky-100 text-sky-800'
+                                          : 'bg-slate-200 text-slate-700')
+                                    }
+                                  >
+                                    {badge}
+                                  </span>
                                 </span>
                               );
                             })}

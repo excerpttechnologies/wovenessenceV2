@@ -323,6 +323,8 @@ export async function GET(req) {
     pages,
     group: groupSummary(group),
     filters: filterPayload,
+    sidebarFilters: filterPayload.filter((f) => f.placement === 'sidebar' || f.placement === 'both'),
+    listingFilters: filterPayload.filter((f) => f.placement === 'filter' || f.placement === 'both'),
     appliedFilters: selections,
   };
 
