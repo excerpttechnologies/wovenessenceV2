@@ -72,6 +72,9 @@ export default function StockTransferForm({
   const [toLocationId, setToLocationId] = useState('');
   const [transferDate, setTransferDate] = useState(() => toLocalDateInput(initialTransferDate));
   const [ecomReference, setEcomReference] = useState('');
+  /* The most recent transfer number for this business + source location +
+     financial year - read-only context for the operator, never typed. */
+  const [lastTransferNo, setLastTransferNo] = useState('');
 
   const [lines, setLines] = useState([]);
   const [code, setCode] = useState('');
@@ -104,6 +107,32 @@ export default function StockTransferForm({
       setTransferDate(toLocalDateInput(initialTransferDate));
     }
   }, [initialTransferDate]);
+
+  /* Last Stock Transfer No: the newest document this business has already
+     despatched FROM the chosen source location in this financial year.
+     Re-fetched whenever the source moves - it is a read of what exists, not
+     a preview of what will be generated. */
+  useEffect(() => {
+    if (!scope.business || !fromLocationId) { setLastTransferNo(''); return undefined; }
+    let off = false;
+    const qs = new URLSearchParams({
+      business: scope.business,
+      finYear: scope.finYear || '',
+      source,
+      box: 'out',
+      location: fromLocationId,
+      perPage: '1',
+    });
+    fetch('/api/stock-transfer?' + qs)
+      .then((r) => r.json())
+      .then((d) => {
+        if (off) return;
+        const row = (d.rows || [])[0];
+        setLastTransferNo(row?.transferNo || 'No Previous Transfer');
+      })
+      .catch(() => { if (!off) setLastTransferNo(''); });
+    return () => { off = true; };
+  }, [scope.business, scope.finYear, fromLocationId, source]);
 
   useEffect(() => {
     if (toLocationId && fromLocationId && String(toLocationId) === String(fromLocationId)) {
@@ -141,8 +170,16 @@ export default function StockTransferForm({
     }
 
     /* newest at the top - the operator watches the row they just scanned
-       appear without having to scroll to the end of a long list */
-    setLines((rows) => [res.unit, ...rows]);
+       appear without having to scroll to the end of a long list.
+       `qty` starts at 1 (never more than the unit holds) and stays editable:
+       for an MTR row it is the metres being sent, for a batch row the
+       pieces. `availQty` is the ceiling the input validates against. */
+    const avail = Number(res.unit.qty) || 0;
+    setLines((rows) => [{
+      ...res.unit,
+      qty: Math.min(1, avail) || 1,
+      availQty: avail,
+    }, ...rows]);
     setFlash({ type: 'ok', msg: res.unit.itemName + ' added (' + res.unit.barcodeNo + ')' });
     beep('ok');
     setCode('');
@@ -184,6 +221,23 @@ export default function StockTransferForm({
 
   const removeLine = (barcodeNo) => setLines((rows) => rows.filter((l) => l.barcodeNo !== barcodeNo));
 
+  const setLineQty = (barcodeNo, value) => setLines((rows) => rows.map((l) => (
+    l.barcodeNo === barcodeNo ? { ...l, qty: value } : l
+  )));
+
+  /* QTY must be a positive amount and never more than the unit holds - the
+     same ceiling the server enforces, checked here so the operator sees it
+     before despatch rather than as a rejected save. */
+  const qtyProblem = (l) => {
+    const q = Number(l.qty);
+    if (!Number.isFinite(q) || q <= 0) return 'Quantity must be greater than zero.';
+    if (l.availQty !== undefined && l.availQty !== null && q > Number(l.availQty) + 0.0005) {
+      return 'Only ' + qtyText(l.availQty) + ' available.';
+    }
+    return '';
+  };
+  const badQtyLines = lines.filter((l) => qtyProblem(l));
+
   /* ----------------------------------------------------------- submit ---- */
   async function submit() {
     if (saving) return;                       // guards the double-click
@@ -193,6 +247,13 @@ export default function StockTransferForm({
     if (!toLocationId) return setFlash({ type: 'err', msg: 'Choose the destination location.' });
     if (!transferDate) return setFlash({ type: 'err', msg: 'Choose the transfer date.' });
     if (!lines.length) return setFlash({ type: 'err', msg: 'Scan at least one item into the transfer.' });
+    if (badQtyLines.length) {
+      return setFlash({
+        type: 'err',
+        msg: badQtyLines.length + ' line' + (badQtyLines.length > 1 ? 's have' : ' has')
+          + ' an invalid quantity - enter a value greater than zero and no more than the stock available.',
+      });
+    }
 
     setSaving(true);
     try {
@@ -208,7 +269,7 @@ export default function StockTransferForm({
           waybill: '',
           remarks: '',
           source, ecomReference,
-          barcodes: lines.map((l) => l.barcodeNo),
+          lines: lines.map((l) => ({ barcodeNo: l.barcodeNo, qty: Number(l.qty) })),
         }),
       });
       const d = await r.json().catch(() => ({}));
@@ -263,7 +324,7 @@ export default function StockTransferForm({
         )}
 
         {/* ------------------------------------------------- header ------ */}
-        <div className={'mb-4 grid grid-cols-1 gap-4 ' + (referenceLabel ? 'md:grid-cols-3' : 'md:grid-cols-2')}>
+        <div className={'mb-4 grid grid-cols-1 gap-4 md:grid-cols-2 ' + (referenceLabel ? 'lg:grid-cols-4' : 'lg:grid-cols-3')}>
           <label className="field-label">
             Destination Location<span className="f-req">*</span>
             <select
@@ -279,12 +340,24 @@ export default function StockTransferForm({
 
           <label className="field-label">
             Transfer Date<span className="f-req">*</span>
+            {/* Always today and not editable - the document is dated the day
+                it is despatched, never a day the operator picks. */}
             <input
               type="date"
               required
-              className="f-input"
+              className="f-input bg-[#eff2f7] text-inkmuted"
               value={transferDate}
-              onChange={(e) => setTransferDate(e.target.value)}
+              readOnly
+            />
+          </label>
+
+          <label className="field-label">
+            Last Stock Transfer No
+            <input
+              className="f-input bg-[#eff2f7] text-inkmuted"
+              value={lastTransferNo}
+              readOnly
+              placeholder="No Previous Transfer"
             />
           </label>
 
@@ -338,11 +411,10 @@ export default function StockTransferForm({
             <thead>
               <tr>
                 <th style={{ width: 44 }}>#</th>
-                <th style={{ minWidth: 120 }}>Barcode</th>
+                <th style={{ minWidth: 140 }}>Barcode / Item Code</th>
                 <th style={{ minWidth: 220 }}>Description</th>
                 <th style={{ width: 80 }}>UOM</th>
-                <th style={{ width: 80 }} className="text-right">Qty</th>
-                <th style={{ width: 100 }} className="text-right">Rate</th>
+                <th style={{ width: 90 }} className="text-right">QTY</th>
                 <th style={{ width: 100 }} className="text-right">RSP</th>
                 <th style={{ minWidth: 110 }}>GRC</th>
                 <th style={{ width: 52 }} />
@@ -350,16 +422,37 @@ export default function StockTransferForm({
             </thead>
             <tbody>
               {lines.length === 0 && (
-                <tr><td colSpan={9} className="dt-empty">Nothing scanned yet.</td></tr>
+                <tr><td colSpan={8} className="dt-empty">Nothing scanned yet.</td></tr>
               )}
-              {lines.map((l, i) => (
+              {lines.map((l, i) => {
+                const problem = qtyProblem(l);
+                return (
                 <tr key={l.barcodeNo} className={i === 0 ? 'bg-[#f0f7ff]' : ''}>
                   <td>{lines.length - i}</td>
-                  <td className="font-mono text-[12px]">{l.barcodeNo}</td>
+                  <td>
+                    <div className="font-mono text-[12px]">{l.barcodeNo}</div>
+                    {l.itemCode && <div className="text-[11px] text-inkmuted">{l.itemCode}</div>}
+                  </td>
                   <td className="max-w-[320px] truncate" title={l.itemName || l.description}>{l.itemName || l.description || '-'}</td>
                   <td>{l.uom || l.uomType}</td>
-                  <td className="text-right">{qtyText(l.qty)}</td>
-                  <td className="text-right">{money(l.rate)}</td>
+                  <td className="text-right">
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      className={'f-input ml-auto h-8 w-[80px] text-right ' + (problem ? 'border-danger' : '')}
+                      value={l.qty ?? ''}
+                      title={problem || undefined}
+                      onWheel={(e) => e.currentTarget.blur()}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        /* keep the raw text while typing - a half-typed "2."
+                           is not a number yet and must not be rounded away */
+                        setLineQty(l.barcodeNo, v === '' ? '' : v);
+                      }}
+                    />
+                    {problem && <div className="pt-0.5 text-[11px] text-danger">{problem}</div>}
+                  </td>
                   <td className="text-right">{money(l.rsp)}</td>
                   <td>{l.grcNo || '-'}</td>
                   <td>
@@ -373,7 +466,8 @@ export default function StockTransferForm({
                     </button>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -388,7 +482,7 @@ export default function StockTransferForm({
           <Tile label="RSP Value" value={money(totals.rspValue)} />
         </div>
 
-        <button type="button" className="btn btn-primary btn-submit" onClick={submit} disabled={!ready || saving}>
+        <button type="button" className="btn btn-primary btn-submit" onClick={submit} disabled={!ready || saving || badQtyLines.length > 0}>
           {saving ? <span className="spin" /> : <Icon name="save" size={14} />}
           {saving ? ' Despatching...' : ' Despatch Transfer'}
         </button>

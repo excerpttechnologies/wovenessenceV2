@@ -8,9 +8,9 @@ import { escapeRegex } from '@/lib/validate';
 import { nextSeriesNumber } from '@/lib/docnumber';
 import { withLocationPairLock } from '@/lib/locks';
 import {
-  withTransaction, loadUnits, despatchTransfer, InventoryError, shape,
+  withTransaction, loadUnits, despatchTransfer, InventoryError, shape, unitsByCode,
 } from '@/lib/inventory';
-import { barcodeSearchPattern, unitAnswersTo } from '@/lib/barcodeValue';
+import { barcodeSearchPattern, unitAnswersTo, barcodeKey } from '@/lib/barcodeValue';
 import { sortedPage } from '@/lib/listSort';
 import { resolveAuthorizedScope, scopeErrorResponse } from '@/lib/locationAccess';
 
@@ -113,6 +113,21 @@ export const POST = handler(async (req) => {
     source = 'STOCK_TRANSFER', ecomReference = '',
   } = body || {};
 
+  /* `lines` is the current contract: [{ barcodeNo, qty }] - the quantity the
+     operator typed per scanned row, in the row's own UOM (pieces for PC,
+     metres for MTR). `barcodes` is the older flat list and still works: it
+     moves every unit whole, exactly as before. */
+  const lineList = Array.isArray(body?.lines) ? body.lines : [];
+  const codeOf = (l) => String(l?.barcodeNo || l?.barcode || l?.code || '').trim();
+  const seen = new Set();
+  const codes = (lineList.length ? lineList.map(codeOf) : (barcodes || []).map((c) => String(c || '').trim()))
+    .filter((c) => {
+      const key = barcodeKey(c);
+      if (!c || !key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
   const session = await requirePermission(PERMISSIONS.TRANSFER_DESPATCH, { locationId: fromLocationId });
   await dbConnect();
 
@@ -131,10 +146,29 @@ export const POST = handler(async (req) => {
   if (String(fromLocationId) === String(toLocationId)) {
     return json({ errors: { toLocationId: 'The destination must be a different location from the source.' } }, 422);
   }
-  const codes = [...new Set((barcodes || []).map((c) => String(c || '').trim()).filter(Boolean))];
   if (!codes.length) {
     return json({ errors: { barcodes: 'Scan at least one barcode into the transfer.' } }, 422);
   }
+
+  /* Quantities the operator typed, keyed by the code as scanned. A line with
+     no usable quantity moves its unit whole - the old behaviour. Anything
+     that is not a positive number is refused here rather than deep in the
+     movement, so the message names the line. */
+  const qtyByCode = new Map();
+  lineList.forEach((l) => {
+    const code = codeOf(l);
+    const key = barcodeKey(code);
+    if (!key || qtyByCode.has(key)) return;
+    const raw = l?.qty;
+    if (raw === undefined || raw === null || raw === '') return;
+    const q = Number(raw);
+    if (!Number.isFinite(q) || q <= 0) {
+      throw new InventoryError('INVALID_QTY',
+        'Quantity for ' + (code || 'a line') + ' must be greater than zero.',
+        { status: 422, skipped: [code] });
+    }
+    qtyByCode.set(key, q);
+  });
 
   const [fromLoc, toLoc] = await Promise.all([
     CompanyLocation.findById(fromLocationId).lean(),
@@ -166,6 +200,18 @@ export const POST = handler(async (req) => {
           { status: 422, skipped: missing });
       }
 
+      /* The typed quantity belongs to the UNIT the code resolved to, not to
+         the string that was scanned - the same barcode can be typed in two
+         spellings. unitsByCode walks loadUnits' output in the codes' order,
+         so each unit finds the quantity its own code carried. */
+      const unitByCode = unitsByCode(codes, units);
+      const qtyByUnit = new Map();
+      lineList.forEach((l) => {
+        const unit = unitByCode.get(barcodeKey(codeOf(l)));
+        const q = unit ? qtyByCode.get(barcodeKey(codeOf(l))) : undefined;
+        if (unit && q !== undefined) qtyByUnit.set(String(unit._id), q);
+      });
+
       const transferNo = await nextTransferNo({ businessId: business, finYear });
 
       const doc = new StockTransfer({
@@ -186,20 +232,25 @@ export const POST = handler(async (req) => {
         status: TRANSFER_STATUS.IN_TRANSIT,
         source, ecomReference,
         waybill, remarks,
-        lines: units.map(lineFrom),
         submittedAt: new Date(),
         submittedBy: session.name || session.email || '',
       });
+
+      /* Guarded, per unit: anything another request took in the meantime is
+         reported by barcode rather than silently dropped from the document.
+         Runs BEFORE the document is saved so its lines can be built from the
+         units that actually moved - a partial line's snapshot is the child
+         row carrying the entered quantity, not the whole parent. The whole
+         thing is one transaction, so a failure anywhere rolls back together. */
+      const { moved } = await despatchTransfer({
+        units, transfer: doc, fromLocationId, toLocationId,
+        user: session, session: dbSession, qtyByUnit,
+      });
+
+      doc.lines = moved.map(lineFrom);
       doc.recalc();
 
       await doc.save(dbSession ? { session: dbSession } : {});
-
-      /* Guarded, per unit: anything another request took in the meantime is
-         reported by barcode rather than silently dropped from the document. */
-      await despatchTransfer({
-        units, transfer: doc, fromLocationId, toLocationId,
-        user: session, session: dbSession,
-      });
 
       return doc;
     })
